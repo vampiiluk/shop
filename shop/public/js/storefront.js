@@ -5,6 +5,27 @@
 		cart: (window.page_data && window.page_data.cart) || null,
 	};
 
+	// Device fingerprint (FingerprintJS v5, vendored at /assets/shop/js/fp.min.js).
+	// A weak/confirming signal for fraud checks; missing on COD is itself a flag.
+	const fingerprintPromise = loadFingerprint();
+
+	function loadFingerprint() {
+		const existing = document.querySelector('script[src*="fp.min.js"]');
+		const promise = existing
+			? Promise.resolve(window.FingerprintJS)
+			: new Promise((resolve, reject) => {
+					const script = document.createElement("script");
+					script.src = "/assets/shop/js/fp.min.js";
+					script.onload = () => resolve(window.FingerprintJS);
+					script.onerror = () => reject(new Error("fingerprint script failed"));
+					document.head.appendChild(script);
+			  });
+		return promise
+			.then((FingerprintJS) => FingerprintJS.load())
+			.then((agent) => agent.get().then((result) => result.visitorId || ""))
+			.catch(() => "");
+	}
+
 	function esc(value) {
 		const div = document.createElement("div");
 		div.textContent = value == null ? "" : String(value);
@@ -289,6 +310,7 @@
 					pincode: data.get("pincode"),
 				},
 				payment_method: data.get("payment_method") || "cod",
+				device_fingerprint: await fingerprintPromise,
 			});
 			window.location.href = result.payment_url || result.confirmation_url;
 		} catch (error) {

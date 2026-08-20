@@ -127,13 +127,15 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 # generous enough for shoppers sharing an office or campus network
 @rate_limit(limit=30, seconds=60)
-def place_order(customer: dict, address: dict, payment_method: str = "cod") -> dict:
+def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "") -> dict:
 	cart = cart_module.resolve_cart()
 	validate_order(cart, customer, payment_method)
 	with elevated():
 		party = get_or_create_customer(customer)
+		if device_fingerprint:
+			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
-		sales_order = create_sales_order(cart, party, shipping_address)
+		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint)
 		convert_cart(cart, sales_order)
 		confirmation_url = f"/order-confirmation/{sales_order.name}?token={cart.token}"
 		queue_confirmation_email(sales_order, customer["email"], confirmation_url)
@@ -316,7 +318,7 @@ def find_address(party: str, address: dict) -> str | None:
 	)
 
 
-def create_sales_order(cart, party: str, shipping_address):
+def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = ""):
 	settings = frappe.get_cached_doc("Shop Settings")
 	cart_module.refresh_rates(cart)
 	coupon, discount = cart_module.applied_discount(
@@ -336,6 +338,7 @@ def create_sales_order(cart, party: str, shipping_address):
 			"plc_conversion_rate": 1,
 			"customer_address": shipping_address.name,
 			"shipping_address_name": shipping_address.name,
+			"custom_device_fingerprint": device_fingerprint or None,
 			"items": [
 				{
 					"item_code": row.item_code,

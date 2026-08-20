@@ -46,6 +46,26 @@ custom_fields = {
 			"description": "Mirror this coupon to POS Coupons so the same code can be used in POS Next.",
 		}
 	],
+	"Sales Order": [
+		{
+			"fieldname": "custom_device_fingerprint",
+			"label": "Device Fingerprint",
+			"fieldtype": "Data",
+			"hidden": 1,
+			"read_only": 1,
+			"description": "FingerprintJS visitor ID captured at checkout (fraud signal).",
+		}
+	],
+	"Customer": [
+		{
+			"fieldname": "custom_device_fingerprint",
+			"label": "Device Fingerprint",
+			"fieldtype": "Data",
+			"hidden": 1,
+			"read_only": 1,
+			"description": "Last FingerprintJS visitor ID seen for this customer.",
+		}
+	],
 }
 
 after_install = "shop.install.after_install"
