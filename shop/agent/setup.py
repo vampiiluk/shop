@@ -71,8 +71,31 @@ def upsert_tool(tool) -> None:
 	).insert(ignore_permissions=True)
 
 
+def chat_model() -> str | None:
+	"""First enabled Flow Model that can actually chat.
+
+	Skips embedding models and models without an API key - either would
+	leave the assistant unusable. Falls back to any enabled model.
+	"""
+	rows = frappe.get_all(
+		"Flow Model",
+		filters={"enabled": 1},
+		fields=["name", "api_key", "model_id"],
+		order_by="creation asc",
+	)
+	usable = None
+	for row in rows:
+		model_id = (row.model_id or "").lower()
+		if "embed" in model_id:
+			continue
+		usable = usable or row.name
+		if row.api_key:
+			return row.name
+	return usable
+
+
 def sync_agent(slugs: list[str]) -> None:
-	model = frappe.db.get_value("Flow Model", {"enabled": 1}, "name")
+	model = chat_model()
 	if not frappe.db.exists("Flow Agent", AGENT_TITLE):
 		if not model:
 			return
@@ -110,9 +133,15 @@ def get_agent_status() -> dict:
 	if "flow" not in frappe.get_installed_apps():
 		return {"ready": False, "reason": "not_installed"}
 	if not frappe.db.exists("Flow Agent", AGENT_TITLE):
-		return {"ready": False, "reason": "no_model"}
+		# A model is often configured after the last migrate. Build the
+		# agent on demand so the assistant comes online without waiting.
+		if chat_model():
+			try:
+				sync()
+			except Exception:
+				frappe.log_error(title="Shop assistant sync failed")
 	agent = frappe.db.get_value("Flow Agent", AGENT_TITLE, ["enabled", "model"], as_dict=True)
-	if not agent.model:
+	if not agent or not agent.model:
 		return {"ready": False, "reason": "no_model"}
 	return {
 		"ready": bool(agent.enabled),

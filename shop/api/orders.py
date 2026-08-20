@@ -90,14 +90,85 @@ def fulfillment_label(order) -> str:
 
 
 def paid_orders(names: list[str]) -> set:
+	"""Sales Orders settled by a submitted Payment Entry.
+
+	Payments may reference the order directly (advance) or its submitted
+	Sales Invoices (post-payment allocation), so both are considered and
+	invoice references are mapped back to their orders.
+	"""
 	if not names:
 		return set()
-	rows = frappe.get_all(
-		"Payment Entry Reference",
-		filters={"reference_doctype": "Sales Order", "reference_name": ["in", names], "docstatus": 1},
-		pluck="reference_name",
+	invoices = frappe.get_all(
+		"Sales Invoice Item",
+		filters={"sales_order": ["in", names], "docstatus": 1},
+		pluck="parent",
 	)
-	return set(rows)
+	references = [*names, *invoices]
+	rows = frappe.db.sql(
+		"""
+		SELECT reference_name FROM `tabPayment Entry Reference`
+		WHERE docstatus = 1 AND reference_name IN %(references)s
+		""",
+		{"references": references},
+		as_dict=True,
+	)
+	paid = {row.reference_name for row in rows}
+	settled = paid & set(names)
+	if invoices:
+		paid_invoices = paid & set(invoices)
+		if paid_invoices:
+			settled.update(
+				frappe.get_all(
+					"Sales Invoice Item",
+					filters={"parent": ["in", list(paid_invoices)], "docstatus": 1},
+					pluck="sales_order",
+				)
+			)
+	return settled
+
+
+def billed_invoice_for_order(order_name: str) -> str | None:
+	"""Submitted Sales Invoice linked to the order, if any."""
+	return frappe.db.get_value(
+		"Sales Invoice Item",
+		{"sales_order": order_name, "docstatus": 1},
+		"parent",
+		order_by="modified desc",
+	)
+
+
+def auto_billing_enabled() -> bool:
+	"""Whether storefront orders are billed automatically."""
+	return frappe.db.get_single_value("Shop Settings", "auto_bill_on_payment") != 0
+
+
+def create_sales_invoice_for_order(order_name: str) -> str | None:
+	"""Create and submit the Sales Invoice for an order (auto-billing).
+
+	Runs when an order is paid (prepaid) or delivered (COD) so it stops
+	showing "To Bill". The invoice is submitted so payment can be allocated
+	to it and AR stays balanced, but it is gated from FBR e-invoicing
+	(custom_submit_to_fbr = 0): nothing reaches the tax authority without a
+	reviewed submission. Idempotent - an existing submitted invoice against
+	the order is never duplicated.
+	"""
+	order = frappe.get_doc("Sales Order", order_name)
+	if order.docstatus != 1:
+		return None
+	existing = billed_invoice_for_order(order_name)
+	if existing:
+		return existing
+	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+
+	invoice = make_sales_invoice(order_name)
+	invoice.flags.ignore_permissions = True
+	if not invoice.get("items"):
+		return None
+	if invoice.meta.has_field("custom_submit_to_fbr"):
+		invoice.custom_submit_to_fbr = 0
+	invoice.insert(ignore_permissions=True)
+	invoice.submit()
+	return invoice.name
 
 
 @frappe.whitelist()
@@ -172,7 +243,10 @@ def mark_paid(name: str, mode_of_payment: str | None = None) -> dict:
 
 	if paid_orders([name]):
 		frappe.throw(_("This order is already marked paid"))
-	entry = get_payment_entry("Sales Order", name)
+	invoice_name = billed_invoice_for_order(name)
+	if not invoice_name and auto_billing_enabled():
+		invoice_name = create_sales_invoice_for_order(name)
+	entry = get_payment_entry("Sales Invoice" if invoice_name else "Sales Order", invoice_name or name)
 	if mode_of_payment:
 		entry.mode_of_payment = mode_of_payment
 	entry.reference_no = name
@@ -189,7 +263,7 @@ def mark_paid(name: str, mode_of_payment: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def fulfill(name: str) -> dict:
 	only_managers()
-	from erpnext.selling.doctype.sales_order.mapper import make_delivery_note
+	from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 
 	order = frappe.get_doc("Sales Order", name)
 	if order.docstatus != 1:
@@ -200,12 +274,175 @@ def fulfill(name: str) -> dict:
 	note.flags.ignore_permissions = True
 	note.insert(ignore_permissions=True)
 	note.submit()
+	if auto_billing_enabled() and not billed_invoice_for_order(name):
+		try:
+			create_sales_invoice_for_order(name)
+		except Exception:
+			frappe.log_error(
+				title="Storefront auto-invoice failed",
+				reference_doctype="Sales Order",
+				reference_name=name,
+			)
 	return get_order(name)
+
+
+def invoices_for_order(order_name: str) -> list[str]:
+	return frappe.get_all(
+		"Sales Invoice Item",
+		filters={"sales_order": order_name, "docstatus": ["<", 2]},
+		pluck="parent",
+		distinct=True,
+	)
+
+
+def payment_entries_for_order(order_name: str) -> list[str]:
+	invoices = invoices_for_order(order_name)
+	references = [order_name, *invoices]
+	if not references:
+		return []
+	rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT parent FROM `tabPayment Entry Reference`
+		WHERE docstatus = 1 AND reference_name IN %(references)s
+		""",
+		{"references": references},
+		as_list=True,
+	)
+	return [row[0] for row in rows]
+
+
+def gateway_payment(payment_entry) -> bool:
+	"""True when the Payment Entry was funded through a payment gateway.
+
+	Gateway-funded entries carry the originating Payment Request on their
+	reference rows; manual/cash entries do not.
+	"""
+	return bool(
+		frappe.db.get_value(
+			"Payment Entry Reference",
+			{"parent": payment_entry.name, "payment_request": ["!=", ""]},
+			"name",
+		)
+	)
+
+
+def _refund_gateway_payment(payment_entry) -> None:
+	"""Refund a gateway-funded payment through the gateway itself.
+
+	Cancelling the Payment Entry only reverses the books - the customer
+	stays charged. The gateway integration (Stripe/Razorpay/...) exposes
+	refund_payment() which pushes the money back. Refund first, then cancel
+	the entry so the reversal is complete.
+	"""
+	request = frappe.db.get_value(
+		"Payment Entry Reference",
+		{"parent": payment_entry.name, "payment_request": ["!=", ""]},
+		"payment_request",
+	)
+	gateway_account = frappe.db.get_value("Payment Request", request, "payment_gateway_account") if request else None
+	if not request or not gateway_account:
+		frappe.throw(
+			_("Payment {0} was made online. Process the refund manually before cancelling the order.").format(
+				payment_entry.name
+			)
+		)
+	account = frappe.get_doc("Payment Gateway Account", gateway_account)
+	integration_doctype = account.payment_gateway
+	if not integration_doctype or not frappe.db.exists("DocType", integration_doctype):
+		frappe.throw(
+			_("Gateway integration {0} is not installed. Process the refund manually before cancelling the order.").format(
+				integration_doctype
+			)
+		)
+	settings = frappe.get_all(integration_doctype, limit=1, order_by="creation asc")
+	if not settings:
+		frappe.throw(
+			_("Gateway {0} is not set up. Process the refund manually before cancelling the order.").format(
+				integration_doctype
+			)
+		)
+	integration = frappe.get_doc(integration_doctype, settings[0].name)
+	refund = getattr(integration, "refund_payment", None)
+	if not callable(refund):
+		frappe.throw(
+			_("Gateway {0} does not support refunds from here. Process the refund manually before cancelling.").format(
+				integration_doctype
+			)
+		)
+	refund(payment_entry)
+	payment_entry.cancel()
+
+
+def fbr_submitted(invoice) -> bool:
+	"""True when the invoice was accepted by FBR and cannot be cancelled.
+
+	Mirrors the FBR app's own cancel guard (gated on the Company-level
+	enable switch) without importing the app. The meta guard keeps the
+	shop working when the FBR app is not installed at all.
+	"""
+	if not frappe.get_meta("Company").has_field("custom_fbr_enabled"):
+		return False
+	if not frappe.db.get_value("Company", invoice.company, "custom_fbr_enabled"):
+		return False
+	status = (invoice.get("custom_fbr_status") or "").strip().lower()
+	return status == "valid" and bool(invoice.get("custom_fbr_invoice_number"))
+
+
+def _credit_note_for(invoice) -> None:
+	"""Reverse a submitted invoice with a Credit Note (return invoice).
+
+	Required once an invoice has been accepted by FBR: the original is
+	legally on file and cannot be cancelled.
+	"""
+	from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+
+	return_invoice = make_sales_return(invoice.name)
+	return_invoice.flags.ignore_permissions = True
+	if return_invoice.meta.has_field("custom_submit_to_fbr"):
+		return_invoice.custom_submit_to_fbr = 0
+	return_invoice.insert(ignore_permissions=True)
+	return_invoice.submit()
+
+
+def _reverse_invoice(invoice) -> None:
+	invoice.flags.ignore_permissions = True
+	if invoice.docstatus == 0:
+		invoice.delete()
+	elif fbr_submitted(invoice):
+		_credit_note_for(invoice)
+	else:
+		invoice.cancel()
 
 
 @frappe.whitelist(methods=["POST"])
 def cancel_order(name: str) -> dict:
 	only_managers()
+	# Reverse the full chain so cancellation works for invoiced/delivered
+	# orders too: payments first, then Sales Invoices, then Delivery Notes,
+	# then the Sales Order itself.
+	order = frappe.get_doc("Sales Order", name)
+	if order.docstatus != 1:
+		frappe.throw(_("Only submitted orders can be cancelled"))
+	# Money first: gateway-funded payments are refunded through the gateway
+	# (cancelling the entry alone would leave the customer charged); manual
+	# payments are reversed as the cash is returned.
+	for payment in payment_entries_for_order(name):
+		pe = frappe.get_doc("Payment Entry", payment)
+		pe.flags.ignore_permissions = True
+		if gateway_payment(pe):
+			_refund_gateway_payment(pe)
+		else:
+			pe.cancel()
+	# Invoices: unpaid ones cancel directly. Invoices already accepted by
+	# FBR cannot be cancelled - they are reversed with a Credit Note.
+	for invoice in invoices_for_order(name):
+		_reverse_invoice(frappe.get_doc("Sales Invoice", invoice))
+	for (note,) in frappe.db.sql(
+		"SELECT DISTINCT parent FROM `tabDelivery Note Item` WHERE against_sales_order=%s AND docstatus=1", name
+	):
+		dn = frappe.get_doc("Delivery Note", note)
+		dn.flags.ignore_permissions = True
+		dn.cancel()
 	order = frappe.get_doc("Sales Order", name)
 	order.flags.ignore_permissions = True
 	order.cancel()

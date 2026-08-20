@@ -26,11 +26,12 @@
   "low_stock_threshold",
   "fulfillment_provider",
   "auto_send_to_fulfillment",
-  "payments_section",
-  "enable_cod",
-  "column_break_payments",
-  "payment_gateway_account",
-  "tax_template",
+"payments_section",
+   "enable_cod",
+   "column_break_payments",
+   "payment_gateway_account",
+   "auto_bill_on_payment",
+   "tax_template",
   "theme_pages_section",
   "theme_pages"
  ],
@@ -181,6 +182,13 @@
    "fieldtype": "Link",
    "label": "Payment Gateway Account",
    "options": "Payment Gateway Account"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_bill_on_payment",
+   "fieldtype": "Check",
+   "label": "Auto-create Sales Invoices",
+   "description": "Create the Sales Invoice automatically when an order is paid (prepaid) or delivered (COD). Invoices are kept out of FBR e-invoicing until reviewed."
   },
   {
    "fieldname": "tax_template",
