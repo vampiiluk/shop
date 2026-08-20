@@ -3,15 +3,10 @@ from frappe.utils import flt
 
 RULE_PREFIX = "Shop coupon"
 
-_POS_COUPON_AVAILABLE = None
-
 
 def pos_coupon_available() -> bool:
 	"""True when the posnext POS Coupon doctype exists on this bench."""
-	global _POS_COUPON_AVAILABLE
-	if _POS_COUPON_AVAILABLE is None:
-		_POS_COUPON_AVAILABLE = frappe.db.table_exists("POS Coupon")
-	return _POS_COUPON_AVAILABLE
+	return frappe.db.table_exists("POS Coupon")
 
 
 def _rule_title(code: str) -> str:
