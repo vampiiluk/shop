@@ -48,6 +48,16 @@ def mark_shipped(fulfillment: str, carrier: str | None = None, tracking_number: 
 	return service.summary(doc)
 
 
+@frappe.whitelist(methods=["POST"])
+def mark_delivery_outcome(order: str, outcome: str) -> dict:
+	"""Record a delivery result. Feeds the fraud engine: city RTO stats,
+	customer failure counts and auto-blacklisting all learn from this."""
+	only_managers()
+	from shop.integrations import fraud
+
+	return fraud.record_delivery_outcome(order, outcome)
+
+
 @frappe.whitelist()
 def list_fulfillments(status: str | None = None, start: int = 0, limit: int = 20) -> dict:
 	only_managers()

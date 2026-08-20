@@ -6,10 +6,15 @@
 					<UiStatusBadge :label="doc.display_status" />
 					<UiStatusBadge :label="doc.payment_status" />
 					<UiStatusBadge :label="doc.fulfillment_status" />
+					<UiStatusBadge
+						v-if="doc.fraud_verdict && doc.fraud_verdict !== 'Pass'"
+						:label="`${doc.fraud_verdict} (${doc.fraud_score})`"
+					/>
 				</template>
 				<template #actions>
 					<Button :link="`/app/sales-order/${doc.name}`">Open in Desk</Button>
 					<Button v-if="canMarkPaid" @click="confirmAction('markPaid')">Mark paid</Button>
+					<Button v-if="canRecordOutcome" @click="showOutcome = true">Record delivery</Button>
 					<Button v-if="canFulfill" variant="solid" @click="confirmAction('fulfill')">
 						Fulfill
 					</Button>

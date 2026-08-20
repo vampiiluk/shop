@@ -3,7 +3,7 @@ from contextlib import contextmanager
 import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
-from frappe.utils import add_days, flt, nowdate, validate_email_address
+from frappe.utils import add_days, cint, flt, nowdate, validate_email_address
 
 from shop.storefront import cart as cart_module
 from shop.storefront import pricing, stock
@@ -38,6 +38,8 @@ PREFILL_FIELDS = (
 	"state",
 	"country",
 	"pincode",
+	"landmark",
+	"alt_phone",
 )
 
 
@@ -70,7 +72,7 @@ def contact_phone(user: str) -> str | None:
 	)
 
 
-ADDRESS_FIELDS = ("address_line1", "address_line2", "city", "state", "country", "pincode")
+ADDRESS_FIELDS = ("address_line1", "address_line2", "city", "state", "country", "pincode", "landmark", "alt_phone")
 
 
 def saved_addresses_exist() -> bool:
@@ -117,25 +119,49 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 	rows = frappe.get_all(
 		"Address",
 		filters={"name": ["in", links]},
-		fields=["address_line1", "address_line2", "city", "state", "country", "pincode"],
+		fields=["address_line1", "address_line2", "city", "state", "country", "pincode", "custom_landmark", "custom_alt_phone"],
 		order_by="modified desc",
 		limit=1,
 	)
-	return rows[0] if rows else None
+	if not rows:
+		return None
+	row = rows[0]
+	return {
+		"address_line1": row.address_line1,
+		"address_line2": row.address_line2,
+		"city": row.city,
+		"state": row.state,
+		"country": row.country,
+		"pincode": row.pincode,
+		"landmark": row.custom_landmark,
+		"alt_phone": row.custom_alt_phone,
+	}
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 # generous enough for shoppers sharing an office or campus network
 @rate_limit(limit=30, seconds=60)
-def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "") -> dict:
+def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "") -> dict:
 	cart = cart_module.resolve_cart()
-	validate_order(cart, customer, payment_method)
+	validate_order(cart, customer, address, payment_method)
+	settings = frappe.get_cached_doc("Shop Settings")
+	from shop.integrations import fraud as fraud_module
+
+	fraud = None
+	if cint(frappe.db.get_single_value("Shop Settings", "enable_fraud_check")):
+		fraud = fraud_module.evaluate_risk(customer, address, payment_method, device_fingerprint or "", fp_request_id or "")
+		if fraud.verdict == "Block":
+			fraud_module.log_fraud_event(None, customer, address, payment_method, device_fingerprint or "", fraud)
+			frappe.throw(_("This order could not be placed with Cash on Delivery. Please pay online or contact us."))
 	with elevated():
 		party = get_or_create_customer(customer)
 		if device_fingerprint:
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
 		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint)
+		if fraud:
+			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
+			fraud_module.log_fraud_event(sales_order.name, customer, address, payment_method, device_fingerprint or "", fraud)
 		convert_cart(cart, sales_order)
 		confirmation_url = f"/order-confirmation/{sales_order.name}?token={cart.token}"
 		queue_confirmation_email(sales_order, customer["email"], confirmation_url)
@@ -143,8 +169,15 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 			"sales_order": sales_order.name,
 			"confirmation_url": confirmation_url,
 		}
-		if payment_method == "gateway":
-			response["payment_url"] = create_payment_request(sales_order, customer)
+		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
+			if settings and not settings.payment_gateway_account and payment_method == "cod":
+				# no way to take payment yet: allow the order, keep the flag visible
+				fraud.signals["advance_deferred"] = True
+				fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
+			else:
+				response["payment_url"] = create_payment_request(sales_order, customer)
+				if fraud and fraud.verdict == "Advance Required":
+					response["payment_required"] = True
 	return response
 
 
@@ -205,7 +238,7 @@ def elevated():
 		frappe.local.role_permissions = {}
 
 
-def validate_order(cart, customer: dict, payment_method: str):
+def validate_order(cart, customer: dict, address: dict, payment_method: str):
 	if not cart or not cart.items:
 		frappe.throw(_("Your cart is empty"))
 	settings = frappe.get_cached_doc("Shop Settings")
@@ -216,6 +249,8 @@ def validate_order(cart, customer: dict, payment_method: str):
 	validate_email_address(customer.get("email"), throw=True)
 	if not customer.get("full_name"):
 		frappe.throw(_("Name is required"))
+	if cint(settings.landmark_required) and not (address.get("landmark") or "").strip():
+		frappe.throw(_("Nearest landmark is required so delivery riders can find you"))
 	validate_stock(cart)
 
 
@@ -278,6 +313,13 @@ def create_address(party: str, customer: dict, address: dict):
 	if existing:
 		# bump modified so saved addresses stay ordered by last use
 		frappe.db.set_value("Address", existing, "modified", frappe.utils.now())
+		updates = {}
+		if address.get("landmark"):
+			updates["custom_landmark"] = address.get("landmark")
+		if address.get("alt_phone"):
+			updates["custom_alt_phone"] = address.get("alt_phone")
+		if updates:
+			frappe.db.set_value("Address", existing, updates)
 		return frappe.get_doc("Address", existing)
 	doc = frappe.get_doc(
 		{
@@ -292,6 +334,8 @@ def create_address(party: str, customer: dict, address: dict):
 			"pincode": address.get("pincode"),
 			"phone": customer.get("phone"),
 			"email_id": customer.get("email"),
+			"custom_landmark": address.get("landmark"),
+			"custom_alt_phone": address.get("alt_phone"),
 			"links": [{"link_doctype": "Customer", "link_name": party}],
 		}
 	)

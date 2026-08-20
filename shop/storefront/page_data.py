@@ -223,4 +223,7 @@ def store_details() -> dict:
 		"enable_cod": settings.enable_cod,
 		"account_label": frappe._("Account") if signed_in else frappe._("Sign in"),
 		"account_url": "/account/orders" if signed_in else "/login?redirect-to=/account/orders",
+		"fp_public_key": settings.fingerprint_public_key or "",
+		"fp_region": settings.fingerprint_region or "ap",
+		"fp_verify_above": settings.fingerprint_verify_above or 0,
 	}

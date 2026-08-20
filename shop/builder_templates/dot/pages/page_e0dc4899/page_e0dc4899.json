@@ -656,9 +656,10 @@
             {
              "attributes": {
               "name": "city",
-              "placeholder": "City",
+              "placeholder": "City (select from list)",
               "required": "required",
-              "type": "text"
+              "type": "text",
+              "list": "pk-cities"
              },
              "baseStyles": {
               "backgroundColor": "var(--14e519f0-b9a6-4acd-ae4a-f8e5664c13fa, #FFFFFF)",
@@ -751,6 +752,77 @@
               {
                "comesFrom": "dataScript",
                "key": "prefill.pincode",
+               "property": "value",
+               "type": "attribute"
+              }
+             ],
+             "element": "input",
+             "mobileStyles": {},
+             "tabletStyles": {}
+            },
+            {
+             "attributes": {
+              "name": "landmark",
+              "placeholder": "Nearest famous landmark (e.g., Near Bilal Masjid)",
+              "type": "text",
+              "required": "required"
+             },
+             "baseStyles": {
+              "backgroundColor": "var(--14e519f0-b9a6-4acd-ae4a-f8e5664c13fa, #FFFFFF)",
+              "borderColor": "var(--89b2d9a1-4c11-45a1-8a99-099334bf7d38, #E4E4E7)",
+              "borderRadius": "12px",
+              "borderStyle": "solid",
+              "borderWidth": "1px",
+              "color": "var(--6a70d365-ff72-446b-b3ce-e700d422c404, #0B0B0C)",
+              "fontSize": "12px",
+              "gridColumn": "span 2",
+              "padding": "12px 14px",
+              "width": "100%"
+             },
+             "blockId": "c910347716",
+             "blockName": "Input · landmark",
+             "children": [],
+             "classes": [],
+             "customAttributes": {},
+             "dynamicValues": [
+              {
+               "comesFrom": "dataScript",
+               "key": "prefill.landmark",
+               "property": "value",
+               "type": "attribute"
+              }
+             ],
+             "element": "input",
+             "mobileStyles": {},
+             "tabletStyles": {}
+            },
+            {
+             "attributes": {
+              "name": "alt_phone",
+              "placeholder": "Alternative phone for delivery rider (optional)",
+              "type": "tel"
+             },
+             "baseStyles": {
+              "backgroundColor": "var(--14e519f0-b9a6-4acd-ae4a-f8e5664c13fa, #FFFFFF)",
+              "borderColor": "var(--89b2d9a1-4c11-45a1-8a99-099334bf7d38, #E4E4E7)",
+              "borderRadius": "12px",
+              "borderStyle": "solid",
+              "borderWidth": "1px",
+              "color": "var(--6a70d365-ff72-446b-b3ce-e700d422c404, #0B0B0C)",
+              "fontSize": "12px",
+              "gridColumn": "span 2",
+              "padding": "12px 14px",
+              "width": "100%"
+             },
+             "blockId": "a1e575cbf8",
+             "blockName": "Input · alt_phone",
+             "children": [],
+             "classes": [],
+             "customAttributes": {},
+             "dynamicValues": [
+              {
+               "comesFrom": "dataScript",
+               "key": "prefill.alt_phone",
                "property": "value",
                "type": "attribute"
               }
@@ -2132,7 +2204,7 @@
    "tabletStyles": {}
   }
  ],
- "body_html": "<script src=\"/assets/shop/js/storefront.js\" defer></script>",
+ "body_html": "<datalist id=\"pk-cities\"><option value=\"Islamabad\"><option value=\"Rawalpindi\"><option value=\"Lahore\"><option value=\"Karachi\"><option value=\"Faisalabad\"><option value=\"Multan\"><option value=\"Peshawar\"><option value=\"Quetta\"><option value=\"Gujranwala\"><option value=\"Gujrat\"><option value=\"Sialkot\"><option value=\"Hyderabad\"><option value=\"Bahawalpur\"><option value=\"Sargodha\"><option value=\"Jhelum\"><option value=\"Wah Cantt\"><option value=\"Attock\"><option value=\"Abbotabad\"><option value=\"Mardan\"><option value=\"Kohat\"><option value=\"Dera Ghazi Khan\"><option value=\"Rahim Yar Khan\"><option value=\"Sheikhupura\"><option value=\"Jhang\"><option value=\"Kasur\"><option value=\"Okara\"><option value=\"Sahiwal\"><option value=\"Murree\"><option value=\"Mirpur\"><option value=\"Muzaffarabad\"><option value=\"Gilgit\"><option value=\"Skardu\"><option value=\"Sukkur\"><option value=\"Larkana\"><option value=\"Nawabshah\"><option value=\"Mirpurkhas\"><option value=\"Jacobabad\"><option value=\"Khairpur\"><option value=\"Dadu\"><option value=\"Burewala\"><option value=\"Chiniot\"><option value=\"Khanewal\"><option value=\"Vehari\"><option value=\"Mandi Bahauddin\"><option value=\"Toba Tek Singh\"></datalist><script src=\"/assets/shop/js/storefront.js\" defer></script>",
  "client_scripts": [
   {
    "builder_script": "dot-styles"
