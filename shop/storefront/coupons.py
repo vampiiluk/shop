@@ -31,6 +31,11 @@ def resolve(code: str) -> dict:
 	)
 	if not rule or rule.disable:
 		frappe.throw(_("That coupon code is not valid"))
+	max_amount = 0
+	if frappe.db.table_exists("POS Coupon"):
+		max_amount = flt(
+			frappe.db.get_value("POS Coupon", {"coupon_code": coupon.coupon_code}, "max_amount") or 0
+		)
 	return frappe._dict(
 		name=coupon.name,
 		code=coupon.coupon_code,
@@ -38,6 +43,7 @@ def resolve(code: str) -> dict:
 		discount_percentage=flt(rule.discount_percentage),
 		discount_amount=flt(rule.discount_amount),
 		min_amt=flt(rule.min_amt),
+		max_amount=max_amount,
 	)
 
 
@@ -47,8 +53,12 @@ def discount_for(coupon: dict, subtotal: float) -> float:
 			_("Add items worth {0} to use this coupon").format(pricing.format_amount(coupon.min_amt))
 		)
 	if coupon.rate_or_discount == "Discount Percentage":
-		return flt(subtotal * coupon.discount_percentage / 100, 2)
-	return min(flt(coupon.discount_amount), subtotal)
+		discount = flt(subtotal * coupon.discount_percentage / 100, 2)
+	else:
+		discount = min(flt(coupon.discount_amount), subtotal)
+	if coupon.max_amount:
+		discount = min(discount, flt(coupon.max_amount))
+	return discount
 
 
 def redeem(name: str):

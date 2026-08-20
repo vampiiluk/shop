@@ -3,9 +3,14 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
+from shop.integrations.pos_coupon_sync import (
+	RULE_PREFIX,
+	delete_erpnext_coupon_from_pos,
+	pos_coupon_available,
+	release_from_carts,
+	sync_erpnext_coupon_to_pos,
+)
 from shop.storefront import pricing
-
-RULE_PREFIX = "Shop coupon"
 
 
 @frappe.whitelist()
@@ -71,6 +76,7 @@ def save_coupon(payload: dict) -> None:
 	coupon.valid_upto = payload.get("valid_upto") or None
 	coupon.maximum_use = cint(payload.get("maximum_use"))
 	coupon.save(ignore_permissions=True) if existing else coupon.insert(ignore_permissions=True)
+	sync_erpnext_coupon_to_pos(coupon, frappe.get_doc("Pricing Rule", rule))
 
 
 def save_rule(payload: dict, name: str | None, code: str) -> str:
@@ -100,23 +106,33 @@ def save_rule(payload: dict, name: str | None, code: str) -> str:
 @frappe.whitelist(methods=["POST"])
 def set_enabled(name: str, enabled: bool) -> None:
 	only_managers()
+	code = frappe.db.get_value("Coupon Code", name, "coupon_code")
 	rule = frappe.db.get_value("Coupon Code", name, "pricing_rule")
 	if rule:
 		frappe.db.set_value("Pricing Rule", rule, "disable", 0 if enabled else 1)
+	if code and pos_coupon_available():
+		pos = frappe.db.get_value("POS Coupon", {"coupon_code": code})
+		if pos:
+			frappe.db.set_value("POS Coupon", pos, "disabled", 0 if enabled else 1)
 
 
 @frappe.whitelist(methods=["POST"])
 def delete_coupon(name: str) -> None:
 	only_managers()
+	code = frappe.db.get_value("Coupon Code", name, "coupon_code")
 	rule = frappe.db.get_value("Coupon Code", name, "pricing_rule")
 	title = frappe.db.get_value("Pricing Rule", rule, "title") if rule else None
 	release_from_carts(name)
+	if code and pos_coupon_available():
+		pos = frappe.db.get_value("POS Coupon", {"coupon_code": code})
+		if pos:
+			frappe.db.set_value(
+				"POS Coupon",
+				pos,
+				{"erpnext_coupon_code": None, "pricing_rule": None},
+				update_modified=False,
+			)
 	frappe.delete_doc("Coupon Code", name, ignore_permissions=True)
 	if title and title.startswith(RULE_PREFIX):
 		frappe.delete_doc("Pricing Rule", rule, ignore_permissions=True, force=True)
-
-
-def release_from_carts(coupon: str) -> None:
-	"""A coupon sitting in someone's cart must not make itself undeletable."""
-	for cart in frappe.get_all("Shop Cart", filters={"coupon_code": coupon}, pluck="name"):
-		frappe.db.set_value("Shop Cart", cart, "coupon_code", None, update_modified=False)
+	delete_erpnext_coupon_from_pos(code)
