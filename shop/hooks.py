@@ -7,7 +7,7 @@ app_license = "mit"
 
 use_json_request_body = True
 
-required_apps = ["frappe", "erpnext", "payments", "builder"]
+required_apps = ["erpnext", "payments", "builder"]
 
 add_to_apps_screen = [
 	{
@@ -25,6 +25,27 @@ website_route_rules = [
 
 override_doctype_class = {
 	"Payment Request": "shop.overrides.payment_request.ShopPaymentRequest",
+}
+
+doc_events = {
+	"POS Coupon": {
+		"validate": "shop.integrations.pos_coupon_sync.sync_pos_coupon_to_erpnext",
+		"on_update": "shop.integrations.pos_coupon_sync.write_pos_coupon_links",
+		"on_trash": "shop.integrations.pos_coupon_sync.delete_pos_coupon_from_erpnext",
+	},
+}
+
+custom_fields = {
+	"Coupon Code": [
+		{
+			"fieldname": "custom_sync_to_pos",
+			"label": "Sync to POS",
+			"fieldtype": "Check",
+			"default": "1",
+			"insert_after": "pricing_rule",
+			"description": "Mirror this coupon to POS Coupons so the same code can be used in POS Next.",
+		}
+	],
 }
 
 after_install = "shop.install.after_install"

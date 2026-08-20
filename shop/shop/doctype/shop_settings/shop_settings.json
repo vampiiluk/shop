@@ -32,6 +32,9 @@
    "payment_gateway_account",
    "auto_bill_on_payment",
    "tax_template",
+   "coupons_section",
+   "custom_sync_coupons_to_pos",
+   "custom_sync_pos_coupons_to_site",
   "theme_pages_section",
   "theme_pages"
  ],
@@ -195,6 +198,26 @@
    "fieldtype": "Link",
    "label": "Tax Template",
    "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "coupons_section",
+   "fieldtype": "Section Break",
+   "label": "Coupon Sync"
+  },
+  {
+   "default": "1",
+   "fieldname": "custom_sync_coupons_to_pos",
+   "fieldtype": "Check",
+   "label": "Sync Coupons to POS",
+   "description": "Mirror Discounts-page coupons to POS Coupons so the same code works in POS Next. Turning this off leaves already-synced coupons in place."
+  },
+  {
+   "default": "1",
+   "fieldname": "custom_sync_pos_coupons_to_site",
+   "fieldtype": "Check",
+   "label": "Sync POS Coupons to Storefront",
+   "description": "Mirror POS Coupons (Promotional) to Coupon Codes so the same code works on the storefront. Turning this off leaves already-synced coupons in place."
   },
   {
    "collapsible": 1,

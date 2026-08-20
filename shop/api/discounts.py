@@ -18,7 +18,17 @@ def get_coupons() -> list[dict]:
 	only_managers()
 	coupons = frappe.get_all(
 		"Coupon Code",
-		fields=["name", "coupon_name", "coupon_code", "pricing_rule", "used", "maximum_use", "valid_from", "valid_upto"],
+		fields=[
+			"name",
+			"coupon_name",
+			"coupon_code",
+			"pricing_rule",
+			"used",
+			"maximum_use",
+			"valid_from",
+			"valid_upto",
+			"custom_sync_to_pos",
+		],
 		order_by="creation desc",
 	)
 	rules = rule_map([coupon.pricing_rule for coupon in coupons if coupon.pricing_rule])
@@ -36,6 +46,7 @@ def get_coupons() -> list[dict]:
 		coupon["discount_amount"] = rule.get("discount_amount")
 		coupon["min_amt"] = rule.get("min_amt")
 		coupon["enabled"] = not rule.get("disable")
+		coupon["sync_to_pos"] = 1 if coupon.get("custom_sync_to_pos") is None else cint(coupon["custom_sync_to_pos"])
 		coupon["value_label"] = value_label(rule)
 	return coupons
 
@@ -75,8 +86,12 @@ def save_coupon(payload: dict) -> None:
 	coupon.valid_from = payload.get("valid_from") or None
 	coupon.valid_upto = payload.get("valid_upto") or None
 	coupon.maximum_use = cint(payload.get("maximum_use"))
+	coupon.custom_sync_to_pos = cint(payload.get("sync_to_pos", 1))
 	coupon.save(ignore_permissions=True) if existing else coupon.insert(ignore_permissions=True)
-	sync_erpnext_coupon_to_pos(coupon, frappe.get_doc("Pricing Rule", rule))
+	if cint(coupon.custom_sync_to_pos):
+		sync_erpnext_coupon_to_pos(coupon, frappe.get_doc("Pricing Rule", rule))
+	else:
+		delete_erpnext_coupon_from_pos(code)
 
 
 def save_rule(payload: dict, name: str | None, code: str) -> str:
@@ -114,6 +129,20 @@ def set_enabled(name: str, enabled: bool) -> None:
 		pos = frappe.db.get_value("POS Coupon", {"coupon_code": code})
 		if pos:
 			frappe.db.set_value("POS Coupon", pos, "disabled", 0 if enabled else 1)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_sync_to_pos(name: str, sync: bool) -> None:
+	only_managers()
+	frappe.db.set_value("Coupon Code", name, "custom_sync_to_pos", 1 if sync else 0)
+	code = frappe.db.get_value("Coupon Code", name, "coupon_code")
+	if sync:
+		coupon = frappe.get_doc("Coupon Code", name)
+		rule = coupon.pricing_rule
+		if rule:
+			sync_erpnext_coupon_to_pos(coupon, frappe.get_doc("Pricing Rule", rule))
+	else:
+		delete_erpnext_coupon_from_pos(code)
 
 
 @frappe.whitelist(methods=["POST"])

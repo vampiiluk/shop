@@ -45,6 +45,7 @@
 				class="w-48"
 			/>
 			<Switch v-model="form.enabled" label="Enabled" class="!w-auto" />
+			<Switch v-model="form.sync_to_pos" label="Sync to POS" class="!w-auto" />
 		</div>
 	</Dialog>
 </template>
@@ -66,6 +67,7 @@ export interface CouponRow {
 	discount_amount: number
 	min_amt: number
 	enabled: boolean
+	sync_to_pos: boolean
 	value_label: string
 }
 
@@ -89,6 +91,7 @@ const form = reactive({
 	valid_upto: '',
 	maximum_use: 0,
 	enabled: true,
+	sync_to_pos: true,
 })
 
 watch(show, (open) => {
@@ -107,6 +110,7 @@ function reset() {
 		valid_upto: row?.valid_upto || '',
 		maximum_use: row?.maximum_use || 0,
 		enabled: row ? !!row.enabled : true,
+		sync_to_pos: row ? (row.sync_to_pos === undefined ? true : !!row.sync_to_pos) : true,
 	})
 }
 

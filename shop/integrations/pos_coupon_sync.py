@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 RULE_PREFIX = "Shop coupon"
 
@@ -7,6 +7,28 @@ RULE_PREFIX = "Shop coupon"
 def pos_coupon_available() -> bool:
 	"""True when the posnext POS Coupon doctype exists on this bench."""
 	return frappe.db.table_exists("POS Coupon")
+
+
+def _single_toggle(fieldname: str) -> bool:
+	"""Read a Shop Settings Check toggle, treating missing/empty as on."""
+	value = frappe.db.get_single_value("Shop Settings", fieldname)
+	return value is None or cint(value) == 1
+
+
+def _global_sync_coupons_to_pos() -> bool:
+	"""Shop Settings master switch for the shop -> POS direction."""
+	return _single_toggle("custom_sync_coupons_to_pos")
+
+
+def _global_sync_pos_coupons_to_site() -> bool:
+	"""Shop Settings master switch for the POS -> shop direction."""
+	return _single_toggle("custom_sync_pos_coupons_to_site")
+
+
+def _coupon_syncs_to_pos(coupon) -> bool:
+	"""Global master switch AND the per-coupon toggle (NULL flag = on, 0 = off)."""
+	flag = coupon.get("custom_sync_to_pos")
+	return _global_sync_coupons_to_pos() and (flag is None or cint(flag) == 1)
 
 
 def _rule_title(code: str) -> str:
@@ -57,8 +79,14 @@ def sync_pos_coupon_to_erpnext(doc, method=None):
 		return
 	if doc.coupon_type != "Promotional":
 		return
+	if not _global_sync_pos_coupons_to_site():
+		return
 	code = (doc.coupon_code or "").strip().upper()
 	if not code:
+		return
+	# Respect an explicit per-coupon "don't sync" on an existing shop coupon:
+	# POS-side saves must not resurrect a Coupon Code the manager turned off.
+	if frappe.db.get_value("Coupon Code", {"coupon_code": code}, "custom_sync_to_pos") == 0:
 		return
 
 	rule = _upsert_rule_for_pos_coupon(doc, code)
@@ -83,11 +111,15 @@ def write_pos_coupon_links(doc, method=None):
 		return
 	if doc.coupon_type != "Promotional":
 		return
+	if not _global_sync_pos_coupons_to_site():
+		return
 	code = (doc.coupon_code or "").strip().upper()
 	if not code:
 		return
 	coupon_name = frappe.db.get_value("Coupon Code", {"coupon_code": code})
 	if not coupon_name:
+		return
+	if frappe.db.get_value("Coupon Code", coupon_name, "custom_sync_to_pos") == 0:
 		return
 	rule_name = frappe.db.get_value("Coupon Code", coupon_name, "pricing_rule")
 	frappe.db.set_value(
@@ -101,6 +133,8 @@ def write_pos_coupon_links(doc, method=None):
 def sync_erpnext_coupon_to_pos(coupon, rule):
 	"""Coupon Code + Pricing Rule -> POS Coupon so the POS honors the code."""
 	if not pos_coupon_available():
+		return None
+	if not _coupon_syncs_to_pos(coupon):
 		return None
 	code = (coupon.coupon_code or "").strip().upper()
 	if not code:
@@ -139,12 +173,16 @@ def delete_pos_coupon_from_erpnext(doc, method=None):
 	"""POS Coupon on_trash -> remove the generated Coupon Code + Pricing Rule."""
 	if not pos_coupon_available() or doc.doctype != "POS Coupon":
 		return
+	if frappe.local.flags.get("skip_pos_coupon_cleanup"):
+		return
 	code = (doc.coupon_code or "").strip().upper()
 	coupon_name = doc.erpnext_coupon_code
 	if not coupon_name and code:
 		coupon_name = frappe.db.get_value("Coupon Code", {"coupon_code": code})
 	rule_name = doc.pricing_rule
 	if coupon_name:
+		if frappe.db.get_value("Coupon Code", coupon_name, "custom_sync_to_pos") == 0:
+			return  # shop coupon is explicitly excluded from POS sync; not ours to remove
 		if not rule_name:
 			rule_name = frappe.db.get_value("Coupon Code", coupon_name, "pricing_rule")
 		title = frappe.db.get_value("Pricing Rule", rule_name, "title") if rule_name else None
@@ -165,9 +203,17 @@ def delete_pos_coupon_from_erpnext(doc, method=None):
 
 
 def delete_erpnext_coupon_from_pos(coupon_code: str) -> None:
-	"""Coupon Code delete -> remove the mirrored POS Coupon (Promotional only)."""
+	"""Coupon Code delete -> remove the mirrored POS Coupon (Promotional only).
+
+	Runs under skip_pos_coupon_cleanup so the POS Coupon's on_trash cascade
+	does not try to delete the very Coupon Code that asked for the removal.
+	"""
 	if not pos_coupon_available():
 		return
 	pos_name = frappe.db.get_value("POS Coupon", {"coupon_code": coupon_code})
 	if pos_name:
-		frappe.delete_doc("POS Coupon", pos_name, ignore_permissions=True, force=True)
+		frappe.local.flags["skip_pos_coupon_cleanup"] = True
+		try:
+			frappe.delete_doc("POS Coupon", pos_name, ignore_permissions=True, force=True)
+		finally:
+			frappe.local.flags.pop("skip_pos_coupon_cleanup", None)

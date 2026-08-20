@@ -33,6 +33,7 @@
 						<th class="px-3 py-2 text-right font-normal">Used</th>
 						<th class="px-3 py-2 font-normal">Validity</th>
 						<th class="px-3 py-2 text-right font-normal">Enabled</th>
+						<th class="px-3 py-2 text-right font-normal">POS</th>
 						<th class="w-10 px-1 py-2"></th>
 					</tr>
 				</thead>
@@ -60,6 +61,12 @@
 							<Switch
 								:model-value="!!row.enabled"
 								@update:model-value="(value: boolean) => toggleEnabled(row, value)"
+							/>
+						</td>
+						<td class="px-3 py-2 text-right" @click.stop>
+							<Switch
+								:model-value="!!row.sync_to_pos"
+								@update:model-value="(value: boolean) => toggleSyncToPos(row, value)"
 							/>
 						</td>
 						<td class="px-1 py-2" @click.stop>
@@ -147,6 +154,16 @@ async function toggleEnabled(row: CouponRow, value: boolean) {
 	} catch (error) {
 		row.enabled = !value
 		toast.error('Could not update coupon')
+	}
+}
+
+async function toggleSyncToPos(row: CouponRow, value: boolean) {
+	row.sync_to_pos = value
+	try {
+		await call('shop.api.discounts.set_sync_to_pos', { name: row.name, sync: value })
+	} catch (error) {
+		row.sync_to_pos = !value
+		toast.error('Could not update coupon sync')
 	}
 }
 </script>
