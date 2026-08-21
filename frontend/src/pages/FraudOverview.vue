@@ -27,7 +27,7 @@
 					<div class="mt-1 flex flex-wrap gap-1.5 text-xs">
 						<UiStatusBadge v-if="kpi(key).block" theme="red" :label="`${kpi(key).block} blocked`" />
 						<UiStatusBadge v-if="kpi(key).advance" theme="orange" :label="`${kpi(key).advance} advance`" />
-						<UiStatusBadge v-if="kpi(key).flag" theme="yellow" :label="`${kpi(key).flag} flagged`" />
+						<UiStatusBadge v-if="kpi(key).flag" theme="amber" :label="`${kpi(key).flag} flagged`" />
 						<UiStatusBadge v-if="kpi(key).pass" theme="green" :label="`${kpi(key).pass} passed`" />
 						<span v-if="!kpi(key).total" class="text-ink-gray-4">No orders</span>
 					</div>
