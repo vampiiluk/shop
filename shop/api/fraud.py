@@ -218,3 +218,65 @@ def get_related_orders(order: str):
 		"fingerprint": so.custom_device_fingerprint,
 		"related": sorted(matches.values(), key=lambda x: x.creation, reverse=True)
 	}
+
+
+@frappe.whitelist()
+def get_overview() -> dict:
+	"""Aggregated fraud intelligence for the overview page.
+
+	Snapshot data (score/verdict/signals/raw fingerprint event) is captured at
+	order placement and never changes. Everything returned here is computed
+	live: verdict counts, averages, blacklist state, city RTO rates.
+	"""
+	from frappe.utils import add_days, nowdate
+
+	def bucket(days: int) -> dict:
+		since = add_days(nowdate(), -days)
+		rows = frappe.get_all(
+			"Shop Fraud Event",
+			filters={"creation": [">=", since]},
+			fields=["verdict", "score", "fp_verified"],
+		)
+		out = {"total": len(rows), "flag": 0, "advance": 0, "block": 0, "avg_score": 0, "verified": 0}
+		if rows:
+			for r in rows:
+				if r.verdict == "Flag":
+					out["flag"] += 1
+				elif r.verdict == "Advance Required":
+					out["advance"] += 1
+				elif r.verdict == "Block":
+					out["block"] += 1
+				if r.fp_verified:
+					out["verified"] += 1
+			out["avg_score"] = round(sum(r.score or 0 for r in rows) / len(rows), 1)
+		return out
+
+	recent_events = frappe.get_all(
+		"Shop Fraud Event",
+		fields=["name", "creation", "order", "phone", "city", "payment_method", "device_fingerprint", "fp_verified", "score", "verdict"],
+		order_by="creation desc",
+		limit=15,
+	)
+
+	blacklist = frappe.get_all(
+		"Shop Blacklist",
+		filters={"active": 1},
+		fields=["name", "phone", "email", "reason", "source", "hit_count", "creation"],
+		order_by="creation desc",
+		limit=20,
+	)
+
+	cities = frappe.get_all(
+		"Shop City Stats",
+		fields=["city", "orders_30d", "failed_30d", "rto_rate"],
+		filters={"orders_30d": [">", 0]},
+		order_by="rto_rate desc",
+		limit=8,
+	)
+
+	return {
+		"kpis": {"today": bucket(1), "week": bucket(7), "month": bucket(30)},
+		"recent_events": recent_events,
+		"blacklist": blacklist,
+		"cities": cities,
+	}

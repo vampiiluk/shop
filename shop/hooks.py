@@ -86,6 +86,14 @@ custom_fields = {
 			"options": "\nPass\nFlag\nAdvance Required\nBlock",
 		},
 		{
+			"fieldname": "custom_fp_event",
+			"label": "Fingerprint Event",
+			"fieldtype": "Long Text",
+			"hidden": 1,
+			"read_only": 1,
+			"description": "Raw Fingerprint Identification event captured at checkout.",
+		},
+		{
 			"default": "Pending",
 			"fieldname": "custom_delivery_outcome",
 			"label": "Delivery Outcome",

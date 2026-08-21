@@ -14,6 +14,11 @@ const routes = [
 		component: () => import('@/components/AppShell.vue'),
 		children: [
 			{ path: '', name: 'Dashboard', component: () => import('@/pages/Dashboard.vue') },
+			{
+				path: 'fraud',
+				name: 'FraudOverview',
+				component: () => import('@/pages/FraudOverview.vue'),
+			},
 			{ path: 'assistant', name: 'Assistant', component: () => import('@/pages/Assistant.vue') },
 			{
 				path: 'walkthroughs',

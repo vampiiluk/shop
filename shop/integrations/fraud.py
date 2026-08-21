@@ -23,11 +23,12 @@ DEFAULT_PK_CITIES = [
 
 
 class FraudResult:
-	def __init__(self, score: int, verdict: str, signals: dict, fp_verified: bool = False):
+	def __init__(self, score: int, verdict: str, signals: dict, fp_verified: bool = False, raw_event: dict | None = None):
 		self.score = score
 		self.verdict = verdict
 		self.signals = signals
 		self.fp_verified = fp_verified
+		self.raw_event = raw_event
 
 
 def settings() -> frappe._dict:
@@ -292,12 +293,39 @@ def verify_fingerprint(request_id: str, secret_key: str, settings_doc=None) -> d
 	return None
 
 
+def _camel(name: str) -> str:
+	parts = name.split("_")
+	return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
 def _fp_signal(identification: dict, name: str):
-	"""Smart Signals may be nested {'result': ..., 'confidence': ...} or plain values."""
-	signal = (identification.get("signals") or {}).get(name)
-	if isinstance(signal, dict):
-		return signal.get("result")
-	return signal
+	"""Locate a Smart Signal across response shapes: top-level snake_case /
+	camelCase, a legacy 'signals' dict, or products.smart_signals.data."""
+	snake = name.strip().lower().replace("-", "_")
+	keys = [snake, _camel(snake), snake.replace("_", ""), name]
+	for key in keys:
+		value = identification.get(key)
+		if value is None:
+			value = (identification.get("signals") or {}).get(key)
+		if value is None:
+			ss = ((identification.get("products") or {}).get("smart_signals") or {}).get("data") or {}
+			value = ss.get(key)
+		if isinstance(value, dict) and "result" in value:
+			value = value["result"]
+		if value is not None:
+			return value
+	return None
+
+
+def _normalized_score(value) -> float:
+	"""suspectScore-style metric: accept 0-100 ints or 0-1 floats."""
+	try:
+		v = flt(value)
+	except Exception:
+		return 0.0
+	if v > 1:
+		v = v / 100.0
+	return min(max(v, 0.0), 1.0)
 
 
 def evaluate_risk(
@@ -316,29 +344,57 @@ def evaluate_risk(
 	score = 0
 	fp_verified = False
 
-	# ---- 7. device fingerprint (may verify server-side via Fingerprint Identification) ----
+	# ---- 7. device fingerprint (verified server-side via Fingerprint Identification) ----
+	raw_event = None
 	secret = settings_doc.get_password('fingerprint_secret_key', raise_exception=False)
 	if fp_request_id and secret:
 		ident = verify_fingerprint(fp_request_id, secret, settings_doc)
 		fp_verified = bool(ident)
 		if ident:
-			suspect = flt(_fp_signal(ident, "suspectScore"))
+			raw_event = ident
 			bot = _fp_signal(ident, "bot")
-			tampered = _fp_signal(ident, "browserTampering")
-			incognito = _fp_signal(ident, "incognito")
-			replayed = ident.get("replayed")
+			tampered = bool(_fp_signal(ident, "tampering") or _fp_signal(ident, "browserTampering"))
+			incognito = bool(_fp_signal(ident, "incognito"))
+			privacy = bool(_fp_signal(ident, "privacy_settings"))
+			replayed = bool(_fp_signal(ident, "replayed"))
+			suspect = _normalized_score(_fp_signal(ident, "suspect_score") or _fp_signal(ident, "suspectScore"))
+			proxy = bool(_fp_signal(ident, "proxy"))
+			vpn = bool(_fp_signal(ident, "vpn"))
+			vm = bool(_fp_signal(ident, "virtual_machine"))
+			blocklist = _fp_signal(ident, "ip_blocklist") or {}
+			ipinfo = (_fp_signal(ident, "ip_info") or {}).get("v4") or {}
+			geo = ipinfo.get("geolocation") or {}
+
 			signals["fp_suspect_score"] = suspect
 			signals["fp_bot"] = bot
 			signals["fp_tampered"] = tampered
 			signals["fp_incognito"] = incognito
 			signals["fp_replayed"] = replayed
 			signals["fp_visitor_id"] = (ident.get("identification") or {}).get("visitor_id")
-			if bot or tampered or replayed:
+			signals["fp_proxy"] = proxy
+			signals["fp_vpn"] = vpn
+			signals["fp_virtual_machine"] = vm
+			signals["fp_ip_blocklist"] = blocklist
+			signals["fp_network"] = {
+				"ip": ipinfo.get("address"),
+				"city": geo.get("city_name"),
+				"country": geo.get("country_name"),
+				"isp": ipinfo.get("asn_name"),
+				"datacenter": bool(ipinfo.get("datacenter_result")),
+			}
+
+			if bot in ("bad", "all") or tampered or replayed:
 				score += 40
 			elif suspect >= 0.8:
 				score += 30
 			elif suspect >= 0.5:
 				score += 15
+			if blocklist.get("attack_source") or blocklist.get("tor_node") or blocklist.get("email_spam"):
+				score += 20
+			if proxy:
+				score += 15
+			if incognito or privacy:
+				score += 5
 		else:
 			# request id sent but verification failed -> tampered/replayed id
 			signals["fp_verify_failed"] = True
@@ -409,7 +465,7 @@ def evaluate_risk(
 	# Increment blacklist hit count after scoring is complete (avoids write lock during read)
 	if hit:
 		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
-	return FraudResult(score, verdict, signals, fp_verified)
+	return FraudResult(score, verdict, signals, fp_verified, raw_event)
 
 
 def log_fraud_event(order: str | None, customer: dict, address: dict, payment_method: str, fingerprint: str, result: FraudResult):
@@ -433,17 +489,16 @@ def log_fraud_event(order: str | None, customer: dict, address: dict, payment_me
 
 
 def stamp_order(order: str, fingerprint: str, fp_request_id: str, result: FraudResult):
-	frappe.db.set_value(
-		"Sales Order",
-		order,
-		{
-			"custom_device_fingerprint": fingerprint or None,
-			"custom_fp_request_id": fp_request_id or None,
-			"custom_fraud_score": result.score,
-			"custom_fraud_signals": json.dumps(result.signals),
-			"custom_fraud_verdict": result.verdict,
-		},
-	)
+	values = {
+		"custom_device_fingerprint": fingerprint or None,
+		"custom_fp_request_id": fp_request_id or None,
+		"custom_fraud_score": result.score,
+		"custom_fraud_signals": json.dumps(result.signals),
+		"custom_fraud_verdict": result.verdict,
+	}
+	if getattr(result, "raw_event", None):
+		values["custom_fp_event"] = json.dumps(result.raw_event)
+	frappe.db.set_value("Sales Order", order, values)
 
 
 def add_to_blacklist(phone: str, reason: str, source: str = "Manual", email: str | None = None):

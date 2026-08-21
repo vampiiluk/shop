@@ -8,7 +8,10 @@ export const navGroups = [
 	},
 	{
 		label: 'Overview',
-		items: [{ label: 'Dashboard', route: '/', icon: 'lucide-house' }],
+		items: [
+			{ label: 'Dashboard', route: '/', icon: 'lucide-house' },
+			{ label: 'Fraud', route: '/fraud', icon: 'lucide-shield-alert' },
+		],
 	},
 	{
 		label: 'Orders',
