@@ -57,6 +57,7 @@ EDITABLE = (
 	"fraud_blacklist_blocks_all",
 	"landmark_required",
 	"pk_cities",
+	"ors_api_key",
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
 	"fingerprint_region",
