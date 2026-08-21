@@ -52,7 +52,6 @@
   "fingerprint_secret_key",
   "column_break_fingerprint",
   "fingerprint_region",
-  "fingerprint_verify_above",
   "theme_pages_section",
   "theme_pages"
  ],
@@ -350,12 +349,6 @@
    "label": "Fingerprint Region",
    "options": "us\neu\nap",
    "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
-  },
-  {
-   "fieldname": "fingerprint_verify_above",
-   "fieldtype": "Currency",
-   "label": "Verify Orders Above",
-   "description": "Orders above this value get Fingerprint Identification instead of the free FingerprintJS hash."
   },
   {
    "collapsible": 1,

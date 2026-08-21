@@ -25,7 +25,6 @@ INT_FIELDS = frozenset((
 CURRENCY_FIELDS = frozenset((
 	"flat_shipping_rate",
 	"free_shipping_above",
-	"fingerprint_verify_above",
 ))
 
 PASSWORD_FIELDS = frozenset((
@@ -60,9 +59,7 @@ EDITABLE = (
 	"pk_cities",
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
-	"ors_api_key",
 	"fingerprint_region",
-	"fingerprint_verify_above",
 )
 
 

@@ -273,11 +273,11 @@
 				</template>
 			</CatalogSection>
 
-			<CatalogSection title="Fingerprint Identification" description="Server-verified device fingerprinting for high-value orders via Fingerprint v4.">
+			<CatalogSection title="Fingerprint Identification" description="Server-verified device fingerprinting on every checkout via Fingerprint v4.">
 				<p class="text-p-sm text-ink-gray-5">
-					Every checkout already fingerprints the browser with the free FingerprintJS library.
-					When a public key is configured and the cart value crosses the threshold below,
-					the v4 agent loads instead and sends an event ID for server-side verification. <a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
+					When a public key is configured, the v4 agent loads at checkout and sends an
+					event ID that the server verifies for bot, tamper and proxy signals.
+					<a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
 				</p>
 				<div class="grid max-w-lg grid-cols-2 gap-4">
 					<FormControl
@@ -300,12 +300,6 @@
 						
 						label="Secret key"
 						placeholder="Enter to change"
-					/>
-					<FormControl
-						v-model.number="fingerprint.fingerprint_verify_above"
-						type="number"
-						:label="`Verify orders above (${data.currency})`"
-						description="0 means never verify server-side."
 					/>
 				</div>
 				<template #footer>
@@ -371,7 +365,6 @@ const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
 	fingerprint_region: 'ap',
-	fingerprint_verify_above: 0,
 })
 
 const settings = createResource({
@@ -430,7 +423,6 @@ function hydrate(doc: Record<string, any>) {
 		fingerprint_public_key: doc.fingerprint_public_key || '',
 		fingerprint_secret_key: doc.fingerprint_secret_key || '',
 		fingerprint_region: doc.fingerprint_region || 'ap',
-		fingerprint_verify_above: doc.fingerprint_verify_above ?? 0,
 	})
 }
 
