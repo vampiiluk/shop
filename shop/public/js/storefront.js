@@ -6,10 +6,8 @@
 	};
 
 	// Device fingerprint via Fingerprint Identification (API-only).
-	// The v4 agent loads for every visitor from the configured endpoint;
-	// result carries {visitorId, requestId} for server-side verification.
-	const fingerprintPromise = loadFingerprint();
-
+	// Identification runs ONLY when Place Order is clicked — one billed
+	// event per order attempt, not per page view.
 	function loadFingerprint() {
 		const store = (window.page_data && window.page_data.store) || {};
 		if (!store.fp_public_key) {
@@ -306,6 +304,7 @@
 		const submit = form.querySelector('[type="submit"]');
 		if (submit) submit.disabled = true;
 		try {
+			const fp = await loadFingerprint();
 			const result = await call("shop.storefront.checkout.place_order", {
 				customer: {
 					email: getVal("email"),
@@ -323,8 +322,8 @@
 					alt_phone: getVal("alt_phone") || getVal("custom_alt_phone"),
 				},
 				payment_method: getVal("payment_method") || "cod",
-				device_fingerprint: (await fingerprintPromise).visitorId,
-				fp_request_id: (await fingerprintPromise).requestId,
+				device_fingerprint: fp.visitorId,
+				fp_request_id: fp.requestId,
 			});
 			window.location.href = result.payment_url || result.confirmation_url;
 		} catch (error) {

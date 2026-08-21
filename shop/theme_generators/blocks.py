@@ -111,7 +111,7 @@ def upsert_page(
 			"blocks": frappe.as_json(blocks),
 			"draft_blocks": None,
 			"page_data_script": data_script,
-			"body_html": '<script src="/assets/shop/js/storefront.js?v=2" defer></script>',
+			"body_html": '<script src="/assets/shop/js/storefront.js?v=3" defer></script>',
 			"authenticated_access": 1 if authenticated_access else 0,
 			"meta_description": meta_description,
 			"client_scripts": [],
