@@ -314,26 +314,30 @@
 
 	async function submitCheckout(form) {
 		const data = new FormData(form);
+		const getVal = (name) => {
+			const input = document.querySelector(`[data-shop="checkout-form"] [name="${name}"]`);
+			return (data.get(name) || (input ? input.value : "") || "").trim();
+		};
 		const submit = form.querySelector('[type="submit"]');
 		if (submit) submit.disabled = true;
 		try {
 			const result = await call("shop.storefront.checkout.place_order", {
 				customer: {
-					email: data.get("email"),
-					full_name: data.get("full_name"),
-					phone: data.get("phone"),
+					email: getVal("email"),
+					full_name: getVal("full_name") || getVal("name"),
+					phone: getVal("phone"),
 				},
 				address: {
-					address_line1: data.get("address_line1"),
-					address_line2: data.get("address_line2"),
-					city: data.get("city"),
-					state: data.get("state"),
-					country: data.get("country"),
-					pincode: data.get("pincode"),
-					landmark: data.get("landmark"),
-					alt_phone: data.get("alt_phone"),
+					address_line1: getVal("address_line1"),
+					address_line2: getVal("address_line2"),
+					city: getVal("city"),
+					state: getVal("state"),
+					country: getVal("country") || "Pakistan",
+					pincode: getVal("pincode"),
+					landmark: getVal("landmark") || getVal("custom_landmark"),
+					alt_phone: getVal("alt_phone") || getVal("custom_alt_phone"),
 				},
-				payment_method: data.get("payment_method") || "cod",
+				payment_method: getVal("payment_method") || "cod",
 				device_fingerprint: (await fingerprintPromise).visitorId,
 				fp_request_id: (await fingerprintPromise).requestId,
 			});
