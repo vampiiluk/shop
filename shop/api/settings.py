@@ -30,6 +30,7 @@ CURRENCY_FIELDS = frozenset((
 
 PASSWORD_FIELDS = frozenset((
 	"fingerprint_secret_key",
+	"ors_api_key",
 ))
 
 EDITABLE = (
@@ -59,6 +60,7 @@ EDITABLE = (
 	"pk_cities",
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
+	"ors_api_key",
 	"fingerprint_region",
 	"fingerprint_verify_above",
 )
@@ -74,7 +76,10 @@ def get_settings() -> dict:
 		# Password fields: never return the encrypted value; return empty
 		# so the UI can show a placeholder instead of "******".
 		if field in PASSWORD_FIELDS:
-			value = ""
+			try:
+				value = settings.get_password(field, raise_exception=False) or ""
+			except Exception:
+				value = ""
 		payload[field] = value
 	payload.update(
 		{

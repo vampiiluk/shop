@@ -238,6 +238,18 @@
 					description="Checkout requires a famous landmark so courier riders can find the address."
 				/>
 				<div class="max-w-lg">
+					
+				<Password
+					v-model="address_cfg.ors_api_key"
+					
+					label="OpenRouteService API Key"
+				>
+					<template #description>
+						Geocoding API key for precise address fraud checks. <a href="https://heigit.org/" target="_blank" class="text-brand-blue hover:underline">Get a free key from HeiGIT / OpenRouteService</a>.
+					</template>
+				</Password>
+
+				<div class="mt-4">
 					<label class="mb-1 block text-sm text-ink-gray-6">Pakistan city list</label>
 					<textarea
 						v-model="address_cfg.pk_cities"
@@ -249,6 +261,7 @@
 						Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score.
 					</p>
 				</div>
+			</div>
 				<template #footer>
 					<Button
 						variant="solid"
@@ -264,7 +277,7 @@
 				<p class="text-p-sm text-ink-gray-5">
 					Every checkout already fingerprints the browser with the free FingerprintJS library.
 					When a public key is configured and the cart value crosses the threshold below,
-					the v4 agent loads instead and sends an event ID for server-side verification.
+					the v4 agent loads instead and sends an event ID for server-side verification. <a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
 				</p>
 				<div class="grid max-w-lg grid-cols-2 gap-4">
 					<FormControl
@@ -282,9 +295,9 @@
 							{ label: 'EU (Frankfurt) — eu', value: 'eu' },
 						]"
 					/>
-					<FormControl
+					<Password
 						v-model="fingerprint.fingerprint_secret_key"
-						type="password"
+						
 						label="Secret key"
 						placeholder="Enter to change"
 					/>
@@ -321,7 +334,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { FormControl, Switch, call, createResource, toast } from 'frappe-ui'
+import { FormControl, Password, Switch, call, createResource, toast } from 'frappe-ui'
 
 import LucideExternalLink from '~icons/lucide/external-link'
 
@@ -353,7 +366,7 @@ const fraud = reactive({
 	fraud_auto_blacklist_failures: 2,
 	fraud_blacklist_blocks_all: false,
 })
-const address_cfg = reactive({ landmark_required: true, pk_cities: '' })
+const address_cfg = reactive({ landmark_required: true, pk_cities: '', ors_api_key: '' })
 const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
@@ -411,6 +424,7 @@ function hydrate(doc: Record<string, any>) {
 	Object.assign(address_cfg, {
 		landmark_required: !!doc.landmark_required,
 		pk_cities: doc.pk_cities || '',
+		ors_api_key: doc.ors_api_key || '',
 	})
 	Object.assign(fingerprint, {
 		fingerprint_public_key: doc.fingerprint_public_key || '',

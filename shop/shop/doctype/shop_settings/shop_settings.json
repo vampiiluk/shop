@@ -26,34 +26,34 @@
   "low_stock_threshold",
   "fulfillment_provider",
   "auto_send_to_fulfillment",
-"payments_section",
-   "enable_cod",
-   "column_break_payments",
-   "payment_gateway_account",
-   "auto_bill_on_payment",
-   "tax_template",
-"coupons_section",
-    "custom_sync_coupons_to_pos",
-    "custom_sync_pos_coupons_to_site",
-    "fraud_section",
-    "enable_fraud_check",
-    "fraud_advance_threshold",
-    "fraud_velocity_max",
-    "column_break_fraud",
-    "fraud_risky_hour_start",
-    "fraud_risky_hour_end",
-    "fraud_auto_blacklist_failures",
-    "fraud_blacklist_blocks_all",
-    "address_section",
-    "pk_cities",
-    "landmark_required",
-    "fingerprint_section",
-    "fingerprint_public_key",
-    "fingerprint_secret_key",
-    "column_break_fingerprint",
-    "fingerprint_region",
-    "fingerprint_verify_above",
-   "theme_pages_section",
+  "payments_section",
+  "enable_cod",
+  "column_break_payments",
+  "payment_gateway_account",
+  "auto_bill_on_payment",
+  "tax_template",
+  "coupons_section",
+  "custom_sync_coupons_to_pos",
+  "custom_sync_pos_coupons_to_site",
+  "fraud_section",
+  "enable_fraud_check",
+  "fraud_advance_threshold",
+  "fraud_velocity_max",
+  "column_break_fraud",
+  "fraud_risky_hour_start",
+  "fraud_risky_hour_end",
+  "fraud_auto_blacklist_failures",
+  "fraud_blacklist_blocks_all",
+  "address_section",
+  "pk_cities",
+  "landmark_required",
+  "fingerprint_section",
+  "fingerprint_public_key",
+  "fingerprint_secret_key",
+  "column_break_fingerprint",
+  "fingerprint_region",
+  "fingerprint_verify_above",
+  "theme_pages_section",
   "theme_pages"
  ],
  "fields": [
@@ -237,123 +237,129 @@
    "label": "Sync POS Coupons to Storefront",
    "description": "Mirror POS Coupons (Promotional) to Coupon Codes so the same code works on the storefront. Turning this off leaves already-synced coupons in place."
   },
-{
-    "collapsible": 1,
-    "fieldname": "fraud_section",
-    "fieldtype": "Section Break",
-    "label": "Fraud Protection"
-   },
-   {
-    "default": "1",
-    "fieldname": "enable_fraud_check",
-    "fieldtype": "Check",
-    "label": "Enable Fraud Check at Checkout",
-    "description": "Score every order against blacklists, velocity, address quality, city RTO rate, ordering time and device fingerprint."
-   },
-   {
-    "default": "70",
-    "fieldname": "fraud_advance_threshold",
-    "fieldtype": "Int",
-    "label": "Advance Payment Score",
-    "description": "Orders scoring at or above this are switched from COD to online payment."
-   },
-   {
-    "default": "2",
-    "fieldname": "fraud_velocity_max",
-    "fieldtype": "Int",
-    "label": "Max Orders per Hour",
-    "description": "Orders from the same phone faster than this are blocked (COD)."
-   },
-   {
-    "fieldname": "column_break_fraud",
-    "fieldtype": "Column Break"
-   },
-   {
-    "default": "23",
-    "fieldname": "fraud_risky_hour_start",
-    "fieldtype": "Int",
-    "label": "Risky Hour Start",
-    "description": "COD orders placed between this hour and Risky Hour End get extra scrutiny."
-   },
-   {
-    "default": "5",
-    "fieldname": "fraud_risky_hour_end",
-    "fieldtype": "Int",
-    "label": "Risky Hour End"
-   },
-   {
-    "default": "2",
-    "fieldname": "fraud_auto_blacklist_failures",
-    "fieldtype": "Int",
-    "label": "Auto-blacklist After",
-    "description": "Failed or RTO deliveries for the same customer after this many occurrences auto-blacklist the phone."
-   },
-   {
-    "default": "0",
-    "fieldname": "fraud_blacklist_blocks_all",
-    "fieldtype": "Check",
-    "label": "Blacklist Blocks All Payments",
-    "description": "When off, blacklisted phones are blocked from COD only; online payment orders still pass (but are logged)."
-   },
-   {
-    "collapsible": 1,
-    "fieldname": "address_section",
-    "fieldtype": "Section Break",
-    "label": "Pakistani Addresses"
-   },
-   {
-    "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
-    "fieldname": "pk_cities",
-    "fieldtype": "Small Text",
-    "label": "Pakistan City List",
-    "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
-   },
-   {
-    "default": "1",
-    "fieldname": "landmark_required",
-    "fieldtype": "Check",
-    "label": "Require Nearest Landmark",
-    "description": "Checkout requires a famous landmark so courier riders can find the address."
-   },
-   {
-    "collapsible": 1,
-    "fieldname": "fingerprint_section",
-    "fieldtype": "Section Break",
-    "label": "Fingerprint Identification"
-   },
-   {
-    "fieldname": "fingerprint_public_key",
-    "fieldtype": "Data",
-    "label": "Fingerprint Public Key",
-    "description": "Fingerprint Identification browser key (dashboard.fingerprint.com). When set, high-value orders are identified server-side for accuracy."
-   },
-   {
-    "fieldname": "fingerprint_secret_key",
-    "fieldtype": "Password",
-    "label": "Fingerprint Secret Key",
-    "description": "Server-side API secret used to verify identifications."
-   },
-   {
-    "fieldname": "column_break_fingerprint",
-    "fieldtype": "Column Break"
-   },
-   {
-    "default": "ap",
-    "fieldname": "fingerprint_region",
-    "fieldtype": "Select",
-    "label": "Fingerprint Region",
-    "options": "us\neu\nap",
-    "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
-   },
-   {
-    "fieldname": "fingerprint_verify_above",
-    "fieldtype": "Currency",
-    "label": "Verify Orders Above",
-    "description": "Orders above this value get Fingerprint Identification instead of the free FingerprintJS hash."
-   },
-   {
-    "collapsible": 1,
-    "fieldname": "theme_pages_section",
+  {
+   "collapsible": 1,
+   "fieldname": "fraud_section",
+   "fieldtype": "Section Break",
+   "label": "Fraud Protection"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_fraud_check",
+   "fieldtype": "Check",
+   "label": "Enable Fraud Check at Checkout",
+   "description": "Score every order against blacklists, velocity, address quality, city RTO rate, ordering time and device fingerprint."
+  },
+  {
+   "default": "70",
+   "fieldname": "fraud_advance_threshold",
+   "fieldtype": "Int",
+   "label": "Advance Payment Score",
+   "description": "Orders scoring at or above this are switched from COD to online payment."
+  },
+  {
+   "default": "2",
+   "fieldname": "fraud_velocity_max",
+   "fieldtype": "Int",
+   "label": "Max Orders per Hour",
+   "description": "Orders from the same phone faster than this are blocked (COD)."
+  },
+  {
+   "fieldname": "column_break_fraud",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "23",
+   "fieldname": "fraud_risky_hour_start",
+   "fieldtype": "Int",
+   "label": "Risky Hour Start",
+   "description": "COD orders placed between this hour and Risky Hour End get extra scrutiny."
+  },
+  {
+   "default": "5",
+   "fieldname": "fraud_risky_hour_end",
+   "fieldtype": "Int",
+   "label": "Risky Hour End"
+  },
+  {
+   "default": "2",
+   "fieldname": "fraud_auto_blacklist_failures",
+   "fieldtype": "Int",
+   "label": "Auto-blacklist After",
+   "description": "Failed or RTO deliveries for the same customer after this many occurrences auto-blacklist the phone."
+  },
+  {
+   "default": "0",
+   "fieldname": "fraud_blacklist_blocks_all",
+   "fieldtype": "Check",
+   "label": "Blacklist Blocks All Payments",
+   "description": "When off, blacklisted phones are blocked from COD only; online payment orders still pass (but are logged)."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "address_section",
+   "fieldtype": "Section Break",
+   "label": "Pakistani Addresses"
+  },
+  {
+   "fieldname": "ors_api_key",
+   "fieldtype": "Password",
+   "label": "OpenRouteService API Key",
+   "description": "Geocoding API key for precise address fraud checks. <a href='https://heigit.org/' target='_blank'>Get a free key from HeiGIT / OpenRouteService</a>."
+  },
+  {
+   "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
+   "fieldname": "pk_cities",
+   "fieldtype": "Small Text",
+   "label": "Pakistan City List",
+   "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
+  },
+  {
+   "default": "1",
+   "fieldname": "landmark_required",
+   "fieldtype": "Check",
+   "label": "Require Nearest Landmark",
+   "description": "Checkout requires a famous landmark so courier riders can find the address."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "fingerprint_section",
+   "fieldtype": "Section Break",
+   "label": "Fingerprint Identification"
+  },
+  {
+   "fieldname": "fingerprint_public_key",
+   "fieldtype": "Data",
+   "label": "Fingerprint Public Key",
+   "description": "Fingerprint Identification browser key. <a href='https://fingerprint.com/signup/' target='_blank'>Create an account here</a>. When set, high-value orders are identified server-side for accuracy."
+  },
+  {
+   "fieldname": "fingerprint_secret_key",
+   "fieldtype": "Password",
+   "label": "Fingerprint Secret Key",
+   "description": "Server-side API secret used to verify identifications."
+  },
+  {
+   "fieldname": "column_break_fingerprint",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "ap",
+   "fieldname": "fingerprint_region",
+   "fieldtype": "Select",
+   "label": "Fingerprint Region",
+   "options": "us\neu\nap",
+   "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
+  },
+  {
+   "fieldname": "fingerprint_verify_above",
+   "fieldtype": "Currency",
+   "label": "Verify Orders Above",
+   "description": "Orders above this value get Fingerprint Identification instead of the free FingerprintJS hash."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "theme_pages_section",
    "fieldtype": "Section Break",
    "label": "Theme Pages"
   },

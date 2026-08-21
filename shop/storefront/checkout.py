@@ -160,7 +160,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		if device_fingerprint:
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
-		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint)
+		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer)
 		if fraud:
 			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
 			fraud_module.log_fraud_event(sales_order.name, customer, address, payment_method, device_fingerprint or "", fraud)
@@ -251,8 +251,10 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str):
 	validate_email_address(customer.get("email"), throw=True)
 	if not customer.get("full_name"):
 		frappe.throw(_("Name is required"))
-	if cint(settings.landmark_required) and not (address.get("landmark") or "").strip():
-		frappe.throw(_("Nearest landmark is required so delivery riders can find you"))
+	if cint(settings.landmark_required):
+		landmark = (address.get("landmark") or address.get("custom_landmark") or "").strip()
+		if not landmark:
+			frappe.throw(_("Nearest landmark is required so delivery riders can find you. (Received: {})").format(str(address)))
 	validate_stock(cart)
 
 
@@ -271,9 +273,26 @@ def validate_stock(cart):
 
 def get_or_create_customer(customer: dict) -> str:
 	email = customer["email"].strip().lower()
-	existing = find_customer_by_email(email)
+	phone = (customer.get("phone") or "").strip()
+	
+	existing = None
+	if phone:
+		contact_by_phone = frappe.db.get_value("Contact Phone", {"phone": phone}, "parent")
+		if contact_by_phone:
+			existing = frappe.db.get_value("Dynamic Link", {"parent": contact_by_phone, "link_doctype": "Customer"}, "link_name")
+			
+	if not existing:
+		existing = find_customer_by_email(email)
+		
 	if existing:
+		if phone:
+			contact = frappe.db.get_value("Dynamic Link", {"link_doctype": "Customer", "link_name": existing, "parenttype": "Contact"}, "parent")
+			if contact and not frappe.db.exists("Contact Phone", {"parent": contact, "phone": phone}):
+				contact_doc = frappe.get_doc("Contact", contact)
+				contact_doc.add_phone(phone, is_primary_mobile_no=True)
+				contact_doc.save(ignore_permissions=True)
 		return existing
+		
 	party = frappe.get_doc(
 		{
 			"doctype": "Customer",
@@ -364,7 +383,7 @@ def find_address(party: str, address: dict) -> str | None:
 	)
 
 
-def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = ""):
+def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = "", customer_data: dict = None):
 	settings = frappe.get_cached_doc("Shop Settings")
 	cart_module.refresh_rates(cart)
 	coupon, discount = cart_module.applied_discount(
@@ -385,6 +404,8 @@ def create_sales_order(cart, party: str, shipping_address, device_fingerprint: s
 			"customer_address": shipping_address.name,
 			"shipping_address_name": shipping_address.name,
 			"custom_device_fingerprint": device_fingerprint or None,
+			"contact_email": (customer_data or {}).get("email"),
+			"contact_mobile": (customer_data or {}).get("phone"),
 			"items": [
 				{
 					"item_code": row.item_code,
