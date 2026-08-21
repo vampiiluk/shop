@@ -216,7 +216,7 @@ def account_orders() -> dict:
 def store_details() -> dict:
 	settings = frappe.get_cached_doc("Shop Settings")
 	signed_in = frappe.session.user not in ("Guest", None)
-	return {
+	result = {
 		"name": settings.store_name,
 		"logo": settings.store_logo,
 		"currency": settings.currency,
@@ -226,4 +226,8 @@ def store_details() -> dict:
 		"fp_public_key": settings.fingerprint_public_key or "",
 		"fp_region": settings.fingerprint_region or "ap",
 		"fp_verify_above": settings.fingerprint_verify_above or 0,
+		"landmark_required": settings.landmark_required,
 	}
+	if settings.pk_cities:
+		result["pk_cities"] = [c.strip() for c in settings.pk_cities.split(",") if c.strip()]
+	return result

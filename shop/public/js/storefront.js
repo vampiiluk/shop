@@ -535,6 +535,23 @@
 		).observe(anchor);
 	}
 
+	function initCityDatalist() {
+		const store = (window.page_data && window.page_data.store) || {};
+		const cities = store.pk_cities;
+		if (!Array.isArray(cities) || !cities.length) return;
+		const cityInput = document.querySelector('[data-shop="checkout-form"] [name="city"]');
+		if (!cityInput) return;
+		const dl = document.createElement("datalist");
+		dl.id = "pk-cities";
+		cities.forEach((c) => {
+			const opt = document.createElement("option");
+			opt.value = c;
+			dl.appendChild(opt);
+		});
+		document.body.appendChild(dl);
+		cityInput.setAttribute("list", "pk-cities");
+	}
+
 	document.addEventListener("DOMContentLoaded", () => {
 		initGallery();
 		initVariantPicker();
@@ -544,6 +561,7 @@
 		syncPaymentUI();
 		initBuyBar();
 		initFilters();
+		initCityDatalist();
 		document
 			.querySelectorAll('[data-shop="checkout-form"] input[name="payment_method"]')
 			.forEach((radio) => radio.addEventListener("change", syncPaymentUI));
