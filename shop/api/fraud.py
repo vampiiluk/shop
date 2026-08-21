@@ -227,35 +227,57 @@ def get_overview() -> dict:
 	Snapshot data (score/verdict/signals/raw fingerprint event) is captured at
 	order placement and never changes. Everything returned here is computed
 	live: verdict counts, averages, blacklist state, city RTO rates.
+
+	Reads from Sales Order (every scored order carries a verdict, including
+	"Pass") so the overview reflects ALL orders, not just flagged ones.
 	"""
 	from frappe.utils import add_days, nowdate
 
 	def bucket(days: int) -> dict:
 		since = add_days(nowdate(), -days)
 		rows = frappe.get_all(
-			"Shop Fraud Event",
-			filters={"creation": [">=", since]},
-			fields=["verdict", "score", "fp_verified"],
+			"Sales Order",
+			filters={"custom_fraud_verdict": ["is", "set"], "creation": [">=", since]},
+			fields=["custom_fraud_verdict", "custom_fraud_score", "custom_device_fingerprint"],
 		)
-		out = {"total": len(rows), "flag": 0, "advance": 0, "block": 0, "avg_score": 0, "verified": 0}
+		out = {
+			"total": len(rows),
+			"pass": 0,
+			"flag": 0,
+			"advance": 0,
+			"block": 0,
+			"avg_score": 0,
+			"fingerprinted": 0,
+		}
 		if rows:
 			for r in rows:
-				if r.verdict == "Flag":
+				if r.custom_fraud_verdict == "Pass":
+					out["pass"] += 1
+				elif r.custom_fraud_verdict == "Flag":
 					out["flag"] += 1
-				elif r.verdict == "Advance Required":
+				elif r.custom_fraud_verdict == "Advance Required":
 					out["advance"] += 1
-				elif r.verdict == "Block":
+				elif r.custom_fraud_verdict == "Block":
 					out["block"] += 1
-				if r.fp_verified:
-					out["verified"] += 1
-			out["avg_score"] = round(sum(r.score or 0 for r in rows) / len(rows), 1)
+				if r.custom_device_fingerprint:
+					out["fingerprinted"] += 1
+			out["avg_score"] = round(sum(r.custom_fraud_score or 0 for r in rows) / len(rows), 1)
 		return out
 
-	recent_events = frappe.get_all(
-		"Shop Fraud Event",
-		fields=["name", "creation", "order", "phone", "city", "payment_method", "device_fingerprint", "fp_verified", "score", "verdict"],
-		order_by="creation desc",
-		limit=15,
+	recent_events = frappe.db.sql(
+		"""
+		SELECT so.name AS order_name, so.creation, so.customer,
+			so.contact_mobile AS phone, a.city,
+			so.custom_fraud_verdict AS verdict, so.custom_fraud_score AS score,
+			(so.custom_device_fingerprint IS NOT NULL AND so.custom_device_fingerprint != '') AS fingerprinted,
+			so.custom_delivery_outcome AS delivery_outcome
+		FROM `tabSales Order` so
+		LEFT JOIN `tabAddress` a ON a.name = so.shipping_address_name
+		WHERE so.custom_fraud_verdict IS NOT NULL AND so.custom_fraud_verdict != ''
+		ORDER BY so.creation DESC
+		LIMIT 15
+		""",
+		as_dict=True,
 	)
 
 	blacklist = frappe.get_all(

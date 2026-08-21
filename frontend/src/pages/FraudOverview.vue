@@ -20,7 +20,7 @@
 					<div class="flex items-baseline justify-between">
 						<div class="text-p-sm text-ink-gray-5">{{ label }}</div>
 						<div v-if="kpi(key).total" class="text-xs text-ink-gray-5">
-							avg {{ kpi(key).avg_score }} · {{ verifiedPct(key) }}% verified
+							avg {{ kpi(key).avg_score }} · {{ fingerprintedPct(key) }}% fingerprinted
 						</div>
 					</div>
 					<div class="mt-2 text-2xl font-semibold text-ink-gray-9">{{ kpi(key).total }}</div>
@@ -28,7 +28,8 @@
 						<UiStatusBadge v-if="kpi(key).block" theme="red" :label="`${kpi(key).block} blocked`" />
 						<UiStatusBadge v-if="kpi(key).advance" theme="orange" :label="`${kpi(key).advance} advance`" />
 						<UiStatusBadge v-if="kpi(key).flag" :label="`${kpi(key).flag} flagged`" />
-						<span v-if="!kpi(key).total" class="text-ink-gray-4">No events</span>
+						<UiStatusBadge v-if="kpi(key).pass" theme="green" :label="`${kpi(key).pass} passed`" />
+						<span v-if="!kpi(key).total" class="text-ink-gray-4">No orders</span>
 					</div>
 				</div>
 			</div>
@@ -38,7 +39,7 @@
 				<div class="lg:col-span-2">
 					<div class="overflow-hidden rounded-lg border border-outline-gray-1">
 						<div class="border-b border-outline-gray-1 px-4 py-3 text-sm font-medium text-ink-gray-7">
-							Recent fraud events
+							Recent orders
 						</div>
 						<table v-if="overview.data.recent_events.length" class="w-full text-base">
 							<thead>
@@ -46,30 +47,31 @@
 									<th class="px-3 py-2 font-normal">Order</th>
 									<th class="px-3 py-2 font-normal">Phone</th>
 									<th class="px-3 py-2 font-normal">City</th>
-									<th class="px-3 py-2 font-normal">Verdict</th>
+									<th class="px-3 py-2 font-normal">Fraud</th>
 									<th class="px-3 py-2 text-right font-normal">When</th>
 								</tr>
 							</thead>
 							<tbody>
 								<tr
 									v-for="event in overview.data.recent_events"
-									:key="event.name"
+									:key="event.order_name"
 									class="border-b border-outline-gray-1 last:border-b-0"
 								>
 									<td class="px-3 py-2">
 										<router-link
-											v-if="event.order"
-											:to="`/orders/${event.order}`"
+											:to="`/orders/${event.order_name}`"
 											class="font-medium text-ink-gray-8 hover:underline"
 										>
-											{{ event.order }}
+											{{ event.order_name }}
 										</router-link>
-										<span v-else class="text-ink-gray-4">blocked</span>
 									</td>
 									<td class="px-3 py-2 text-ink-gray-7">{{ event.phone || '—' }}</td>
 									<td class="px-3 py-2 text-ink-gray-7">{{ event.city || '—' }}</td>
 									<td class="px-3 py-2">
-										<UiStatusBadge :theme="verdictTheme(event.verdict)" :label="`${event.verdict} (${event.score})`" />
+										<div class="flex items-center gap-1.5">
+											<UiStatusBadge :theme="verdictTheme(event.verdict)" :label="`${event.verdict} (${event.score})`" />
+											<span v-if="!event.fingerprinted" class="text-xs text-ink-gray-4">no fp</span>
+										</div>
 									</td>
 									<td class="px-3 py-2 text-right text-sm text-ink-gray-5">
 										{{ formatDateTime(event.creation) }}
@@ -137,17 +139,18 @@ const overview = createResource({
 })
 
 function kpi(key: string) {
-	return overview.data?.kpis?.[key] ?? { total: 0, flag: 0, advance: 0, block: 0, avg_score: 0, verified: 0 }
+	return overview.data?.kpis?.[key] ?? { total: 0, pass: 0, flag: 0, advance: 0, block: 0, avg_score: 0, fingerprinted: 0 }
 }
 
-function verifiedPct(key: string) {
+function fingerprintedPct(key: string) {
 	const b = kpi(key)
-	return b.total ? Math.round((b.verified / b.total) * 100) : 0
+	return b.total ? Math.round((b.fingerprinted / b.total) * 100) : 0
 }
 
 function verdictTheme(verdict: string) {
 	if (verdict === 'Block') return 'red'
 	if (verdict === 'Advance Required') return 'orange'
-	return 'gray'
+	if (verdict === 'Flag') return 'gray'
+	return 'green'
 }
 </script>
