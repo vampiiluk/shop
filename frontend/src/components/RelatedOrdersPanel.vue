@@ -15,7 +15,7 @@
 				>
 					<div class="flex justify-between items-center mb-1">
 						<span class="font-medium text-ink-gray-8">{{ o.name }}</span>
-						<UiStatusBadge :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" :theme="o.custom_fraud_verdict === 'Pass' ? 'green' : 'red'" />
+						<UiStatusBadge :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" :theme="verdictTheme(o.custom_fraud_verdict)" />
 					</div>
 					<div class="text-sm text-ink-gray-8">{{ o.customer }}</div>
 					<div class="mt-2 flex flex-wrap gap-1">
@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { Spinner, createResource } from "frappe-ui"
 import UiStatusBadge from "@/components/UiStatusBadge.vue"
+import { verdictTheme } from "@/utils/verdict"
 
 const props = defineProps<{ order: string }>()
 

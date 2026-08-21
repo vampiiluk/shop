@@ -6,13 +6,12 @@
 				<div class="flex flex-col gap-1 min-w-32 mr-2">
 					<div class="flex justify-between text-xs font-semibold text-ink-gray-5">
 						<span>At checkout</span>
-						<span
-							:class="{ 'text-green-600': fraud.data.score < 40, 'text-orange-500': fraud.data.score >= 40 && fraud.data.score < 70, 'text-red-600': fraud.data.score >= 70 }"
-						>{{ fraud.data.verdict }} {{ fraud.data.score }}</span>
+						<span :class="verdictTextClass(fraud.data.verdict)">{{ fraud.data.verdict }} {{ fraud.data.score }}</span>
 					</div>
 					<div class="h-1.5 w-32 bg-surface-gray-3 rounded-full overflow-hidden flex">
-						<div class="h-full transition-all duration-500 rounded-full"
-							:class="{ 'bg-green-500': fraud.data.score < 40, 'bg-orange-500': fraud.data.score >= 40 && fraud.data.score < 70, 'bg-red-500': fraud.data.score >= 70 }"
+						<div
+							class="h-full transition-all duration-500 rounded-full"
+							:class="verdictBarClass(fraud.data.verdict)"
 							:style="{ width: `${Math.min(100, Math.max(5, fraud.data.score))}%` }"
 						/>
 					</div>
@@ -75,6 +74,7 @@ import { computed } from 'vue'
 import { Spinner, createResource } from 'frappe-ui'
 
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import { verdictBarClass, verdictTextClass } from '@/utils/verdict'
 
 const props = defineProps<{ order: string }>()
 

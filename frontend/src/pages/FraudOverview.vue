@@ -27,7 +27,7 @@
 					<div class="mt-1 flex flex-wrap gap-1.5 text-xs">
 						<UiStatusBadge v-if="kpi(key).block" theme="red" :label="`${kpi(key).block} blocked`" />
 						<UiStatusBadge v-if="kpi(key).advance" theme="orange" :label="`${kpi(key).advance} advance`" />
-						<UiStatusBadge v-if="kpi(key).flag" :label="`${kpi(key).flag} flagged`" />
+						<UiStatusBadge v-if="kpi(key).flag" theme="yellow" :label="`${kpi(key).flag} flagged`" />
 						<UiStatusBadge v-if="kpi(key).pass" theme="green" :label="`${kpi(key).pass} passed`" />
 						<span v-if="!kpi(key).total" class="text-ink-gray-4">No orders</span>
 					</div>
@@ -141,6 +141,7 @@ import { Spinner, createResource } from 'frappe-ui'
 import CatalogListState from '@/components/CatalogListState.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 import { formatDateTime } from '@/utils/format'
+import { verdictTheme } from '@/utils/verdict'
 
 const overview = createResource({
 	url: 'shop.api.fraud.get_overview',
@@ -156,10 +157,4 @@ function fingerprintedPct(key: string) {
 	return b.total ? Math.round((b.fingerprinted / b.total) * 100) : 0
 }
 
-function verdictTheme(verdict: string) {
-	if (verdict === 'Block') return 'red'
-	if (verdict === 'Advance Required') return 'orange'
-	if (verdict === 'Flag') return 'gray'
-	return 'green'
-}
 </script>

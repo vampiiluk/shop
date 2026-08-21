@@ -37,7 +37,7 @@
 				<UiStatusBadge
 					v-if="live.data.last_order_verdict"
 					:label="live.data.last_order_verdict"
-					:theme="live.data.last_order_verdict === 'Pass' ? 'green' : 'red'"
+					:theme="verdictTheme(live.data.last_order_verdict)"
 				/>
 			</div>
 		</div>
@@ -100,6 +100,7 @@
 import { computed } from "vue"
 import { Spinner, createResource } from "frappe-ui"
 import UiStatusBadge from "@/components/UiStatusBadge.vue"
+import { verdictTheme } from "@/utils/verdict"
 
 const props = defineProps<{ customer: string }>()
 

@@ -10,7 +10,7 @@
 		<div v-if="profile.data">
 			<UiPageHeader :title="name" back-to="/fraud" back-label="Fraud Overview">
 				<template #badges>
-					<UiStatusBadge :theme="verdictTheme" :label="`${profile.data.verdict} (${profile.data.score})`" />
+					<UiStatusBadge :theme="verdictTheme(profile.data.verdict)" :label="`${profile.data.verdict} (${profile.data.score})`" />
 					<UiStatusBadge
 						v-if="fp && fp.suspect_score !== undefined"
 						:theme="fp.suspect_score >= 0.8 ? 'red' : fp.suspect_score >= 0.5 ? 'orange' : 'green'"
@@ -110,7 +110,10 @@
 							>
 								<div class="flex justify-between items-center">
 									<span class="font-medium text-ink-gray-8">{{ o.name }}</span>
-									<UiStatusBadge :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" />
+									<UiStatusBadge
+										:theme="verdictTheme(o.custom_fraud_verdict)"
+										:label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`"
+									/>
 								</div>
 								<div class="mt-0.5 text-xs text-ink-gray-5">{{ o.customer }}</div>
 							</router-link>
@@ -128,7 +131,10 @@
 							>
 								<div class="flex justify-between items-center">
 									<span class="font-medium text-ink-gray-8">{{ o.name }}</span>
-									<UiStatusBadge :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" />
+									<UiStatusBadge
+										:theme="verdictTheme(o.custom_fraud_verdict)"
+										:label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`"
+									/>
 								</div>
 								<div class="mt-0.5 text-xs text-ink-gray-5">{{ o.customer }}</div>
 							</router-link>
@@ -153,6 +159,7 @@ import JsonTree from '@/components/JsonTree.vue'
 import SignalMatrix from '@/components/SignalMatrix.vue'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import { verdictTheme } from '@/utils/verdict'
 
 const props = defineProps<{ name: string }>()
 
@@ -185,12 +192,4 @@ const parsedSignals = computed(() => {
 })
 
 const fp = computed(() => profile.data?.fp_highlights)
-
-const verdictTheme = computed(() => {
-	const verdict = profile.data?.verdict
-	if (verdict === 'Block') return 'red'
-	if (verdict === 'Advance Required') return 'orange'
-	if (verdict === 'Flag') return 'gray'
-	return 'green'
-})
 </script>
