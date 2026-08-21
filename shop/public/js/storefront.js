@@ -5,47 +5,32 @@
 		cart: (window.page_data && window.page_data.cart) || null,
 	};
 
-	// Device fingerprint. Free FingerprintJS v5 (vendored) for every visitor;
-	// when the store has a Fingerprint Identification key AND the cart value
-	// crosses the configured threshold, escalate to the server-verified agent.
-	// Result carries {visitorId, requestId} - requestId only with the pro agent.
+	// Device fingerprint via Fingerprint Identification (API-only).
+	// The v4 agent loads for every visitor from the configured endpoint;
+	// result carries {visitorId, requestId} for server-side verification.
 	const fingerprintPromise = loadFingerprint();
-
-	function loadScript(src) {
-		return new Promise((resolve, reject) => {
-			const script = document.createElement("script");
-			script.src = src;
-			script.onload = () => resolve(window.FingerprintJS || window.Fingerprint);
-			script.onerror = () => reject(new Error("fingerprint script failed"));
-			document.head.appendChild(script);
-		});
-	}
 
 	function loadFingerprint() {
 		const store = (window.page_data && window.page_data.store) || {};
-		const cart = window.page_data && window.page_data.cart;
-		const total = (cart && (cart.grand_total || cart.total)) || 0;
-		if (store.fp_public_key && store.fp_verify_above && total >= store.fp_verify_above) {
-			return import(
-				"https://fpjscdn.net/v4/" + encodeURIComponent(store.fp_public_key)
-			)
-				.then((Fingerprint) => Fingerprint.start({ region: store.fp_region || "ap" }))
-				.then((agent) => agent.get())
-				.then((result) => ({
-					visitorId: result.visitor_id || "",
-					requestId: result.event_id || "",
-				}))
-				.catch(() => ({ visitorId: "", requestId: "" }));
+		if (!store.fp_public_key) {
+			return Promise.resolve({ visitorId: "", requestId: "" });
 		}
-		const existing = document.querySelector('script[src*="fp.min.js"]');
-		const promise = existing
-			? Promise.resolve(window.FingerprintJS)
-			: loadScript("/assets/shop/js/fp.min.js");
-		return promise
-			.then((FingerprintJS) => FingerprintJS.load())
-			.then((agent) => agent.get().then((result) => result.visitorId || ""))
-			.then((visitorId) => ({ visitorId, requestId: "" }))
-			.catch(() => ({ visitorId: "", requestId: "" }));
+		return import(
+			"https://metrics.sananahmad.dpdns.org/web/v4/" + encodeURIComponent(store.fp_public_key)
+		)
+			.then((Fingerprint) => Fingerprint.start({
+                region: store.fp_region || "ap",
+                endpoints: ["https://metrics.sananahmad.dpdns.org"]
+            }))
+			.then((agent) => agent.get())
+			.then((result) => ({
+				visitorId: result.visitor_id || "",
+				requestId: result.event_id || "",
+			}))
+			.catch((error) => {
+				console.warn("fingerprint identification unavailable:", error && error.message);
+				return { visitorId: "", requestId: "" };
+			});
 	}
 
 	function esc(value) {
@@ -315,7 +300,7 @@
 	async function submitCheckout(form) {
 		const data = new FormData(form);
 		const getVal = (name) => {
-			const input = document.querySelector(`[data-shop="checkout-form"] [name="${name}"]`);
+			const input = form.querySelector(`[name="${name}"]`);
 			return (data.get(name) || (input ? input.value : "") || "").trim();
 		};
 		const submit = form.querySelector('[type="submit"]');
