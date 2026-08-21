@@ -248,6 +248,9 @@
 						Geocoding API key for precise address fraud checks. <a href="https://heigit.org/" target="_blank" class="text-brand-blue hover:underline">Get a free key from HeiGIT / OpenRouteService</a>.
 					</template>
 				</Password>
+				<p v-if="data.ors_api_key_set && !address_cfg.ors_api_key" class="text-xs text-green-600">
+					✓ Key stored — leave blank to keep it, type to replace
+				</p>
 
 				<div class="mt-4">
 					<label class="mb-1 block text-sm text-ink-gray-6">Pakistan city list</label>
@@ -297,10 +300,13 @@
 					/>
 					<Password
 						v-model="fingerprint.fingerprint_secret_key"
-						
+
 						label="Secret key"
 						placeholder="Enter to change"
 					/>
+					<p v-if="data.fingerprint_secret_key_set && !fingerprint.fingerprint_secret_key" class="text-xs text-green-600">
+						✓ Key stored — leave blank to keep it, type to replace
+					</p>
 				</div>
 				<template #footer>
 					<Button

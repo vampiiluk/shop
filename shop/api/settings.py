@@ -83,6 +83,10 @@ def get_settings() -> dict:
 			"company": settings.company,
 			"currency": settings.currency,
 			"active_theme": settings.active_theme,
+			"ors_api_key_set": bool(settings.get_password("ors_api_key", raise_exception=False)),
+			"fingerprint_secret_key_set": bool(
+				settings.get_password("fingerprint_secret_key", raise_exception=False)
+			),
 			"gateway_accounts": frappe.get_all(
 				"Payment Gateway Account", fields=["name", "payment_gateway", "currency"]
 			),
