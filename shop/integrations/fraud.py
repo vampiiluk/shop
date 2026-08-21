@@ -9,6 +9,18 @@ from frappe.utils import cint, flt, now_datetime
 
 FAILED_OUTCOMES = ("Failed", "RTO")
 
+DEFAULT_PK_CITIES = [
+	"karachi", "lahore", "islamabad", "rawalpindi", "faisalabad", "multan",
+	"peshawar", "quetta", "sialkot", "gujranwala", "hyderabad", "bahawalpur",
+	"sargodha", "abbottabad", "sukkur", "larkana", "sheikhupura",
+	"rahim yar khan", "jhang", "dera ghazi khan", "gujrat", "sahiwal",
+	"wah cantonment", "mardan", "kasur", "okara", "mingora", "nawabshah",
+	"chiniot", "kotri", "kamoke", "hafizabad", "sadiqabad", "mirpur khas",
+	"burewala", "kohat", "khanewal", "dera ismail khan", "turbat",
+	"muzaffargarh", "muridke", "mandi bahauddin", "shikarpur", "jacobabad",
+	"jhelum", "khanpur",
+]
+
 
 class FraudResult:
 	def __init__(self, score: int, verdict: str, signals: dict, fp_verified: bool = False):
@@ -34,7 +46,8 @@ def normalize_phone(phone) -> str:
 
 def canonical_cities(settings_doc=None) -> list[str]:
 	settings_doc = settings_doc or settings()
-	return [c.strip().lower() for c in (settings_doc.pk_cities or "").split(",") if c.strip()]
+	custom = [c.strip().lower() for c in (settings_doc.pk_cities or "").split(",") if c.strip()]
+	return custom or DEFAULT_PK_CITIES
 
 
 def pk_hour() -> int:
@@ -56,15 +69,21 @@ def customers_for_phone(phone: str) -> list[str]:
 	normalized = normalize_phone(phone)
 	if not normalized:
 		return []
-	contacts = frappe.get_all("Contact", fields=["name", "mobile_no"], filters={"mobile_no": ["is", "set"]})
-	matched = [c.name for c in contacts if normalize_phone(c.mobile_no) == normalized]
-	if not matched:
+	# Use SQL LIKE to avoid loading every Contact into Python
+	contacts = frappe.db.sql(
+		"""SELECT name FROM `tabContact`
+		WHERE mobile_no IS NOT NULL
+		AND REPLACE(REPLACE(REPLACE(REPLACE(mobile_no, ' ', ''), '-', ''), '+', ''), '(', '') LIKE %s""",
+		(f"%{normalized}",),
+		pluck="name",
+	)
+	if not contacts:
 		return []
 	return frappe.get_all(
 		"Dynamic Link",
 		filters={
 			"parenttype": "Contact",
-			"parent": ["in", matched],
+			"parent": ["in", contacts],
 			"link_doctype": "Customer",
 		},
 		pluck="link_name",
@@ -233,7 +252,7 @@ def verify_fingerprint(request_id: str, secret_key: str, settings_doc=None) -> d
 		response = requests.get(
 			f"{_fp_api_base(settings_doc)}/v4/events/{request_id}",
 			headers={"Authorization": f"Bearer {secret_key}"},
-			timeout=10,
+			timeout=3,
 		)
 		if response.status_code == 200:
 			return response.json()
@@ -310,7 +329,6 @@ def evaluate_risk(
 	if hit:
 		signals["blacklisted"] = hit.name
 		score += 40
-		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
 
 	# ---- 3. address risk ----
 	addr_risk = address_risk(address)
@@ -355,6 +373,9 @@ def evaluate_risk(
 		verdict = "Flag"
 	else:
 		verdict = "Pass"
+	# Increment blacklist hit count after scoring is complete (avoids write lock during read)
+	if hit:
+		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
 	return FraudResult(score, verdict, signals, fp_verified)
 
 
@@ -458,6 +479,8 @@ def record_delivery_outcome(order: str, outcome: str):
 	if outcome not in ("Delivered", "Failed", "RTO"):
 		frappe.throw(_("Outcome must be Delivered, Failed or RTO"))
 	so = frappe.get_doc("Sales Order", order)
+	if so.custom_delivery_outcome and so.custom_delivery_outcome != "Pending":
+		frappe.throw(_("Delivery outcome already recorded as {0}").format(so.custom_delivery_outcome))
 	city = frappe.db.get_value("Address", so.shipping_address_name, "city") or ""
 	so.db_set("custom_delivery_outcome", outcome)
 	if outcome in FAILED_OUTCOMES:

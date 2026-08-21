@@ -72,7 +72,7 @@ def contact_phone(user: str) -> str | None:
 	)
 
 
-ADDRESS_FIELDS = ("address_line1", "address_line2", "city", "state", "country", "pincode", "landmark", "alt_phone")
+ADDRESS_FIELDS = ("address_line1", "address_line2", "city", "state", "country", "pincode", "custom_landmark", "custom_alt_phone")
 
 
 def saved_addresses_exist() -> bool:
@@ -103,6 +103,8 @@ def saved_addresses() -> list[dict]:
 		limit=6,
 	)
 	for row in rows:
+		row.landmark = row.custom_landmark or ""
+		row.alt_phone = row.custom_alt_phone or ""
 		row.line = ", ".join(str(row[field]) for field in ("address_line1", "city", "pincode") if row.get(field))
 	rows.append(frappe._dict({"name": "", "line": _("Enter a new address")}))
 	return rows

@@ -228,6 +228,6 @@ def store_details() -> dict:
 		"fp_verify_above": settings.fingerprint_verify_above or 0,
 		"landmark_required": settings.landmark_required,
 	}
-	if settings.pk_cities:
-		result["pk_cities"] = [c.strip() for c in settings.pk_cities.split(",") if c.strip()]
+	from shop.integrations.fraud import canonical_cities
+	result["pk_cities"] = [c.title() for c in canonical_cities()]
 	return result
