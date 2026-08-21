@@ -2038,7 +2038,7 @@
  "modified_by": "Administrator",
  "name": "page-ac8725a9",
  "owner": "Administrator",
- "page_data_script": "result = frappe.call(\"shop.storefront.page_data.checkout_page\")\ndata.update(result)\ndata.page_data = {\"cart\": result.get(\"cart\"), \"addresses\": result.get(\"addresses\")}",
+ "page_data_script": "result = frappe.call(\"shop.storefront.page_data.checkout_page\")\ndata.update(result)\ndata.page_data = {\"store\": result.get(\"store\"), \"cart\": result.get(\"cart\"), \"addresses\": result.get(\"addresses\")}",
  "page_name": "page-ac8725a9",
  "page_title": "Checkout",
  "preview": "/builder_assets/frappe/page-ac8725a9/preview.webp",

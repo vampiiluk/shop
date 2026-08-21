@@ -2223,7 +2223,7 @@
  "modified_by": "Administrator",
  "name": "page-e0dc4899",
  "owner": "Administrator",
- "page_data_script": "result = frappe.call(\"shop.storefront.page_data.checkout_page\")\ndata.update(result)\ndata.page_data = {\"cart\": result.get(\"cart\"), \"addresses\": result.get(\"addresses\")}",
+ "page_data_script": "result = frappe.call(\"shop.storefront.page_data.checkout_page\")\ndata.update(result)\ndata.page_data = {\"store\": result.get(\"store\"), \"cart\": result.get(\"cart\"), \"addresses\": result.get(\"addresses\")}",
  "page_name": "page-e0dc4899",
  "page_title": "Checkout",
  "preview": "/builder_assets/dot/page-e0dc4899/preview.webp",
