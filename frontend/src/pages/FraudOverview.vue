@@ -58,12 +58,21 @@
 									class="border-b border-outline-gray-1 last:border-b-0"
 								>
 									<td class="px-3 py-2">
-										<router-link
-											:to="`/orders/${event.order_name}`"
-											class="font-medium text-ink-gray-8 hover:underline"
-										>
-											{{ event.order_name }}
-										</router-link>
+										<div class="flex items-center gap-2">
+											<router-link
+												:to="`/orders/${event.order_name}`"
+												class="font-medium text-ink-gray-8 hover:underline"
+											>
+												{{ event.order_name }}
+											</router-link>
+											<router-link
+												:to="`/fraud/${event.order_name}`"
+												class="text-xs text-ink-gray-4 underline hover:text-ink-gray-6"
+												title="Fraud detail"
+											>
+												detail
+											</router-link>
+										</div>
 									</td>
 									<td class="px-3 py-2 text-ink-gray-7">{{ event.phone || '—' }}</td>
 									<td class="px-3 py-2 text-ink-gray-7">{{ event.city || '—' }}</td>

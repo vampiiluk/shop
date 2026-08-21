@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import cint, flt
 
 @frappe.whitelist()
 def get_customer_fraud_profile(customer: str):
@@ -63,18 +64,69 @@ def get_customer_fraud_profile(customer: str):
 		"linked_orders": linked,
 	}
 
+FP_HIGHLIGHT_FIELDS = (
+	"suspect_score", "bot", "bot_type", "tampering", "replayed",
+	"incognito", "privacy_settings", "proxy", "proxy_confidence",
+	"vpn", "virtual_machine", "developer_tools",
+)
+
+def _fp_highlights(order: str) -> dict | None:
+	"""Key intelligence extracted from the raw Fingerprint event stored at
+	order placement. Read-only — the snapshot is never modified."""
+	import json
+
+	raw = frappe.db.get_value("Sales Order", order, "custom_fp_event")
+	if not raw:
+		return None
+	try:
+		event = json.loads(raw)
+	except Exception:
+		return None
+
+	from shop.integrations.fraud import _fp_signal, _normalized_score
+	from frappe.utils import cint
+
+	highlights = {}
+	for field in FP_HIGHLIGHT_FIELDS:
+		value = _fp_signal(event, field)
+		if value is None:
+			continue
+		if isinstance(value, (bool, int, float, str)):
+			highlights[field] = value
+
+	suspect = highlights.get("suspect_score")
+	if suspect is not None:
+		try:
+			highlights["suspect_score_raw"] = flt(suspect)
+			highlights["suspect_score"] = round(_normalized_score(suspect), 2)
+		except Exception:
+			pass
+
+	identification = event.get("identification") or {}
+	highlights["visitor_id"] = identification.get("visitor_id") or ""
+	highlights["confidence"] = ((identification.get("confidence") or {}).get("score"))
+
+	ipinfo = (_fp_signal(event, "ip_info") or {}).get("v4") or {}
+	geo = ipinfo.get("geolocation") or {}
+	highlights["network"] = {
+		"ip": ipinfo.get("address"),
+		"city": geo.get("city_name"),
+		"country": geo.get("country_name"),
+		"isp": ipinfo.get("asn_name"),
+		"datacenter": bool(ipinfo.get("datacenter_result")),
+	}
+	return highlights
+
+
 @frappe.whitelist()
 def get_order_fraud_profile(order: str):
-	"""Returns fingerprint/location matches for an order."""
-	# Auto-recalculate to reflect real-time RTO history and City stats
-	# Time-sensitive metrics (velocity, risky hour) are anchored by so.creation
-	try:
-		recalculate_order_fraud(order)
-	except Exception:
-		pass
-		
-	so = frappe.db.get_value("Sales Order", order, 
-		["customer", "custom_device_fingerprint", "custom_fraud_score", "custom_fraud_verdict", "custom_fraud_signals", "shipping_address_name"], 
+	"""Snapshot view: score/verdict/signals frozen at order placement,
+	plus fingerprint intelligence from the raw stored event.
+
+	The placement snapshot is immutable evidence — this endpoint NEVER
+	writes to the Sales Order."""
+	so = frappe.db.get_value("Sales Order", order,
+		["customer", "contact_email", "contact_mobile", "custom_device_fingerprint", "custom_fraud_score", "custom_fraud_verdict", "custom_fraud_signals", "shipping_address_name", "creation"],
 		as_dict=True)
 		
 	if not so:
@@ -109,8 +161,105 @@ def get_order_fraud_profile(order: str):
 		"score": so.custom_fraud_score,
 		"verdict": so.custom_fraud_verdict,
 		"signals": so.custom_fraud_signals,
+		"customer": so.customer,
+		"phone": so.contact_mobile,
+		"email": so.contact_email,
+		"creation": str(so.creation),
+		"fp_highlights": _fp_highlights(order),
 		"fp_matches": fp_matches,
 		"address_matches": address_matches
+	}
+
+
+@frappe.whitelist()
+def get_full_fp_event(order: str):
+	"""Complete raw Fingerprint Identification event stored at placement."""
+	import json
+
+	raw = frappe.db.get_value("Sales Order", order, "custom_fp_event")
+	if not raw:
+		return {"event": None}
+	try:
+		return {"event": json.loads(raw)}
+	except Exception:
+		return {"event": None}
+
+
+@frappe.whitelist()
+def get_live_check(order: str):
+	"""Current-risk view computed on open. Anchored to the order's placement
+	time for velocity; everything else reflects NOW. Read-only."""
+	from shop.integrations.fraud import (
+		blacklist_hit,
+		city_rto_rate,
+		customers_for_phone,
+	)
+
+	so = frappe.db.get_value(
+		"Sales Order",
+		order,
+		["customer", "contact_email", "contact_mobile", "shipping_address_name", "custom_device_fingerprint", "creation"],
+		as_dict=True,
+	)
+	if not so:
+		return {}
+
+	from datetime import timedelta
+	from frappe.utils import add_to_date, flt
+
+	window_start = add_to_date(so.creation, minutes=-60)
+
+	customers = customers_for_phone(so.contact_mobile or "")
+	phone_before = 0
+	if customers:
+		phone_before = frappe.db.count(
+			"Sales Order",
+			{
+				"name": ["!=", order],
+				"docstatus": ["in", [0, 1, 2]],
+				"creation": ["between", [window_start, so.creation]],
+				"customer": ["in", customers],
+			},
+		)
+	fp_around = 0
+	if so.custom_device_fingerprint:
+		fp_around = frappe.db.count(
+			"Sales Order",
+			{
+				"name": ["!=", order],
+				"creation": ["between", [window_start, so.creation]],
+				"custom_device_fingerprint": so.custom_device_fingerprint,
+			},
+		)
+	same_device_after = 0
+	if so.custom_device_fingerprint:
+		same_device_after = frappe.db.count(
+			"Sales Order",
+			{
+				"name": ["!=", order],
+				"creation": [">", so.creation],
+				"custom_device_fingerprint": so.custom_device_fingerprint,
+			},
+		)
+
+	hit = blacklist_hit(so.contact_mobile or "", so.contact_email)
+	failed = 0
+	if so.customer:
+		failed = cint(frappe.db.get_value("Customer", so.customer, "custom_failed_deliveries"))
+
+	city = frappe.db.get_value("Address", so.shipping_address_name, "city") if so.shipping_address_name else ""
+	rate = city_rto_rate(city or "")
+
+	return {
+		"velocity_window": {
+			"phone_orders_within_60m_of_placement": phone_before,
+			"device_orders_within_60m_of_placement": fp_around,
+			"same_device_orders_after": same_device_after,
+		},
+		"blacklisted_now": hit.name if hit else None,
+		"customer_failed_deliveries": failed,
+		"city": city or "",
+		"city_rto_rate": flt(rate),
 	}
 
 @frappe.whitelist()
@@ -301,4 +450,67 @@ def get_overview() -> dict:
 		"recent_events": recent_events,
 		"blacklist": blacklist,
 		"cities": cities,
+	}
+
+
+@frappe.whitelist()
+def get_customer_live(customer: str) -> dict:
+	"""Current-risk snapshot for a customer, computed on open."""
+	from shop.integrations.fraud import (
+		blacklist_hit,
+		city_rto_rate,
+		customer_phone,
+	)
+
+	phone = customer_phone(customer)
+	failed = cint(frappe.db.get_value("Customer", customer, "custom_failed_deliveries"))
+	fp = frappe.db.get_value("Customer", customer, "custom_device_fingerprint") or ""
+
+	emails = [
+		r[0]
+		for r in frappe.db.sql(
+			"""
+			SELECT ce.email_id FROM `tabContact Email` ce
+			JOIN `tabDynamic Link` dl ON dl.parent = ce.parent
+			WHERE dl.link_doctype = 'Customer' AND dl.link_name = %s
+			""",
+			(customer,),
+		)
+	]
+
+	hit = None
+	if phone or emails:
+		hit = blacklist_hit(phone, emails[0] if emails else None)
+
+	cities = [
+		r[0]
+		for r in frappe.db.sql(
+			"""
+			SELECT DISTINCT a.city FROM `tabAddress` a
+			JOIN `tabDynamic Link` dl ON dl.parent = a.name
+			WHERE dl.link_doctype = 'Customer' AND dl.link_name = %s AND a.city IS NOT NULL AND a.city != ''
+			""",
+			(customer,),
+		)
+	]
+	city_rates = [{"city": c, "rto_rate": flt(city_rto_rate(c))} for c in cities[:5]]
+
+	last_order = frappe.db.get_value(
+		"Sales Order",
+		{"customer": customer},
+		["name", "creation", "custom_fraud_verdict"],
+		as_dict=True,
+		order_by="creation desc",
+	)
+
+	return {
+		"phone": phone,
+		"blacklisted_now": hit.name if hit else None,
+		"blacklist_reason": (hit.reason if hit else None) or None,
+		"failed_deliveries": failed,
+		"last_seen_device": fp,
+		"city_rates": city_rates,
+		"last_order": last_order.name if last_order else None,
+		"last_order_verdict": last_order.custom_fraud_verdict if last_order else None,
+		"last_order_at": str(last_order.creation) if last_order else None,
 	}

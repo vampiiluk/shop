@@ -19,6 +19,12 @@ const routes = [
 				name: 'FraudOverview',
 				component: () => import('@/pages/FraudOverview.vue'),
 			},
+			{
+				path: 'fraud/:name',
+				name: 'FraudDetail',
+				component: () => import('@/pages/FraudDetail.vue'),
+				props: true,
+			},
 			{ path: 'assistant', name: 'Assistant', component: () => import('@/pages/Assistant.vue') },
 			{
 				path: 'walkthroughs',
