@@ -177,6 +177,135 @@
 				</template>
 			</CatalogSection>
 
+			<CatalogSection title="Fraud Protection" description="Score every checkout against blacklists, velocity, address quality and device fingerprint.">
+				<Switch
+					v-model="fraud.enable_fraud_check"
+					label="Enable fraud check"
+					description="Evaluate risk on every COD order and switch high-risk orders to advance payment."
+				/>
+				<div class="grid max-w-lg grid-cols-2 gap-4">
+					<FormControl
+						v-model.number="fraud.fraud_advance_threshold"
+						type="number"
+						label="Advance payment score"
+						description="Orders scoring at or above this are switched from COD to online."
+					/>
+					<FormControl
+						v-model.number="fraud.fraud_velocity_max"
+						type="number"
+						label="Max orders per hour"
+						description="Orders from the same phone faster than this are blocked."
+					/>
+					<FormControl
+						v-model.number="fraud.fraud_auto_blacklist_failures"
+						type="number"
+						label="Auto-blacklist after"
+						description="Failed/RTO deliveries for the same customer after this are auto-blacklisted."
+					/>
+					<div class="grid grid-cols-2 gap-4">
+						<FormControl
+							v-model.number="fraud.fraud_risky_hour_start"
+							type="number"
+							label="Risky hour start"
+						/>
+						<FormControl
+							v-model.number="fraud.fraud_risky_hour_end"
+							type="number"
+							label="Risky hour end"
+						/>
+					</div>
+				</div>
+				<Switch
+					v-model="fraud.fraud_blacklist_blocks_all"
+					label="Blacklist blocks all payments"
+					description="When off, blacklisted phones are blocked from COD only; online orders pass (but are logged)."
+				/>
+				<template #footer>
+					<Button
+						variant="solid"
+						:loading="saving === 'fraud'"
+						@click="saveSection('fraud', fraud)"
+					>
+						Save
+					</Button>
+				</template>
+			</CatalogSection>
+
+			<CatalogSection title="Pakistani Addresses" description="Standardize checkout for Pakistani courier routing.">
+				<Switch
+					v-model="address_cfg.landmark_required"
+					label="Require nearest landmark"
+					description="Checkout requires a famous landmark so courier riders can find the address."
+				/>
+				<div class="max-w-lg">
+					<label class="mb-1 block text-sm text-ink-gray-6">Pakistan city list</label>
+					<textarea
+						v-model="address_cfg.pk_cities"
+						rows="4"
+						class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
+						placeholder="Islamabad, Rawalpindi, Lahore, Karachi, ..."
+					/>
+					<p class="mt-1 text-p-sm text-ink-gray-5">
+						Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score.
+					</p>
+				</div>
+				<template #footer>
+					<Button
+						variant="solid"
+						:loading="saving === 'address_cfg'"
+						@click="saveSection('address_cfg', address_cfg)"
+					>
+						Save
+					</Button>
+				</template>
+			</CatalogSection>
+
+			<CatalogSection title="Fingerprint Identification" description="Server-verified device fingerprinting for high-value orders via Fingerprint v4.">
+				<p class="text-p-sm text-ink-gray-5">
+					Every checkout already fingerprints the browser with the free FingerprintJS library.
+					When a public key is configured and the cart value crosses the threshold below,
+					the v4 agent loads instead and sends an event ID for server-side verification.
+				</p>
+				<div class="grid max-w-lg grid-cols-2 gap-4">
+					<FormControl
+						v-model="fingerprint.fingerprint_public_key"
+						label="Public key"
+						placeholder="e.g. 73Ia25Y0GgzY0HwWAWfD"
+					/>
+					<FormControl
+						v-model="fingerprint.fingerprint_region"
+						type="select"
+						label="Region"
+						:options="[
+							{ label: 'Asia (Mumbai) — ap', value: 'ap' },
+							{ label: 'Global (US) — us', value: 'us' },
+							{ label: 'EU (Frankfurt) — eu', value: 'eu' },
+						]"
+					/>
+					<FormControl
+						v-model="fingerprint.fingerprint_secret_key"
+						type="password"
+						label="Secret key"
+						placeholder="Enter to change"
+					/>
+					<FormControl
+						v-model.number="fingerprint.fingerprint_verify_above"
+						type="number"
+						:label="`Verify orders above (${data.currency})`"
+						description="0 means never verify server-side."
+					/>
+				</div>
+				<template #footer>
+					<Button
+						variant="solid"
+						:loading="saving === 'fingerprint'"
+						@click="saveSection('fingerprint', fingerprint)"
+					>
+						Save
+					</Button>
+				</template>
+			</CatalogSection>
+
 			<CatalogSection title="Storefront" description="Your storefront pages are built with Builder.">
 				<template #header-action>
 					<Button @click="openBuilder">
@@ -214,6 +343,22 @@ const catalog = reactive({
 	tax_template: '',
 	allow_out_of_stock: false,
 	prices_include_tax: false,
+})
+const fraud = reactive({
+	enable_fraud_check: true,
+	fraud_advance_threshold: 70,
+	fraud_velocity_max: 2,
+	fraud_risky_hour_start: 23,
+	fraud_risky_hour_end: 5,
+	fraud_auto_blacklist_failures: 2,
+	fraud_blacklist_blocks_all: false,
+})
+const address_cfg = reactive({ landmark_required: true, pk_cities: '' })
+const fingerprint = reactive({
+	fingerprint_public_key: '',
+	fingerprint_secret_key: '',
+	fingerprint_region: 'ap',
+	fingerprint_verify_above: 0,
 })
 
 const settings = createResource({
@@ -253,6 +398,25 @@ function hydrate(doc: Record<string, any>) {
 		tax_template: doc.tax_template || '',
 		allow_out_of_stock: !!doc.allow_out_of_stock,
 		prices_include_tax: !!doc.prices_include_tax,
+	})
+	Object.assign(fraud, {
+		enable_fraud_check: !!doc.enable_fraud_check,
+		fraud_advance_threshold: doc.fraud_advance_threshold ?? 70,
+		fraud_velocity_max: doc.fraud_velocity_max ?? 2,
+		fraud_risky_hour_start: doc.fraud_risky_hour_start ?? 23,
+		fraud_risky_hour_end: doc.fraud_risky_hour_end ?? 5,
+		fraud_auto_blacklist_failures: doc.fraud_auto_blacklist_failures ?? 2,
+		fraud_blacklist_blocks_all: !!doc.fraud_blacklist_blocks_all,
+	})
+	Object.assign(address_cfg, {
+		landmark_required: !!doc.landmark_required,
+		pk_cities: doc.pk_cities || '',
+	})
+	Object.assign(fingerprint, {
+		fingerprint_public_key: doc.fingerprint_public_key || '',
+		fingerprint_secret_key: doc.fingerprint_secret_key || '',
+		fingerprint_region: doc.fingerprint_region || 'ap',
+		fingerprint_verify_above: doc.fingerprint_verify_above ?? 0,
 	})
 }
 
