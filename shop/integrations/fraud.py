@@ -132,9 +132,9 @@ def order_stats(phone: str, email: str, since_days: int = 90) -> dict:
 	}
 
 
-def velocity_count(phone: str, fingerprint: str, window_minutes: int = 60) -> tuple[int, int]:
+def velocity_count(phone: str, fingerprint: str, window_minutes: int = 60, as_of=None) -> tuple[int, int]:
 	"""Orders in the last window from this phone and (separately) this device."""
-	now = now_datetime()
+	now = as_of or now_datetime()
 	since = now - timedelta(minutes=window_minutes)
 	customers = customers_for_phone(phone)
 	phone_count = 0
@@ -199,17 +199,48 @@ def previous_address_failed(address: dict) -> bool:
 	)
 
 
-def address_risk(address: dict) -> int:
-	"""Address quality + historical failures at the same spot."""
+def address_risk(address: dict, settings_doc=None) -> int:
+	"""Address quality via OpenRouteService Geocoding + heuristic fallbacks."""
+	import urllib.parse, requests
+	import frappe
+	if not settings_doc:
+		settings_doc = frappe.get_cached_doc("Shop Settings")
+		
 	score = 0
 	a1 = (address.get("address_line1") or "").strip()
+	a2 = (address.get("address_line2") or "").strip()
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
 	landmark = (address.get("landmark") or "").strip()
+	
+	api_key = settings_doc.get_password('ors_api_key', raise_exception=False)
+	if api_key:
+		full_address = ", ".join([p for p in (a1, a2, landmark, city, pincode, "Pakistan") if p])
+		url = f"https://api.openrouteservice.org/geocode/search?api_key={api_key}&text={urllib.parse.quote(full_address)}"
+		
+		try:
+			res = requests.get(url, timeout=3).json()
+			features = res.get("features", [])
+			if not features:
+				score += 30  # Address not found at all
+			else:
+				best = features[0].get("properties", {})
+				match_type = best.get("match_type", "")
+				confidence = best.get("confidence", 0)
+				
+				if match_type == "exact" and confidence >= 0.8:
+					score -= 10  # Precise address found
+				elif match_type == "fallback":
+					score += 15  # Too vague (e.g., just matched the city name)
+		except Exception:
+			pass
+		
 	if len(a1) < 5:
 		score += 15  # house/street basically missing
 	elif not re.search(r"\d", a1):
 		score += 10  # no house/plot number
+		
+	return max(0, score)
 	if not re.fullmatch(r"\d{5}", pincode):
 		score += 5
 	if city and city.lower() not in canonical_cities():
@@ -275,6 +306,7 @@ def evaluate_risk(
 	payment_method: str = "cod",
 	device_fingerprint: str = "",
 	fp_request_id: str = "",
+	as_of=None,
 ) -> FraudResult:
 	settings_doc = settings()
 	phone = customer.get("phone") or ""
@@ -285,8 +317,9 @@ def evaluate_risk(
 	fp_verified = False
 
 	# ---- 7. device fingerprint (may verify server-side via Fingerprint Identification) ----
-	if fp_request_id and settings_doc.fingerprint_secret_key:
-		ident = verify_fingerprint(fp_request_id, settings_doc.fingerprint_secret_key, settings_doc)
+	secret = settings_doc.get_password('fingerprint_secret_key', raise_exception=False)
+	if fp_request_id and secret:
+		ident = verify_fingerprint(fp_request_id, secret, settings_doc)
 		fp_verified = bool(ident)
 		if ident:
 			suspect = flt(_fp_signal(ident, "suspectScore"))
@@ -331,12 +364,12 @@ def evaluate_risk(
 		score += 40
 
 	# ---- 3. address risk ----
-	addr_risk = address_risk(address)
+	addr_risk = address_risk(address, settings_doc)
 	signals["address_score"] = addr_risk
 	score += addr_risk
 
 	# ---- 4. order velocity ----
-	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60)
+	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of)
 	signals["orders_last_60m"] = orders_1hr
 	signals["fp_orders_last_60m"] = fp_1hr
 	max_per_hour = cint(settings_doc.fraud_velocity_max)

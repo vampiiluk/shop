@@ -30,6 +30,7 @@
 				</div>
 
 				<div class="space-y-6">
+					<FraudCustomerPanel :customer="doc.name" />
 					<div class="rounded-lg border border-outline-gray-1 p-4">
 						<h2 class="text-base font-medium text-ink-gray-8">Profile</h2>
 						<div v-if="doc.email" class="mt-2 break-words text-p-base text-ink-gray-7">{{ doc.email }}</div>
@@ -107,6 +108,7 @@ import UiDataTable from '@/components/UiDataTable.vue'
 import UiEmptyState from '@/components/UiEmptyState.vue'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import FraudCustomerPanel from '@/components/FraudCustomerPanel.vue'
 import { formatDate } from '@/utils/format'
 
 const props = defineProps<{ name: string }>()

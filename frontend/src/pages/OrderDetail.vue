@@ -6,10 +6,7 @@
 					<UiStatusBadge :label="doc.display_status" />
 					<UiStatusBadge :label="doc.payment_status" />
 					<UiStatusBadge :label="doc.fulfillment_status" />
-					<UiStatusBadge
-						v-if="doc.fraud_verdict && doc.fraud_verdict !== 'Pass'"
-						:label="`${doc.fraud_verdict} (${doc.fraud_score})`"
-					/>
+					
 				</template>
 				<template #actions>
 					<Button :link="`/app/sales-order/${doc.name}`">Open in Desk</Button>
@@ -74,6 +71,8 @@
 						:docstatus="doc.docstatus"
 						@changed="order.reload()"
 					/>
+					
+					<RelatedOrdersPanel :order="doc.name" />
 				</div>
 
 				<div class="space-y-6">
@@ -91,6 +90,10 @@
 						</div>
 						<div v-if="doc.address" class="mt-2 text-p-sm text-ink-gray-6" v-html="doc.address" />
 					</div>
+
+					<FingerprintPanel :order="doc.name" />
+
+					<FraudOrderPanel :order="doc.name" />
 
 					<ReturnsPanel :order="doc.name" />
 
@@ -134,6 +137,9 @@ import FulfillmentPanel from '@/components/FulfillmentPanel.vue'
 import ReturnsPanel from '@/components/ReturnsPanel.vue'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import FraudOrderPanel from '@/components/FraudOrderPanel.vue'
+import RelatedOrdersPanel from '@/components/RelatedOrdersPanel.vue'
+import FingerprintPanel from '@/components/FingerprintPanel.vue'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{ name: string }>()
