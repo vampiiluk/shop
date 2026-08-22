@@ -58,6 +58,8 @@ EDITABLE = (
 	"fraud_risky_hour_end",
 	"fraud_auto_blacklist_failures",
 	"fraud_blacklist_blocks_all",
+	"fraud_rto_high_pct",
+	"fraud_rto_medium_pct",
 	"landmark_required",
 	"address_country",
 	"address_provinces",

@@ -214,6 +214,20 @@
 							label="Risky hour end"
 						/>
 					</div>
+					<div class="grid grid-cols-2 gap-4">
+						<FormControl
+							v-model.number="fraud.fraud_rto_high_pct"
+							type="number"
+							label="City RTO high threshold (%)"
+							description="30-day RTO rate above which the city scores high risk."
+						/>
+						<FormControl
+							v-model.number="fraud.fraud_rto_medium_pct"
+							type="number"
+							label="City RTO medium threshold (%)"
+							description="30-day RTO rate above which the city scores medium risk."
+						/>
+					</div>
 				</div>
 				<Switch
 					v-model="fraud.fraud_blacklist_blocks_all"
@@ -378,6 +392,8 @@ const fraud = reactive({
 	fraud_risky_hour_end: 5,
 	fraud_auto_blacklist_failures: 2,
 	fraud_blacklist_blocks_all: false,
+	fraud_rto_high_pct: 40,
+	fraud_rto_medium_pct: 20,
 })
 const address_cfg = reactive({
 	landmark_required: true,
@@ -438,6 +454,8 @@ function hydrate(doc: Record<string, any>) {
 		fraud_risky_hour_end: doc.fraud_risky_hour_end ?? 5,
 		fraud_auto_blacklist_failures: doc.fraud_auto_blacklist_failures ?? 2,
 		fraud_blacklist_blocks_all: !!doc.fraud_blacklist_blocks_all,
+		fraud_rto_high_pct: doc.fraud_rto_high_pct ?? 40,
+		fraud_rto_medium_pct: doc.fraud_rto_medium_pct ?? 20,
 	})
 	Object.assign(address_cfg, {
 		landmark_required: !!doc.landmark_required,
