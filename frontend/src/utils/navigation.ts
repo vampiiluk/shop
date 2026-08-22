@@ -38,6 +38,9 @@ export const navGroups = [
 	},
 	{
 		label: 'Store',
-		items: [{ label: 'Settings', route: '/settings', icon: 'lucide-settings' }],
+		items: [
+			{ label: 'Landmarks Import', route: '/landmarks-import', icon: 'lucide-map-pin-plus' },
+			{ label: 'Settings', route: '/settings', icon: 'lucide-settings' },
+		],
 	},
 ]

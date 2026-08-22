@@ -73,6 +73,11 @@ const routes = [
 			{ path: 'discounts', name: 'Discounts', component: () => import('@/pages/Discounts.vue') },
 			{ path: 'carts', name: 'Carts', component: () => import('@/pages/Carts.vue') },
 			{ path: 'settings', name: 'Settings', component: () => import('@/pages/Settings.vue') },
+			{
+				path: 'landmarks-import',
+				name: 'LandmarkImports',
+				component: () => import('@/pages/LandmarkImports.vue'),
+			},
 		],
 	},
 ]

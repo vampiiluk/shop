@@ -200,49 +200,22 @@ def previous_address_failed(address: dict) -> bool:
 	)
 
 
-def address_risk(address: dict, settings_doc=None) -> int:
-	"""Address quality via OpenRouteService Geocoding + heuristic fallbacks."""
-	import urllib.parse, requests
-	import frappe
-	if not settings_doc:
-		settings_doc = frappe.get_cached_doc("Shop Settings")
-		
+def address_risk(address: dict, settings_doc=None) -> dict:
+	"""Address quality: cached ORS geocode + local landmark table + heuristics.
+	Returns {'score': int, 'geo': dict|None, 'landmark': dict|None, ...flags}."""
+	result = {"score": 0, "geo": None, "landmark": None}
 	score = 0
 	a1 = (address.get("address_line1") or "").strip()
-	a2 = (address.get("address_line2") or "").strip()
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
 	landmark = (address.get("landmark") or "").strip()
-	
-	api_key = settings_doc.get_password('ors_api_key', raise_exception=False)
-	if api_key:
-		full_address = ", ".join([p for p in (a1, a2, landmark, city, pincode, "Pakistan") if p])
-		url = f"https://api.openrouteservice.org/geocode/search?api_key={api_key}&text={urllib.parse.quote(full_address)}"
-		
-		try:
-			res = requests.get(url, timeout=3).json()
-			features = res.get("features", [])
-			if not features:
-				score += 30  # Address not found at all
-			else:
-				best = features[0].get("properties", {})
-				match_type = best.get("match_type", "")
-				confidence = best.get("confidence", 0)
-				
-				if match_type == "exact" and confidence >= 0.8:
-					score -= 10  # Precise address found
-				elif match_type == "fallback":
-					score += 15  # Too vague (e.g., just matched the city name)
-		except Exception:
-			pass
-		
+
+	# heuristics (always run)
 	if len(a1) < 5:
 		score += 15  # house/street basically missing
 	elif not re.search(r"\d", a1):
 		score += 10  # no house/plot number
-		
-	return max(0, score)
-	if not re.fullmatch(r"\d{5}", pincode):
+	if pincode and not re.fullmatch(r"\d{5}", pincode):
 		score += 5
 	if city and city.lower() not in canonical_cities():
 		score += 10
@@ -250,7 +223,62 @@ def address_risk(address: dict, settings_doc=None) -> int:
 		score += 15
 	if previous_address_failed(address):
 		score += 30
-	return min(score, 60)
+
+	# geocode via cache (skips silently when no key / provider error)
+	from shop.integrations.geocoding import geocode_cached, match_landmark, norm_text
+
+	geo = geocode_cached(address, settings_doc)
+	if geo is None:
+		result["geo_unavailable"] = True
+	elif not geo.get("found"):
+		result["geo_not_found"] = True
+		score += 25
+	else:
+		result["geo"] = {
+			"label": geo.get("label"),
+			"confidence": geo.get("confidence"),
+			"match_type": geo.get("match_type"),
+			"local_area": geo.get("local_area"),
+			"admin_area": geo.get("admin_area"),
+			"cached": geo.get("cached"),
+		}
+		country = (geo.get("country") or "").strip()
+		wrong_country = country and country.upper() not in ("PK", "PAK", "PAKISTAN")
+
+		if wrong_country:
+			# ORS resolved the text to another country entirely: treat as not found
+			result["wrong_country"] = country
+			score += 30
+		elif geo.get("match_type") == "exact" and flt(geo.get("confidence")) >= 0.8:
+			score -= 10  # precise address found
+		elif geo.get("match_type") == "fallback":
+			score += 15  # too vague (e.g. matched the city only)
+		if not wrong_country and not geo.get("house_number"):
+			score += 10
+
+		# stated city vs where the address actually resolves
+		geo_area = norm_text(geo.get("local_area") or geo.get("admin_area"))
+		label_norm = norm_text(geo.get("label"))
+		mismatch_target = geo_area or label_norm
+		if not wrong_country and city and mismatch_target:
+			city_norm = norm_text(city)
+			if city_norm not in mismatch_target and not any(
+				norm_text(c) in mismatch_target for c in canonical_cities(settings_doc) if len(c) > 3
+			):
+				result["city_mismatch"] = True
+				score += 20
+
+		# landmark corroboration against the local POI table
+		if landmark:
+			match = match_landmark(geo.get("lat"), geo.get("lng"), landmark, city)
+			result["landmark"] = match
+			if match:
+				score -= 10
+			else:
+				score += 10
+
+	result["score"] = max(0, min(score, 60))
+	return result
 
 
 def city_rto_rate(city: str) -> float:
@@ -420,8 +448,14 @@ def evaluate_risk(
 		score += 40
 
 	# ---- 3. address risk ----
-	addr_risk = address_risk(address, settings_doc)
+	addr = address_risk(address, settings_doc)
+	addr_risk = addr["score"]
 	signals["address_score"] = addr_risk
+	if addr.get("geo_not_found"):
+		signals["address_geo_not_found"] = True
+	if addr.get("city_mismatch"):
+		signals["address_city_mismatch"] = True
+	signals["address_landmark_match"] = addr.get("landmark")
 	score += addr_risk
 
 	# ---- 4. order velocity ----
