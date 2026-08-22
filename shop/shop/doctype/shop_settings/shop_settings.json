@@ -45,8 +45,13 @@
   "fraud_auto_blacklist_failures",
   "fraud_blacklist_blocks_all",
   "address_section",
-  "pk_cities",
+  "address_country",
+  "address_provinces",
+  "address_cities",
   "landmark_required",
+  "fraud_rto_high_pct",
+  "fraud_rto_medium_pct",
+  "fraud_signal_weights",
   "fingerprint_section",
   "fingerprint_public_key",
   "fingerprint_secret_key",
@@ -298,7 +303,7 @@
    "collapsible": 1,
    "fieldname": "address_section",
    "fieldtype": "Section Break",
-   "label": "Pakistani Addresses"
+   "label": "Addresses"
   },
   {
    "fieldname": "ors_api_key",
@@ -307,10 +312,23 @@
    "description": "Geocoding API key for precise address fraud checks. <a href='https://heigit.org/' target='_blank'>Get a free key from HeiGIT / OpenRouteService</a>."
   },
   {
-   "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
-   "fieldname": "pk_cities",
+   "default": "Pakistan",
+   "fieldname": "address_country",
+   "fieldtype": "Data",
+   "label": "Default Country",
+   "description": "Home country used at checkout and for the geocode wrong-country fraud check."
+  },
+  {
+   "fieldname": "address_provinces",
    "fieldtype": "Small Text",
-   "label": "Pakistan City List",
+   "label": "Province / State List",
+   "description": "Comma-separated provinces or states offered in the checkout province box."
+  },
+  {
+   "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
+   "fieldname": "address_cities",
+   "fieldtype": "Small Text",
+   "label": "City List",
    "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
   },
   {
@@ -319,6 +337,26 @@
    "fieldtype": "Check",
    "label": "Require Nearest Landmark",
    "description": "Checkout requires a famous landmark so courier riders can find the address."
+  },
+  {
+   "default": "40",
+   "fieldname": "fraud_rto_high_pct",
+   "fieldtype": "Int",
+   "label": "City RTO High Threshold (%)",
+   "description": "30-day RTO rate above which a city scores high."
+  },
+  {
+   "default": "20",
+   "fieldname": "fraud_rto_medium_pct",
+   "fieldtype": "Int",
+   "label": "City RTO Medium Threshold (%)",
+   "description": "30-day RTO rate above which a city scores medium."
+  },
+  {
+   "fieldname": "fraud_signal_weights",
+   "fieldtype": "Code",
+   "label": "Fraud Signal Weights",
+   "description": "JSON of per-signal points. Managed from the Fraud Weights page — leave blank for defaults."
   },
   {
    "collapsible": 1,

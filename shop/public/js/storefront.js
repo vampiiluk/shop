@@ -523,21 +523,44 @@
 		).observe(anchor);
 	}
 
-	function initCityDatalist() {
-		const store = (window.page_data && window.page_data.store) || {};
-		const cities = store.pk_cities;
-		if (!Array.isArray(cities) || !cities.length) return;
-		const cityInput = document.querySelector('[data-shop="checkout-form"] [name="city"]');
-		if (!cityInput) return;
+	function attachDatalist(id, input, items) {
+		if (!input || !Array.isArray(items) || !items.length) return;
 		const dl = document.createElement("datalist");
-		dl.id = "pk-cities";
-		cities.forEach((c) => {
+		dl.id = id;
+		items.forEach((item) => {
 			const opt = document.createElement("option");
-			opt.value = c;
+			opt.value = item;
 			dl.appendChild(opt);
 		});
 		document.body.appendChild(dl);
-		cityInput.setAttribute("list", "pk-cities");
+		input.setAttribute("list", id);
+	}
+
+	function initAddressDatalists() {
+		const store = (window.page_data && window.page_data.store) || {};
+		const form = document.querySelector('[data-shop="checkout-form"]');
+		if (!form) return;
+
+		attachDatalist(
+			"shop-cities",
+			form.querySelector('[name="city"]'),
+			store.address_cities || store.pk_cities
+		);
+		attachDatalist(
+			"shop-provinces",
+			form.querySelector('[name="state"]'),
+			store.address_provinces
+		);
+
+		const countryInput = form.querySelector('[name="country"]');
+		const homeCountry = store.address_country;
+		if (countryInput && homeCountry) {
+			attachDatalist("shop-countries", countryInput, [homeCountry]);
+			if (!countryInput.value.trim()) {
+				countryInput.value = store.address_country;
+				countryInput.setAttribute("readonly", "readonly");
+			}
+		}
 	}
 
 	document.addEventListener("DOMContentLoaded", () => {
@@ -549,7 +572,7 @@
 		syncPaymentUI();
 		initBuyBar();
 		initFilters();
-		initCityDatalist();
+		initAddressDatalists();
 		document
 			.querySelectorAll('[data-shop="checkout-form"] input[name="payment_method"]')
 			.forEach((radio) => radio.addEventListener("change", syncPaymentUI));

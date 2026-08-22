@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
@@ -20,6 +21,8 @@ INT_FIELDS = frozenset((
 	"fraud_risky_hour_start",
 	"fraud_risky_hour_end",
 	"fraud_auto_blacklist_failures",
+	"fraud_rto_high_pct",
+	"fraud_rto_medium_pct",
 ))
 
 CURRENCY_FIELDS = frozenset((
@@ -56,7 +59,10 @@ EDITABLE = (
 	"fraud_auto_blacklist_failures",
 	"fraud_blacklist_blocks_all",
 	"landmark_required",
-	"pk_cities",
+	"address_country",
+	"address_provinces",
+	"address_cities",
+	"fraud_signal_weights",
 	"ors_api_key",
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
@@ -112,6 +118,39 @@ def get_settings() -> dict:
 	return payload
 
 
+@frappe.whitelist()
+def get_weight_schema() -> dict:
+	"""Grouped signal-weight metadata + current effective values for the
+	Fraud Weights editor."""
+	only_managers()
+	from shop.integrations.signal_weights import (
+		DEFAULT_SIGNAL_WEIGHTS,
+		WEIGHT_SCHEMA,
+		get_weights,
+	)
+
+	settings = frappe.get_cached_doc("Shop Settings")
+	current = get_weights(settings)
+
+	groups = []
+	for group, fields in WEIGHT_SCHEMA:
+		rows = [
+			{
+				"key": key,
+				"label": label,
+				"default": DEFAULT_SIGNAL_WEIGHTS[key],
+				"value": current[key],
+			}
+			for key, label in fields
+		]
+		groups.append({"group": group, "fields": rows})
+
+	return {
+		"groups": groups,
+		"customized": bool(settings.fraud_signal_weights),
+	}
+
+
 def fulfillment_providers() -> list[dict]:
 	from shop.fulfillment.provider import available
 
@@ -136,6 +175,13 @@ def save_settings(payload: dict) -> dict:
 			# Skip empty/masked values so the existing password is not wiped.
 			if not value or value == "******":
 				continue
+		elif field == "fraud_signal_weights":
+			from shop.integrations.signal_weights import validate_weights_json
+
+			try:
+				value = validate_weights_json(value if isinstance(value, str) else "")
+			except ValueError as exc:
+				frappe.throw(_("Fraud signal weights: {0}").format(str(exc)))
 		settings.set(field, value)
 	settings.save(ignore_permissions=True)
 	return get_settings()

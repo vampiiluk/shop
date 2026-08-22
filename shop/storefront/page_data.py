@@ -228,5 +228,10 @@ def store_details() -> dict:
 		"landmark_required": settings.landmark_required,
 	}
 	from shop.integrations.fraud import canonical_cities
-	result["pk_cities"] = [c.title() for c in canonical_cities()]
+
+	result["address_cities"] = [c.title() for c in canonical_cities()]
+	provinces = (settings.address_provinces or "").split(",")
+	result["address_provinces"] = [p.strip() for p in provinces if p.strip()]
+	if settings.address_country:
+		result["address_country"] = settings.address_country
 	return result

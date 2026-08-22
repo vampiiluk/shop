@@ -78,6 +78,11 @@ const routes = [
 				name: 'LandmarkImports',
 				component: () => import('@/pages/LandmarkImports.vue'),
 			},
+			{
+				path: 'fraud-weights',
+				name: 'FraudWeights',
+				component: () => import('@/pages/FraudWeights.vue'),
+			},
 		],
 	},
 ]

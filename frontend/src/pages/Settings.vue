@@ -231,7 +231,8 @@
 				</template>
 			</CatalogSection>
 
-			<CatalogSection title="Pakistani Addresses" description="Standardize checkout for Pakistani courier routing.">
+			<CatalogSection title="Addresses" description="Checkout address options and fraud validation lists.">
+				<FormControl v-model="address_cfg.address_country" label="Default country" class="max-w-sm" />
 				<Switch
 					v-model="address_cfg.landmark_required"
 					label="Require nearest landmark"
@@ -252,17 +253,29 @@
 					✓ Key stored — leave blank to keep it, type to replace
 				</p>
 
-				<div class="mt-4">
-					<label class="mb-1 block text-sm text-ink-gray-6">Pakistan city list</label>
-					<textarea
-						v-model="address_cfg.pk_cities"
-						rows="4"
-						class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
-						placeholder="Islamabad, Rawalpindi, Lahore, Karachi, ..."
-					/>
-					<p class="mt-1 text-p-sm text-ink-gray-5">
-						Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score.
-					</p>
+				<div class="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
+					<div>
+						<label class="mb-1 block text-sm text-ink-gray-6">Province / state list</label>
+						<textarea
+							v-model="address_cfg.address_provinces"
+							rows="3"
+							class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
+							placeholder="Punjab, Sindh, Khyber Pakhtunkhwa, ..."
+						/>
+						<p class="mt-1 text-p-sm text-ink-gray-5">Comma-separated provinces/states offered in the checkout province box.</p>
+					</div>
+					<div>
+						<label class="mb-1 block text-sm text-ink-gray-6">City list</label>
+						<textarea
+							v-model="address_cfg.address_cities"
+							rows="3"
+							class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
+							placeholder="Islamabad, Rawalpindi, Lahore, Karachi, ..."
+						/>
+						<p class="mt-1 text-p-sm text-ink-gray-5">
+							Canonical cities offered in the checkout city box. Cities outside this list add to the fraud score.
+						</p>
+					</div>
 				</div>
 			</div>
 				<template #footer>
@@ -366,7 +379,13 @@ const fraud = reactive({
 	fraud_auto_blacklist_failures: 2,
 	fraud_blacklist_blocks_all: false,
 })
-const address_cfg = reactive({ landmark_required: true, pk_cities: '', ors_api_key: '' })
+const address_cfg = reactive({
+	landmark_required: true,
+	address_country: '',
+	address_provinces: '',
+	address_cities: '',
+	ors_api_key: '',
+})
 const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
@@ -422,7 +441,9 @@ function hydrate(doc: Record<string, any>) {
 	})
 	Object.assign(address_cfg, {
 		landmark_required: !!doc.landmark_required,
-		pk_cities: doc.pk_cities || '',
+		address_country: doc.address_country || '',
+		address_provinces: doc.address_provinces || '',
+		address_cities: doc.address_cities || '',
 		ors_api_key: doc.ors_api_key || '',
 	})
 	Object.assign(fingerprint, {

@@ -46,9 +46,28 @@ def normalize_phone(phone) -> str:
 
 
 def canonical_cities(settings_doc=None) -> list[str]:
+	"""Canonical cities from the generic address settings (falls back to the
+	built-in Pakistan list while nothing is configured)."""
 	settings_doc = settings_doc or settings()
-	custom = [c.strip().lower() for c in (settings_doc.pk_cities or "").split(",") if c.strip()]
+	raw = getattr(settings_doc, "address_cities", None)
+	if raw is None:  # field missing on very old installs
+		raw = settings_doc.pk_cities
+	custom = [c.strip().lower() for c in (raw or "").split(",") if c.strip()]
 	return custom or DEFAULT_PK_CITIES
+
+
+def home_country_codes(settings_doc=None) -> set[str]:
+	"""Accepted country names/codes for the wrong-country geocode check."""
+	settings_doc = settings_doc or settings()
+	codes = {"pk", "pak", "pakistan"}
+	extra = (getattr(settings_doc, "address_countries", None) or "").split(",")
+	for entry in extra:
+		token = entry.strip().upper()
+		if token:
+			codes.add(token)
+			if len(token) > 3:
+				codes.add(token[:3])
+	return codes
 
 
 def pk_hour() -> int:
@@ -200,9 +219,12 @@ def previous_address_failed(address: dict) -> bool:
 	)
 
 
-def address_risk(address: dict, settings_doc=None) -> dict:
+def address_risk(address: dict, settings_doc=None, weights: dict | None = None) -> dict:
 	"""Address quality: cached ORS geocode + local landmark table + heuristics.
 	Returns {'score': int, 'geo': dict|None, 'landmark': dict|None, ...flags}."""
+	from shop.integrations.signal_weights import get_weights as _get_weights
+
+	w = weights or _get_weights(settings_doc)
 	result = {"score": 0, "geo": None, "landmark": None}
 	score = 0
 	a1 = (address.get("address_line1") or "").strip()
@@ -212,17 +234,17 @@ def address_risk(address: dict, settings_doc=None) -> dict:
 
 	# heuristics (always run)
 	if len(a1) < 5:
-		score += 15  # house/street basically missing
+		score += w["address_short_line1"]
 	elif not re.search(r"\d", a1):
-		score += 10  # no house/plot number
+		score += w["address_no_house_number"]
 	if pincode and not re.fullmatch(r"\d{5}", pincode):
-		score += 5
+		score += w["address_bad_pincode"]
 	if city and city.lower() not in canonical_cities():
-		score += 10
+		score += w["address_unknown_city"]
 	if not landmark:
-		score += 15
+		score += w["address_missing_landmark"]
 	if previous_address_failed(address):
-		score += 30
+		score += w["address_prior_failure"]
 
 	# geocode via cache (skips silently when no key / provider error)
 	from shop.integrations.geocoding import geocode_cached, match_landmark, norm_text
@@ -232,7 +254,7 @@ def address_risk(address: dict, settings_doc=None) -> dict:
 		result["geo_unavailable"] = True
 	elif not geo.get("found"):
 		result["geo_not_found"] = True
-		score += 25
+		score += w["geo_not_found"]
 	else:
 		result["geo"] = {
 			"label": geo.get("label"),
@@ -243,18 +265,18 @@ def address_risk(address: dict, settings_doc=None) -> dict:
 			"cached": geo.get("cached"),
 		}
 		country = (geo.get("country") or "").strip()
-		wrong_country = country and country.upper() not in ("PK", "PAK", "PAKISTAN")
+		wrong_country = country and country.upper() not in home_country_codes(settings_doc)
 
 		if wrong_country:
 			# ORS resolved the text to another country entirely: treat as not found
 			result["wrong_country"] = country
-			score += 30
+			score += w["geo_wrong_country"]
 		elif geo.get("match_type") == "exact" and flt(geo.get("confidence")) >= 0.8:
-			score -= 10  # precise address found
+			score += w["geo_exact_match_bonus"]
 		elif geo.get("match_type") == "fallback":
-			score += 15  # too vague (e.g. matched the city only)
+			score += w["geo_fallback_vague"]
 		if not wrong_country and not geo.get("house_number"):
-			score += 10
+			score += w["geo_no_house_number"]
 
 		# stated city vs where the address actually resolves
 		geo_area = norm_text(geo.get("local_area") or geo.get("admin_area"))
@@ -266,16 +288,16 @@ def address_risk(address: dict, settings_doc=None) -> dict:
 				norm_text(c) in mismatch_target for c in canonical_cities(settings_doc) if len(c) > 3
 			):
 				result["city_mismatch"] = True
-				score += 20
+				score += w["geo_city_mismatch"]
 
 		# landmark corroboration against the local POI table
 		if landmark:
 			match = match_landmark(geo.get("lat"), geo.get("lng"), landmark, city)
 			result["landmark"] = match
 			if match:
-				score -= 10
+				score += w["landmark_corroborated_bonus"]
 			else:
-				score += 10
+				score += w["landmark_unmatched"]
 
 	result["score"] = max(0, min(score, 60))
 	return result
@@ -364,6 +386,11 @@ def evaluate_risk(
 	fp_request_id: str = "",
 	as_of=None,
 ) -> FraudResult:
+	from shop.integrations.signal_weights import get_weights as _get_weights
+
+	w = _get_weights()
+	rto_high_pct = cint(settings().fraud_rto_high_pct) or 40
+	rto_medium_pct = cint(settings().fraud_rto_medium_pct) or 20
 	settings_doc = settings()
 	phone = customer.get("phone") or ""
 	email = (customer.get("email") or "").strip().lower()
@@ -412,23 +439,23 @@ def evaluate_risk(
 			}
 
 			if bot in ("bad", "all") or tampered or replayed:
-				score += 40
+				score += w["fp_bot_tamper_replay"]
 			elif suspect >= 0.8:
-				score += 30
+				score += w["fp_suspect_high"]
 			elif suspect >= 0.5:
-				score += 15
+				score += w["fp_suspect_medium"]
 			if blocklist.get("attack_source") or blocklist.get("tor_node") or blocklist.get("email_spam"):
-				score += 20
+				score += w["ip_blocklist_hit"]
 			if proxy:
-				score += 15
+				score += w["proxy_detected"]
 			if incognito or privacy:
-				score += 5
+				score += w["incognito_privacy"]
 		else:
 			# request id sent but verification failed -> tampered/replayed id
 			signals["fp_verify_failed"] = True
-			score += 30
+			score += w["fp_verify_failed"]
 	elif payment_method == "cod" and not device_fingerprint:
-		score += 10
+		score += w["missing_fingerprint"]
 		signals["missing_fingerprint"] = True
 
 	# ---- 1. repeat fraud history ----
@@ -436,19 +463,19 @@ def evaluate_risk(
 	signals["repeat_history"] = stats
 	failed_rto = stats["failed"] + stats["rto"]
 	if failed_rto:
-		score += min(failed_rto * 15, 30)
+		score += min(failed_rto * w["history_failed_rto_per"], w["history_failed_rto_cap"])
 	if stats["total"] and flt(stats["cancelled"]) / stats["total"] > 0.5:
-		score += 10
+		score += w["history_cancelled_ratio_pts"]
 		signals["history_cancelled"] = True
 
 	# ---- 2. phone blacklist ----
 	hit = blacklist_hit(phone, email)
 	if hit:
 		signals["blacklisted"] = hit.name
-		score += 40
+		score += w["blacklist_hit"]
 
 	# ---- 3. address risk ----
-	addr = address_risk(address, settings_doc)
+	addr = address_risk(address, settings_doc, weights=w)
 	addr_risk = addr["score"]
 	signals["address_score"] = addr_risk
 	if addr.get("geo_not_found"):
@@ -465,25 +492,25 @@ def evaluate_risk(
 	max_per_hour = cint(settings_doc.fraud_velocity_max)
 	if max_per_hour and orders_1hr >= max_per_hour:
 		signals["velocity_block"] = True
-		score += 40
+		score += w["velocity_block"]
 	elif orders_1hr > 1:
-		score += min((orders_1hr - 1) * 15, 30)
+		score += min((orders_1hr - 1) * w["velocity_extra_per_order"], w["velocity_extra_cap"])
 	if device_fingerprint and fp_1hr > orders_1hr:
 		signals["fp_multiple_phones"] = True
-		score += 25
+		score += w["fp_multiple_phones"]
 
 	# ---- 5. city RTO rate ----
 	rate = city_rto_rate(city)
 	signals["city_rto_rate"] = rate
-	if rate >= 40:
-		score += 30
-	elif rate >= 20:
-		score += 15
+	if rate >= rto_high_pct:
+		score += w["city_rto_high"]
+	elif rate >= rto_medium_pct:
+		score += w["city_rto_medium"]
 
 	# ---- 6. time-of-day pattern ----
 	if payment_method == "cod" and in_risky_window(settings_doc):
 		signals["risky_hour"] = True
-		score += 15
+		score += w["risky_hour"]
 
 	score = min(score, 100)
 	if hit and (payment_method == "cod" or cint(settings_doc.fraud_blacklist_blocks_all)):
