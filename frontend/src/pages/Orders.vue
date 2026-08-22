@@ -33,6 +33,20 @@
 			<template #cell-fulfillment_status="{ row }">
 				<UiStatusBadge :label="row.fulfillment_status" />
 			</template>
+			<template #cell-custom_fraud_verdict="{ row }">
+				<UiStatusBadge
+					v-if="row.custom_fraud_verdict"
+					:label="row.custom_fraud_verdict"
+					:theme="fraudColor(row.custom_fraud_verdict)"
+				/>
+				<span v-else class="text-ink-gray-4">—</span>
+			</template>
+			<template #cell-custom_fraud_score="{ row }">
+				<span v-if="row.custom_fraud_score" class="text-ink-gray-8">
+					{{ row.custom_fraud_score }}
+				</span>
+				<span v-else class="text-ink-gray-4">—</span>
+			</template>
 			<template #cell-formatted_total="{ row }">
 				<span class="text-ink-gray-8">{{ row.formatted_total }}</span>
 			</template>
@@ -117,6 +131,17 @@ const columns = [
 	{ key: 'status', label: 'Status' },
 	{ key: 'payment_status', label: 'Payment' },
 	{ key: 'fulfillment_status', label: 'Fulfillment' },
+	{ key: 'custom_fraud_verdict', label: 'Fraud' },
+	{ key: 'custom_fraud_score', label: 'Risk', align: 'right' as const },
 	{ key: 'formatted_total', label: 'Total', align: 'right' as const },
 ]
+
+function fraudColor(verdict: string) {
+	switch (verdict) {
+		case 'Block': return 'red'
+		case 'Advance Required': return 'orange'
+		case 'Flag': return 'yellow'
+		default: return 'green'
+	}
+}
 </script>

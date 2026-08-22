@@ -62,12 +62,87 @@ def home_country_codes(settings_doc=None) -> set[str]:
 	codes = {"pk", "pak", "pakistan"}
 	extra = (getattr(settings_doc, "address_countries", None) or "").split(",")
 	for entry in extra:
-		token = entry.strip().upper()
+		token = entry.strip().lower()
 		if token:
 			codes.add(token)
 			if len(token) > 3:
 				codes.add(token[:3])
 	return codes
+
+
+def canonical_provinces(settings_doc=None) -> list[str]:
+	"""Canonical provinces/states from the address settings."""
+	settings_doc = settings_doc or settings()
+	raw = getattr(settings_doc, "address_provinces", None)
+	if raw:
+		return [p.strip().lower() for p in raw.split(",") if p.strip()]
+	return []
+
+
+def _get_province_city_map(settings_doc=None) -> dict[str, list[str]]:
+	"""Build province->cities mapping from the province_table (primary)
+	or fall back to the hardcoded Pakistan mapping."""
+	settings_doc = settings_doc or settings()
+	mapping = {}
+	# Try table field first
+	province_table = getattr(settings_doc, "province_table", None)
+	if province_table:
+		for row in province_table:
+			prov = (row.province_name or "").strip()
+			if not prov:
+				continue
+			cities = [c.strip().lower() for c in (row.cities or "").split(",") if c.strip()]
+			if cities:
+				mapping[prov.lower()] = cities
+	if mapping:
+		return mapping
+	# Fallback: build from address_provinces text field (legacy)
+	provinces_text = getattr(settings_doc, "address_provinces", None)
+	if provinces_text:
+		for p in provinces_text.split(","):
+			prov = p.strip()
+			if prov:
+				mapping[prov.lower()] = []
+	return mapping
+
+
+def province_for_city(city: str, settings_doc=None) -> str | None:
+	"""Best-guess province for a city using the DB province_table mapping."""
+	city_lower = (city or "").strip().lower()
+	if not city_lower:
+		return None
+	mapping = _get_province_city_map(settings_doc)
+	for prov, cities in mapping.items():
+		if city_lower in cities:
+			return prov.title()
+	# Hardcoded fallback for Pakistan cities if no table configured
+	if not mapping:
+		_pk = {
+			"lahore": "Punjab", "faisalabad": "Punjab", "rawalpindi": "Punjab",
+			"multan": "Punjab", "gujranwala": "Punjab", "sialkot": "Punjab",
+			"gujrat": "Punjab", "bahawalpur": "Punjab", "sargodha": "Punjab",
+			"jhelum": "Punjab", "sahiwal": "Punjab", "wah cantonment": "Punjab",
+			"wah cantt": "Punjab", "kasur": "Punjab", "okara": "Punjab",
+			"sheikhupura": "Punjab", "jhang": "Punjab", "rahim yar khan": "Punjab",
+			"dera ghazi khan": "Punjab", "mardan": "Punjab", "chiniot": "Punjab",
+			"kamoke": "Punjab", "hafizabad": "Punjab", "mandi bahauddin": "Punjab",
+			"toba tek singh": "Punjab", "khanewal": "Punjab", "vehari": "Punjab",
+			"burewala": "Punjab", "khanpur": "Punjab", "muridke": "Punjab",
+			"shikarpur": "Punjab", "nankana sahib": "Punjab",
+			"karachi": "Sindh", "hyderabad": "Sindh", "sukkur": "Sindh",
+			"larkana": "Sindh", "nawabshah": "Sindh", "mirpur khas": "Sindh",
+			"mirpurkhas": "Sindh", "jacobabad": "Sindh", "kotri": "Sindh",
+			"khairpur": "Sindh", "dadu": "Sindh", "sadiqabad": "Sindh",
+			"islamabad": "Islamabad",
+			"peshawar": "Khyber Pakhtunkhwa", "abbottabad": "Khyber Pakhtunkhwa",
+			"kohat": "Khyber Pakhtunkhwa", "dera ismail khan": "Khyber Pakhtunkhwa",
+			"mingora": "Khyber Pakhtunkhwa",
+			"quetta": "Balochistan", "turbat": "Balochistan",
+			"gilgit": "Gilgit-Baltistan", "skardu": "Gilgit-Baltistan",
+			"mirpur": "Azad Kashmir", "muzaffarabad": "Azad Kashmir",
+		}
+		return _pk.get(city_lower)
+	return None
 
 
 def pk_hour() -> int:
@@ -180,12 +255,25 @@ def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
 		if normalized and normalize_phone(row.phone) == normalized:
 			return row
 	if email:
-		return frappe.db.get_value(
+		email_clean = email.strip().lower()
+		# Check both exact match and case-insensitive via SQL
+		hit = frappe.db.get_value(
 			"Shop Blacklist",
-			{"active": 1, "email": email.strip().lower()},
+			{"active": 1, "email": email_clean},
 			["name", "phone", "email", "hit_count"],
 			as_dict=True,
 		)
+		if hit:
+			return hit
+		# Case-insensitive fallback
+		hit = frappe.db.sql(
+			"""SELECT name, phone, email, hit_count FROM `tabShop Blacklist`
+			WHERE active=1 AND LOWER(email)=LOWER(%s) LIMIT 1""",
+			(email_clean,),
+			as_dict=True,
+		)
+		if hit:
+			return hit[0]
 	return None
 
 
@@ -231,6 +319,20 @@ def address_risk(address: dict, settings_doc=None, weights: dict | None = None) 
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
 	landmark = (address.get("landmark") or "").strip()
+	stated_country = (address.get("country") or "").strip()
+	stated_province = (address.get("state") or "").strip()
+
+	# user-provided country mismatch (no geocode needed)
+	if stated_country and stated_country.lower() not in home_country_codes(settings_doc):
+		result["user_country_mismatch"] = stated_country
+		score += w["user_country_mismatch"]
+
+	# province vs city consistency check
+	if stated_province:
+		expected_province = province_for_city(city, settings_doc)
+		if expected_province and stated_province.lower() != expected_province.lower():
+			result["province_mismatch"] = stated_province
+			score += w["province_mismatch"]
 
 	# heuristics (always run)
 	if len(a1) < 5:
@@ -265,7 +367,7 @@ def address_risk(address: dict, settings_doc=None, weights: dict | None = None) 
 			"cached": geo.get("cached"),
 		}
 		country = (geo.get("country") or "").strip()
-		wrong_country = country and country.upper() not in home_country_codes(settings_doc)
+		wrong_country = country and country.lower() not in home_country_codes(settings_doc)
 
 		if wrong_country:
 			# ORS resolved the text to another country entirely: treat as not found
@@ -482,6 +584,12 @@ def evaluate_risk(
 		signals["address_geo_not_found"] = True
 	if addr.get("city_mismatch"):
 		signals["address_city_mismatch"] = True
+	if addr.get("user_country_mismatch"):
+		signals["address_country_mismatch"] = addr["user_country_mismatch"]
+	if addr.get("province_mismatch"):
+		signals["address_province_mismatch"] = addr["province_mismatch"]
+	if addr.get("wrong_country"):
+		signals["address_wrong_country"] = addr["wrong_country"]
 	signals["address_landmark_match"] = addr.get("landmark")
 	score += addr_risk
 
@@ -563,7 +671,7 @@ def stamp_order(order: str, fingerprint: str, fp_request_id: str, result: FraudR
 
 
 def add_to_blacklist(phone: str, reason: str, source: str = "Manual", email: str | None = None):
-	if not normalize_phone(phone):
+	if not normalize_phone(phone) and not email:
 		return None
 	existing = blacklist_hit(phone, email)
 	if existing:
@@ -571,7 +679,7 @@ def add_to_blacklist(phone: str, reason: str, source: str = "Manual", email: str
 	doc = frappe.get_doc(
 		{
 			"doctype": "Shop Blacklist",
-			"phone": phone,
+			"phone": phone or "",
 			"email": email,
 			"reason": reason,
 			"source": source,

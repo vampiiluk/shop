@@ -115,6 +115,10 @@ def get_settings() -> dict:
 					fields=["name", "warehouse_name"],
 				)
 			],
+			"provinces": [
+				{"name": row.name, "province_name": row.province_name, "cities": row.cities or ""}
+				for row in (settings.province_table or [])
+			],
 		}
 	)
 	return payload
@@ -185,5 +189,21 @@ def save_settings(payload: dict) -> dict:
 			except ValueError as exc:
 				frappe.throw(_("Fraud signal weights: {0}").format(str(exc)))
 		settings.set(field, value)
+	settings.save(ignore_permissions=True)
+	return get_settings()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_provinces(provinces: list) -> dict:
+	"""Save the province table. Each entry: {province_name, cities}."""
+	only_managers()
+	settings = frappe.get_doc("Shop Settings")
+	settings.province_table = []
+	for entry in provinces:
+		prov_name = (entry.get("province_name") or "").strip()
+		cities = (entry.get("cities") or "").strip()
+		if not prov_name:
+			continue
+		settings.append("province_table", {"province_name": prov_name, "cities": cities})
 	settings.save(ignore_permissions=True)
 	return get_settings()

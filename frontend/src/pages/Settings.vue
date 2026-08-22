@@ -267,29 +267,8 @@
 					✓ Key stored — leave blank to keep it, type to replace
 				</p>
 
-				<div class="mt-4 grid max-w-2xl gap-4 sm:grid-cols-2">
-					<div>
-						<label class="mb-1 block text-sm text-ink-gray-6">Province / state list</label>
-						<textarea
-							v-model="address_cfg.address_provinces"
-							rows="3"
-							class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
-							placeholder="Punjab, Sindh, Khyber Pakhtunkhwa, ..."
-						/>
-						<p class="mt-1 text-p-sm text-ink-gray-5">Comma-separated provinces/states offered in the checkout province box.</p>
-					</div>
-					<div>
-						<label class="mb-1 block text-sm text-ink-gray-6">City list</label>
-						<textarea
-							v-model="address_cfg.address_cities"
-							rows="3"
-							class="w-full rounded-lg border border-outline-gray-1 px-3 py-2 text-sm text-ink-gray-8 focus:outline-none focus:ring-2 focus:ring-ink-gray-4"
-							placeholder="Islamabad, Rawalpindi, Lahore, Karachi, ..."
-						/>
-						<p class="mt-1 text-p-sm text-ink-gray-5">
-							Canonical cities offered in the checkout city box. Cities outside this list add to the fraud score.
-						</p>
-					</div>
+				<div class="mt-4">
+					<ProvinceCityEditor v-model="provinces" />
 				</div>
 			</div>
 				<template #footer>
@@ -368,6 +347,7 @@ import LucideExternalLink from '~icons/lucide/external-link'
 import CatalogImageInput from '@/components/CatalogImageInput.vue'
 import CatalogListState from '@/components/CatalogListState.vue'
 import CatalogSection from '@/components/CatalogSection.vue'
+import ProvinceCityEditor from '@/components/ProvinceCityEditor.vue'
 import StorefrontThemes from '@/components/StorefrontThemes.vue'
 
 const saving = ref('')
@@ -402,6 +382,7 @@ const address_cfg = reactive({
 	address_cities: '',
 	ors_api_key: '',
 })
+const provinces = ref<Array<{ name?: string; province_name: string; cities: string }>>([])
 const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
@@ -464,6 +445,11 @@ function hydrate(doc: Record<string, any>) {
 		address_cities: doc.address_cities || '',
 		ors_api_key: doc.ors_api_key || '',
 	})
+	provinces.value = (doc.provinces || []).map((p: Record<string, any>) => ({
+		name: p.name,
+		province_name: p.province_name,
+		cities: p.cities || '',
+	}))
 	Object.assign(fingerprint, {
 		fingerprint_public_key: doc.fingerprint_public_key || '',
 		fingerprint_secret_key: doc.fingerprint_secret_key || '',

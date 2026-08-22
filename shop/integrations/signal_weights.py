@@ -28,20 +28,22 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	"incognito_privacy": 5,
 	# --- address quality ---
 	"address_short_line1": 15,
-	"address_no_house_number": 10,
+	"address_no_house_number": 5,
 	"address_bad_pincode": 5,
 	"address_unknown_city": 10,
 	"address_missing_landmark": 15,
 	"address_prior_failure": 30,
+	"user_country_mismatch": 25,
+	"province_mismatch": 10,
 	# --- geocoding (ORS) ---
 	"geo_not_found": 25,
 	"geo_wrong_country": 30,
 	"geo_city_mismatch": 20,
-	"geo_no_house_number": 10,
-	"geo_exact_match_bonus": -10,
-	"geo_fallback_vague": 15,
-	"landmark_corroborated_bonus": -10,
-	"landmark_unmatched": 10,
+	"geo_no_house_number": 5,
+	"geo_exact_match_bonus": -15,
+	"geo_fallback_vague": 5,
+	"landmark_corroborated_bonus": -15,
+	"landmark_unmatched": 5,
 	# --- city RTO rate ---
 	"city_rto_high": 30,         # >= fraud_rto_high_pct
 	"city_rto_medium": 15,       # >= fraud_rto_medium_pct
@@ -79,6 +81,8 @@ WEIGHT_SCHEMA = [
 		("address_unknown_city", "City not in canonical list"),
 		("address_missing_landmark", "Landmark missing"),
 		("address_prior_failure", "Failed delivery at this address before"),
+		("user_country_mismatch", "Country mismatch (user input)"),
+		("province_mismatch", "Province/state mismatch"),
 	]),
 	("Geocoding", [
 		("geo_not_found", "Address not found"),

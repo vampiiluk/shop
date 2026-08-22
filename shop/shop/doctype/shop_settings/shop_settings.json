@@ -44,11 +44,12 @@
   "fraud_risky_hour_end",
   "fraud_auto_blacklist_failures",
   "fraud_blacklist_blocks_all",
-  "address_section",
-  "address_country",
-  "address_provinces",
-  "address_cities",
-  "landmark_required",
+   "address_section",
+   "address_country",
+   "address_provinces",
+   "address_cities",
+   "province_table",
+   "landmark_required",
   "fraud_rto_high_pct",
   "fraud_rto_medium_pct",
   "fraud_signal_weights",
@@ -324,14 +325,21 @@
    "label": "Province / State List",
    "description": "Comma-separated provinces or states offered in the checkout province box."
   },
-  {
-   "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
-   "fieldname": "address_cities",
-   "fieldtype": "Small Text",
-   "label": "City List",
-   "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
-  },
-  {
+   {
+    "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
+    "fieldname": "address_cities",
+    "fieldtype": "Small Text",
+    "label": "City List",
+    "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
+   },
+   {
+    "fieldname": "province_table",
+    "fieldtype": "Table",
+    "label": "Provinces & Cities",
+    "options": "Shop Province",
+    "description": "Each row is a province/state with its comma-separated cities. Used for fraud province validation and checkout dropdowns."
+   },
+   {
    "default": "1",
    "fieldname": "landmark_required",
    "fieldtype": "Check",

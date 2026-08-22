@@ -32,6 +32,8 @@ LIST_FIELDS = [
 	"per_delivered",
 	"docstatus",
 	"contact_email",
+	"custom_fraud_score",
+	"custom_fraud_verdict",
 ]
 
 
