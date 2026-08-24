@@ -37,7 +37,7 @@
 				<UiStatusBadge
 					v-if="row.custom_fraud_verdict"
 					:label="row.custom_fraud_verdict"
-					:theme="fraudColor(row.custom_fraud_verdict)"
+					:theme="verdictTheme(row.custom_fraud_verdict)"
 				/>
 				<span v-else class="text-ink-gray-4">—</span>
 			</template>
@@ -77,6 +77,7 @@ import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiPagination from '@/components/UiPagination.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 import { formatDate } from '@/utils/format'
+import { verdictTheme } from '@/utils/verdict'
 
 const pageSize = 20
 
@@ -136,12 +137,4 @@ const columns = [
 	{ key: 'formatted_total', label: 'Total', align: 'right' as const },
 ]
 
-function fraudColor(verdict: string) {
-	switch (verdict) {
-		case 'Block': return 'red'
-		case 'Advance Required': return 'orange'
-		case 'Flag': return 'yellow'
-		default: return 'green'
-	}
-}
 </script>

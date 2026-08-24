@@ -53,13 +53,13 @@
   "fraud_rto_high_pct",
   "fraud_rto_medium_pct",
   "fraud_signal_weights",
-  "fingerprint_section",
-  "fingerprint_public_key",
-  "fingerprint_secret_key",
-  "column_break_fingerprint",
-  "fingerprint_region",
-  "theme_pages_section",
-  "theme_pages"
+   "fingerprint_section",
+   "fingerprint_public_key",
+   "fingerprint_secret_key",
+   "column_break_fingerprint",
+   "fingerprint_region",
+   "theme_pages_section",
+   "theme_pages"
  ],
  "fields": [
   {
@@ -388,14 +388,14 @@
    "fieldname": "column_break_fingerprint",
    "fieldtype": "Column Break"
   },
-  {
-   "default": "ap",
-   "fieldname": "fingerprint_region",
-   "fieldtype": "Select",
-   "label": "Fingerprint Region",
-   "options": "us\neu\nap",
-   "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
-  },
+   {
+    "default": "ap",
+    "fieldname": "fingerprint_region",
+    "fieldtype": "Select",
+    "label": "Fingerprint Region",
+    "options": "us\neu\nap",
+    "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
+   },
   {
    "collapsible": 1,
    "fieldname": "theme_pages_section",

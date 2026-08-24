@@ -15,9 +15,16 @@
 				>
 					<div class="flex justify-between items-center mb-1">
 						<span class="font-medium text-ink-gray-8">{{ o.name }}</span>
-						<UiStatusBadge :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" :theme="verdictTheme(o.custom_fraud_verdict)" />
+						<div class="flex items-center gap-2">
+							<UiStatusBadge :label="o.display_status" :theme="statusTheme(o.display_status)" />
+							<UiStatusBadge v-if="o.custom_fraud_verdict" :label="`${o.custom_fraud_verdict} (${o.custom_fraud_score})`" :theme="verdictTheme(o.custom_fraud_verdict)" />
+						</div>
 					</div>
 					<div class="text-sm text-ink-gray-8">{{ o.customer }}</div>
+					<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-gray-5">
+						<span v-if="o.transaction_date">Ordered {{ o.transaction_date }}</span>
+						<span v-if="o.delivered_on" class="text-green-600">Delivered {{ o.delivered_on }}</span>
+					</div>
 					<div class="mt-2 flex flex-wrap gap-1">
 						<span v-for="reason in o.match_reasons" :key="reason" class="text-xs bg-surface-gray-3 text-ink-gray-6 px-2 py-0.5 rounded">
 							Matched {{ reason }}
@@ -44,4 +51,15 @@ const related = createResource({
 	makeParams: () => ({ order: props.order }),
 	auto: true,
 })
+
+function statusTheme(status: string): string {
+	switch (status) {
+		case "Delivered": return "green"
+		case "Returned": return "orange"
+		case "Cancelled": return "red"
+		case "Active": return "blue"
+		case "Draft": return "gray"
+		default: return "gray"
+	}
+}
 </script>

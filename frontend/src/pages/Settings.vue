@@ -245,7 +245,7 @@
 				</template>
 			</CatalogSection>
 
-			<CatalogSection title="Addresses" description="Checkout address options and fraud validation lists.">
+			<CatalogSection title="Addresses" description="Checkout address options, verification and fraud validation lists.">
 				<FormControl v-model="address_cfg.address_country" label="Default country" class="max-w-sm" />
 				<Switch
 					v-model="address_cfg.landmark_required"
@@ -253,10 +253,10 @@
 					description="Checkout requires a famous landmark so courier riders can find the address."
 				/>
 				<div class="max-w-lg">
-					
+
 				<Password
 					v-model="address_cfg.ors_api_key"
-					
+
 					label="OpenRouteService API Key"
 				>
 					<template #description>
@@ -266,6 +266,53 @@
 				<p v-if="data.ors_api_key_set && !address_cfg.ors_api_key" class="text-xs text-green-600">
 					✓ Key stored — leave blank to keep it, type to replace
 				</p>
+
+				<div class="mt-5 space-y-3">
+					<p class="text-p-sm font-medium text-ink-gray-7">Address Verification</p>
+					<FormControl
+						v-model="address_cfg.maps_provider"
+						type="select"
+						label="Maps verification"
+						:options="[
+							{ label: 'Google Maps Scraper', value: 'Google Maps Scraper' },
+							{ label: 'None (skip Maps check)', value: 'None' },
+						]"
+						class="max-w-sm"
+					/>
+					<div class="grid max-w-md grid-cols-3 gap-3">
+						<FormControl
+							v-model.number="address_cfg.gms_depth"
+							type="number"
+							label="Search depth"
+							description="Higher = more results, slower."
+						/>
+						<FormControl
+							v-model.number="address_cfg.gms_concurrency"
+							type="number"
+							label="Concurrency"
+							min="1"
+							max="8"
+							description="Parallel GMS tabs (1-8)."
+						/>
+						<FormControl
+							v-model.number="address_cfg.geocode_cache_ttl"
+							type="number"
+							label="Cache TTL (days)"
+							description="Re-verify after this many days."
+						/>
+					</div>
+					<div class="flex items-center gap-3">
+						<Button
+							variant="subtle"
+							:loading="downloadingGms"
+							@click="downloadGms"
+						>
+							{{ gmsStatus.data?.installed ? 'Update GMS Scraper' : 'Install GMS Scraper' }}
+						</Button>
+						<span v-if="gmsStatus.data?.installed" class="text-xs text-green-600">Installed</span>
+						<span v-else class="text-xs text-ink-gray-5">Not installed</span>
+					</div>
+				</div>
 
 				<div class="mt-4">
 					<ProvinceCityEditor v-model="provinces" />
@@ -381,12 +428,22 @@ const address_cfg = reactive({
 	address_provinces: '',
 	address_cities: '',
 	ors_api_key: '',
+	maps_provider: 'Google Maps Scraper',
+	gms_depth: 5,
+	gms_concurrency: 4,
+	geocode_cache_ttl: 30,
 })
 const provinces = ref<Array<{ name?: string; province_name: string; cities: string }>>([])
 const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
 	fingerprint_region: 'ap',
+})
+const downloadingGms = ref(false)
+
+const gmsStatus = createResource({
+	url: 'shop.api.settings.get_gms_status',
+	auto: true,
 })
 
 const settings = createResource({
@@ -444,6 +501,10 @@ function hydrate(doc: Record<string, any>) {
 		address_provinces: doc.address_provinces || '',
 		address_cities: doc.address_cities || '',
 		ors_api_key: doc.ors_api_key || '',
+		maps_provider: doc.maps_provider || 'Google Maps Scraper',
+		gms_depth: doc.gms_depth || 5,
+		gms_concurrency: doc.gms_concurrency || 4,
+		geocode_cache_ttl: doc.geocode_cache_ttl || 30,
 	})
 	provinces.value = (doc.provinces || []).map((p: Record<string, any>) => ({
 		name: p.name,
@@ -514,5 +575,22 @@ function normalize(payload: Record<string, any>) {
 
 function openBuilder() {
 	window.open('/builder', '_blank')
+}
+
+async function downloadGms() {
+	downloadingGms.value = true
+	try {
+		const result = await call('shop.api.settings.download_gms')
+		if (result.success) {
+			toast.success(`GMS Scraper ${result.version || ''} installed`)
+			gmsStatus.reload()
+		} else {
+			toast.error(result.error || 'Download failed')
+		}
+	} catch (error) {
+		toast.error('Could not download GMS Scraper')
+	} finally {
+		downloadingGms.value = false
+	}
 }
 </script>

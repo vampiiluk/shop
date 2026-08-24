@@ -9,6 +9,9 @@
 					
 				</template>
 				<template #actions>
+					<Button @click="$router.push({ name: 'Assistant', query: { message: `Analyze fraud risk for ${doc.name}` } })">
+						AI Risk Score
+					</Button>
 					<Button :link="`/app/sales-order/${doc.name}`">Open in Desk</Button>
 					<Button v-if="canMarkPaid" @click="confirmAction('markPaid')">Mark paid</Button>
 					<Button v-if="canRecordOutcome" @click="showOutcome = true">Record delivery</Button>
@@ -66,12 +69,14 @@
 						</table>
 					</div>
 
+					<FraudOrderPanel :order="doc.name" />
+
 					<FulfillmentPanel
 						:order="doc.name"
 						:docstatus="doc.docstatus"
 						@changed="order.reload()"
 					/>
-					
+
 					<RelatedOrdersPanel :order="doc.name" />
 				</div>
 
@@ -92,8 +97,6 @@
 					</div>
 
 					<FingerprintPanel :order="doc.name" />
-
-					<FraudOrderPanel :order="doc.name" />
 
 					<ReturnsPanel :order="doc.name" />
 

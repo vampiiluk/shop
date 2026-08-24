@@ -1,15 +1,14 @@
 <template>
-	<div class="mx-auto max-w-4xl px-6 py-8">
-		<div class="flex items-start justify-between">
-			<div>
-				<h1 class="text-xl font-semibold text-ink-gray-9">Fraud Weights</h1>
-				<p class="mt-1 max-w-2xl text-p-sm text-ink-gray-6">
-					Points each signal adds to the fraud score. Changes apply to every new checkout
-					immediately.
-				</p>
-			</div>
-			<UiStatusBadge v-if="schema.data?.customized" theme="amber" label="Customized" />
-		</div>
+	<div class="mx-auto max-w-5xl px-6 py-8">
+		<UiPageHeader title="Fraud Weights">
+			<template #actions>
+				<UiStatusBadge v-if="schema.data?.customized" theme="amber" label="Customized" />
+			</template>
+		</UiPageHeader>
+		<p class="mt-1 max-w-2xl text-p-sm text-ink-gray-6">
+			Points each signal adds to the fraud score. Changes apply to every new checkout
+			immediately.
+		</p>
 
 		<CatalogListState
 			:loading="schema.loading && !schema.data"
@@ -61,6 +60,7 @@ import { reactive, ref } from 'vue'
 import { Button, call, createResource, toast } from 'frappe-ui'
 
 import CatalogListState from '@/components/CatalogListState.vue'
+import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 
 const values = reactive<Record<string, number>>({})

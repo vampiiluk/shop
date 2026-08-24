@@ -1,6 +1,6 @@
 <template>
-	<div class="mx-auto max-w-6xl px-6 py-8">
-		<h1 class="text-xl font-semibold text-ink-gray-9">Fraud Overview</h1>
+	<div class="mx-auto max-w-5xl px-6 py-8">
+		<UiPageHeader title="Fraud Overview" />
 
 		<CatalogListState
 			:loading="overview.loading && !overview.data"
@@ -34,62 +34,49 @@
 				</div>
 			</div>
 
-			<div class="mt-6 grid gap-6 lg:grid-cols-3">
+			<div class="mt-8 grid gap-6 lg:grid-cols-3">
 				<!-- Recent events -->
 				<div class="lg:col-span-2">
-					<div class="overflow-hidden rounded-lg border border-outline-gray-1">
-						<div class="border-b border-outline-gray-1 px-4 py-3 text-sm font-medium text-ink-gray-7">
-							Recent orders
-						</div>
-						<table v-if="overview.data.recent_events.length" class="w-full text-base">
-							<thead>
-								<tr class="border-b border-outline-gray-1 text-left text-sm text-ink-gray-5">
-									<th class="px-3 py-2 font-normal">Order</th>
-									<th class="px-3 py-2 font-normal">Phone</th>
-									<th class="px-3 py-2 font-normal">City</th>
-									<th class="px-3 py-2 font-normal">Fraud</th>
-									<th class="px-3 py-2 text-right font-normal">When</th>
-								</tr>
-							</thead>
-							<tbody>
-								<tr
-									v-for="event in overview.data.recent_events"
-									:key="event.order_name"
-									class="border-b border-outline-gray-1 last:border-b-0"
-								>
-									<td class="px-3 py-2">
-										<div class="flex items-center gap-2">
-											<router-link
-												:to="`/orders/${event.order_name}`"
-												class="font-medium text-ink-gray-8 hover:underline"
-											>
-												{{ event.order_name }}
-											</router-link>
-											<router-link
-												:to="`/fraud/${event.order_name}`"
-												class="text-xs text-ink-gray-4 underline hover:text-ink-gray-6"
-												title="Fraud detail"
-											>
-												detail
-											</router-link>
-										</div>
-									</td>
-									<td class="px-3 py-2 text-ink-gray-7">{{ event.phone || '—' }}</td>
-									<td class="px-3 py-2 text-ink-gray-7">{{ event.city || '—' }}</td>
-									<td class="px-3 py-2">
-										<div class="flex items-center gap-1.5">
-											<UiStatusBadge :theme="verdictTheme(event.verdict)" :label="`${event.verdict} (${event.score})`" />
-											<span v-if="!event.fingerprinted" class="text-xs text-ink-gray-4">no fp</span>
-										</div>
-									</td>
-									<td class="px-3 py-2 text-right text-sm text-ink-gray-5">
-										{{ formatDateTime(event.creation) }}
-									</td>
-								</tr>
-							</tbody>
-						</table>
-						<div v-else class="px-4 py-6 text-center text-sm text-ink-gray-4">Nothing flagged yet</div>
+					<div class="mb-3 flex items-center justify-between">
+						<h2 class="text-lg font-medium text-ink-gray-8">Recent orders</h2>
+						<router-link to="/orders" class="text-base text-ink-gray-6 hover:text-ink-gray-8">View all</router-link>
 					</div>
+					<UiDataTable
+						:columns="recentColumns"
+						:rows="overview.data.recent_events"
+						row-key="order_name"
+						clickable
+						@row-click="(row) => router.push(`/fraud/${row.order_name}`)"
+					>
+						<template #cell-order_name="{ row }">
+							<span class="font-medium text-ink-gray-8">{{ row.order_name }}</span>
+						</template>
+						<template #cell-fraud="{ row }">
+							<div class="flex items-center gap-1.5">
+								<UiStatusBadge
+									v-if="eventInProcess(row)"
+									theme="amber"
+									label="Detection in process"
+								/>
+								<UiStatusBadge
+									v-else
+									:theme="verdictTheme(row.verdict)"
+									:label="`${row.verdict} (${row.score})`"
+								/>
+								<span v-if="!row.fingerprinted" class="text-xs text-ink-gray-4">no fp</span>
+							</div>
+						</template>
+						<template #cell-when="{ row }">
+							{{ formatDateTime(row.creation) }}
+						</template>
+						<template #empty>
+							<UiEmptyState
+								:icon="LucideShieldAlert"
+								title="No orders yet"
+								message="Placed orders will appear here once fraud scoring starts."
+							/>
+						</template>
+					</UiDataTable>
 				</div>
 
 				<!-- Right column -->
@@ -137,11 +124,26 @@
 
 <script setup lang="ts">
 import { Spinner, createResource } from 'frappe-ui'
+import { useRouter } from 'vue-router'
 
+import LucideShieldAlert from '~icons/lucide/shield-alert'
 import CatalogListState from '@/components/CatalogListState.vue'
+import UiDataTable from '@/components/UiDataTable.vue'
+import UiEmptyState from '@/components/UiEmptyState.vue'
+import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 import { formatDateTime } from '@/utils/format'
 import { verdictTheme } from '@/utils/verdict'
+
+const router = useRouter()
+
+const recentColumns = [
+	{ key: 'order_name', label: 'Order' },
+	{ key: 'customer', label: 'Customer' },
+	{ key: 'city', label: 'City' },
+	{ key: 'fraud', label: 'Fraud' },
+	{ key: 'when', label: 'When', align: 'right' as const },
+]
 
 const overview = createResource({
 	url: 'shop.api.fraud.get_overview',
@@ -155,6 +157,11 @@ function kpi(key: string) {
 function fingerprintedPct(key: string) {
 	const b = kpi(key)
 	return b.total ? Math.round((b.fingerprinted / b.total) * 100) : 0
+}
+
+function eventInProcess(event: any): boolean {
+	if (event.fraud_state === 'Processing') return true
+	return ['Queued', 'Pending'].includes(event.verification_status)
 }
 
 </script>

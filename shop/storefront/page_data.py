@@ -227,11 +227,20 @@ def store_details() -> dict:
 		"fp_region": settings.fingerprint_region or "ap",
 		"landmark_required": settings.landmark_required,
 	}
-	from shop.integrations.fraud import canonical_cities
+	from shop.integrations.fraud import canonical_cities, canonical_provinces
 
 	result["address_cities"] = [c.title() for c in canonical_cities()]
-	provinces = (settings.address_provinces or "").split(",")
-	result["address_provinces"] = [p.strip() for p in provinces if p.strip()]
+	result["address_provinces"] = canonical_provinces()
 	if settings.address_country:
 		result["address_country"] = settings.address_country
+	# Build province→cities mapping for the checkout cascading dropdown
+	province_map = {}
+	province_table = getattr(settings, "province_table", None)
+	if province_table:
+		for row in province_table:
+			prov = (row.province_name or "").strip()
+			if prov:
+				cities = [c.strip().title() for c in (row.cities or "").split(",") if c.strip()]
+				province_map[prov] = cities
+	result["province_city_map"] = province_map
 	return result

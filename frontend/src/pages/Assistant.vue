@@ -77,7 +77,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Button, LoadingIndicator, call, createResource } from 'frappe-ui'
 
 import LucidePlus from '~icons/lucide/plus'
@@ -120,9 +121,26 @@ const busy = ref(false)
 const answering = ref(false)
 const lastMessage = ref('')
 const scroller = ref<HTMLElement | null>(null)
+const route = useRoute()
 
 // The transcript carries the agent's system prompt, which is not for the merchant.
 const visible = computed(() => messages.value.filter((message) => message.role !== 'system'))
+
+// Auto-send a message from query param (e.g. /assistant?message=Analyze+fraud+risk+for+SO-321)
+onMounted(() => {
+	const q = route.query.message
+	if (q && typeof q === 'string' && ready.value) {
+		send(q)
+	}
+})
+
+// Also handle when ready state changes after mount (status loads async)
+watch(ready, (isReady) => {
+	const q = route.query.message
+	if (isReady && q && typeof q === 'string' && !messages.value.length) {
+		send(q)
+	}
+})
 
 async function send(message: string) {
 	if (busy.value || answering.value) return

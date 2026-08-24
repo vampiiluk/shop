@@ -73,16 +73,22 @@ const routes = [
 			{ path: 'discounts', name: 'Discounts', component: () => import('@/pages/Discounts.vue') },
 			{ path: 'carts', name: 'Carts', component: () => import('@/pages/Carts.vue') },
 			{ path: 'settings', name: 'Settings', component: () => import('@/pages/Settings.vue') },
-			{
-				path: 'landmarks-import',
-				name: 'LandmarkImports',
-				component: () => import('@/pages/LandmarkImports.vue'),
-			},
-			{
-				path: 'fraud-weights',
-				name: 'FraudWeights',
-				component: () => import('@/pages/FraudWeights.vue'),
-			},
+		{
+			path: 'fraud-weights',
+			name: 'FraudWeights',
+			component: () => import('@/pages/FraudWeights.vue'),
+		},
+		{
+			path: 'verifications',
+			name: 'Verifications',
+			component: () => import('@/pages/Verifications.vue'),
+		},
+		{
+			path: 'verifications/:name',
+			name: 'VerificationDetail',
+			component: () => import('@/pages/VerificationDetail.vue'),
+			props: true,
+		},
 		],
 	},
 ]

@@ -10,7 +10,7 @@
 		</router-link>
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div class="flex items-center gap-3">
-				<h1 class="text-xl font-semibold text-ink-gray-9">{{ title }}</h1>
+				<h1 class="text-xl font-semibold text-ink-gray-9"><slot name="title">{{ title }}</slot></h1>
 				<slot name="badges" />
 			</div>
 			<div class="flex items-center gap-2">

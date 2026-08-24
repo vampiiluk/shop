@@ -1,0 +1,296 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-23 17:06:39.573907",
+ "description": "Unified ORS + GMS address verification cache",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+  "field_order": [
+   "address_hash",
+   "address_line1",
+   "city",
+   "landmark",
+   "column_break_addr",
+   "country",
+   "pincode",
+   "latitude",
+   "longitude",
+   "section_break_status",
+   "status",
+   "section_break_ors",
+   "ors_status",
+   "ors_confidence",
+   "ors_match_type",
+   "column_break_ors",
+   "ors_result_json",
+   "section_break_gms",
+   "gms_status",
+   "gms_result_count",
+   "gms_result_text",
+   "column_break_gms",
+   "gms_result_json",
+   "section_break_address_risk",
+   "address_risk_status",
+   "address_risk_score",
+   "column_break_address_risk",
+   "address_risk_json",
+   "section_break_meta",
+   "source",
+   "linked_orders",
+   "linked_phones",
+   "column_break_meta",
+   "linked_fingerprints",
+   "last_verified_on"
+  ],
+ "fields": [
+  {
+   "fieldname": "address_hash",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Hash",
+   "read_only": 1
+  },
+  {
+   "fieldname": "address_line1",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Address"
+   },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "City"
+  },
+  {
+   "fieldname": "landmark",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Landmark"
+  },
+  {
+   "fieldname": "column_break_addr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country"
+  },
+  {
+   "fieldname": "pincode",
+   "fieldtype": "Data",
+   "label": "Pincode"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "6"
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "6"
+  },
+  {
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Verification Status"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nQueued\nComplete\nPartial\nFailed\nSkipped"
+  },
+  {
+   "fieldname": "section_break_ors",
+   "fieldtype": "Section Break",
+   "label": "ORS Geocoding"
+  },
+  {
+   "default": "Skipped",
+   "fieldname": "ors_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "ORS Status",
+   "options": "Pending\nComplete\nFailed\nSkipped"
+  },
+  {
+   "fieldname": "ors_confidence",
+   "fieldtype": "Float",
+   "label": "ORS Confidence"
+  },
+  {
+   "fieldname": "ors_match_type",
+   "fieldtype": "Data",
+   "label": "ORS Match Type"
+  },
+  {
+   "fieldname": "column_break_ors",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ors_result_json",
+   "fieldtype": "Code",
+   "label": "ORS Result JSON",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "section_break_gms",
+   "fieldtype": "Section Break",
+   "label": "Google Maps Scraper"
+  },
+  {
+   "default": "Disabled",
+   "fieldname": "gms_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "GMS Status",
+   "options": "Pending\nComplete\nFailed\nSkipped\nDisabled"
+  },
+  {
+   "fieldname": "gms_result_count",
+   "fieldtype": "Int",
+   "label": "GMS Result Count"
+  },
+  {
+   "fieldname": "gms_result_text",
+   "fieldtype": "Small Text",
+   "label": "GMS Result Text"
+  },
+  {
+   "fieldname": "column_break_gms",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gms_result_json",
+   "fieldtype": "Code",
+   "label": "GMS Result JSON",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "section_break_address_risk",
+   "fieldtype": "Section Break",
+   "label": "Address Risk"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "address_risk_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Address Risk Status",
+   "options": "Pending\nComplete\nFailed\nSkipped"
+  },
+  {
+   "fieldname": "address_risk_score",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Address Score",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_address_risk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "address_risk_json",
+   "fieldtype": "Code",
+   "label": "Address Risk JSON",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_meta",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+   },
+  {
+   "default": "Order Placement",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Order Placement\nManual\nBulk Import"
+  },
+  {
+   "fieldname": "linked_orders",
+   "fieldtype": "Small Text",
+   "label": "Linked Orders"
+  },
+  {
+   "fieldname": "linked_phones",
+   "fieldtype": "Small Text",
+   "label": "Linked Phones"
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "linked_fingerprints",
+   "fieldtype": "Small Text",
+   "label": "Linked Fingerprints"
+  },
+  {
+   "fieldname": "last_verified_on",
+   "fieldtype": "Datetime",
+   "label": "Last Verified On"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-23 17:06:39.573907",
+ "modified_by": "Administrator",
+ "module": "Shop",
+ "name": "Shop Address Verification",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Shop Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "city",
+ "track_changes": 1
+}

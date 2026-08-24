@@ -523,17 +523,114 @@
 		).observe(anchor);
 	}
 
-	function attachDatalist(id, input, items) {
-		if (!input || !Array.isArray(items) || !items.length) return;
-		const dl = document.createElement("datalist");
-		dl.id = id;
-		items.forEach((item) => {
-			const opt = document.createElement("option");
-			opt.value = item;
-			dl.appendChild(opt);
+	/* ── cascading searchable dropdown (replaces datalist) ────────────────── */
+	function createShopSelect(input, items, opts) {
+		if (!input || !items || !items.length) return { setValue() {}, setItems() {} };
+
+		const wrapper = document.createElement("div");
+		wrapper.style.cssText = "position:relative;display:inline-block;width:100%";
+		input.parentNode.insertBefore(wrapper, input);
+		wrapper.appendChild(input);
+
+		// hide native autocomplete
+		input.setAttribute("autocomplete", "off");
+		input.setAttribute("spellcheck", "false");
+		input.style.cssText += "box-sizing:border-box;width:100%";
+
+		// dropdown panel
+		const panel = document.createElement("div");
+		panel.style.cssText =
+			"display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;" +
+			"max-height:200px;overflow-y:auto;background:#fff;border:1px solid #e5e5e5;" +
+			"border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-top:2px";
+		wrapper.appendChild(panel);
+
+		let currentItems = [...items];
+		let highlighted = -1;
+
+		function render(filter) {
+			const q = (filter || "").toLowerCase();
+			const matches = q
+				? currentItems.filter((i) => i.toLowerCase().includes(q))
+				: currentItems;
+			panel.innerHTML = "";
+			if (!matches.length) {
+				panel.style.display = "none";
+				return;
+			}
+			matches.forEach((item) => {
+				const row = document.createElement("div");
+				row.textContent = item;
+				row.style.cssText =
+					"padding:8px 12px;cursor:pointer;font-size:13px;color:#333;" +
+					"transition:background .1s";
+				row.addEventListener("mouseenter", () => {
+					highlighted = [...panel.children].indexOf(row);
+					highlightRow();
+				});
+				row.addEventListener("mousedown", (e) => {
+					e.preventDefault();
+					input.value = item;
+					panel.style.display = "none";
+					if (opts && opts.onChange) opts.onChange(item);
+				});
+				panel.appendChild(row);
+			});
+			panel.style.display = "block";
+			highlighted = -1;
+		}
+
+		function highlightRow() {
+			[...panel.children].forEach((r, i) => {
+				r.style.background = i === highlighted ? "#f5f5f5" : "";
+			});
+		}
+
+		input.addEventListener("focus", () => render(input.value));
+		input.addEventListener("input", () => render(input.value));
+		input.addEventListener("blur", () => {
+			// delay so mousedown fires first
+			setTimeout(() => {
+				panel.style.display = "none";
+				// enforce strict: if typed value not in list, revert
+				const v = input.value.trim();
+				if (v && !currentItems.some((i) => i.toLowerCase() === v.toLowerCase())) {
+					input.value = "";
+				}
+			}, 200);
 		});
-		document.body.appendChild(dl);
-		input.setAttribute("list", id);
+		input.addEventListener("keydown", (e) => {
+			const rows = panel.children;
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				highlighted = Math.min(highlighted + 1, rows.length - 1);
+				highlightRow();
+				if (rows[highlighted]) rows[highlighted].scrollIntoView({ block: "nearest" });
+			} else if (e.key === "ArrowUp") {
+				e.preventDefault();
+				highlighted = Math.max(highlighted - 1, 0);
+				highlightRow();
+				if (rows[highlighted]) rows[highlighted].scrollIntoView({ block: "nearest" });
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				if (highlighted >= 0 && rows[highlighted]) {
+					input.value = rows[highlighted].textContent;
+					panel.style.display = "none";
+					if (opts && opts.onChange) opts.onChange(input.value);
+				}
+			} else if (e.key === "Escape") {
+				panel.style.display = "none";
+			}
+		});
+
+		return {
+			setValue(v) {
+				input.value = v || "";
+			},
+			setItems(newItems) {
+				currentItems = [...newItems];
+			},
+		};
 	}
 
 	function initAddressDatalists() {
@@ -541,25 +638,42 @@
 		const form = document.querySelector('[data-shop="checkout-form"]');
 		if (!form) return;
 
-		attachDatalist(
-			"shop-cities",
-			form.querySelector('[name="city"]'),
-			store.address_cities || store.pk_cities
-		);
-		attachDatalist(
-			"shop-provinces",
-			form.querySelector('[name="state"]'),
-			store.address_provinces
-		);
+		const provinceMap = store.province_city_map || {};
+		const allProvinces = Object.keys(provinceMap);
+		const allCities = store.address_cities || [];
 
+		const stateInput = form.querySelector('[name="state"]');
+		const cityInput = form.querySelector('[name="city"]');
 		const countryInput = form.querySelector('[name="country"]');
 		const homeCountry = store.address_country;
+
+		// Country: locked single value
 		if (countryInput && homeCountry) {
-			attachDatalist("shop-countries", countryInput, [homeCountry]);
-			if (!countryInput.value.trim()) {
-				countryInput.value = store.address_country;
-				countryInput.setAttribute("readonly", "readonly");
-			}
+			countryInput.value = homeCountry;
+			countryInput.setAttribute("readonly", "readonly");
+		}
+
+		// Province: searchable dropdown from DB
+		const provinceSel = createShopSelect(stateInput, allProvinces, {
+			onChange(prov) {
+				// cascade: when province changes, filter cities
+				const cities = provinceMap[prov] || allCities;
+				citySel.setItems(cities);
+				// clear city if it's not in the new province
+				if (cityInput.value && !cities.some((c) => c.toLowerCase() === cityInput.value.trim().toLowerCase())) {
+					cityInput.value = "";
+				}
+			},
+		});
+
+		// City: initially shows all, then filtered by province
+		const citySel = createShopSelect(cityInput, allCities, {});
+
+		// Pre-fill from saved address if present
+		if (stateInput.value.trim() && allProvinces.some((p) => p.toLowerCase() === stateInput.value.trim().toLowerCase())) {
+			// trigger province cascade
+			const match = allProvinces.find((p) => p.toLowerCase() === stateInput.value.trim().toLowerCase());
+			if (match) provinceSel.setValue(match);
 		}
 	}
 

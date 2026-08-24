@@ -227,24 +227,32 @@ def order_stats(phone: str, email: str, since_days: int = 90) -> dict:
 	}
 
 
-def velocity_count(phone: str, fingerprint: str, window_minutes: int = 60, as_of=None) -> tuple[int, int]:
-	"""Orders in the last window from this phone and (separately) this device."""
+def velocity_count(phone: str, fingerprint: str, window_minutes: int = 60, as_of=None,
+	exclude_order: str = "") -> tuple[int, int]:
+	"""OTHER orders in the last window from this phone and (separately) this
+	device. The order being scored is excluded so a first-ever order shows 0."""
 	now = as_of or now_datetime()
 	since = now - timedelta(minutes=window_minutes)
+	not_self = {"name": ["!=", exclude_order]} if exclude_order else {}
 	customers = customers_for_phone(phone)
 	phone_count = 0
 	if customers:
 		phone_count = frappe.db.count(
 			"Sales Order",
-			{"docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "customer": ["in", customers]},
+			{**not_self, "docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "customer": ["in", customers]},
 		)
 	fp_count = 0
 	if fingerprint:
 		fp_count = frappe.db.count(
 			"Sales Order",
-			{"docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "custom_device_fingerprint": fingerprint},
+			{**not_self, "docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "custom_device_fingerprint": fingerprint},
 		)
 	return phone_count, fp_count
+
+
+def _order_phone(order) -> str:
+	"""Get the best available phone from a Sales Order."""
+	return order.contact_phone or order.contact_mobile or ""
 
 
 def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
@@ -307,102 +315,181 @@ def previous_address_failed(address: dict) -> bool:
 	)
 
 
-def address_risk(address: dict, settings_doc=None, weights: dict | None = None) -> dict:
-	"""Address quality: cached ORS geocode + local landmark table + heuristics.
-	Returns {'score': int, 'geo': dict|None, 'landmark': dict|None, ...flags}."""
-	from shop.integrations.signal_weights import get_weights as _get_weights
+def compute_verification_risk(
+	address: dict,
+	ors_result: dict | None = None,
+	gms_results: list | None = None,
+	settings_doc=None,
+	weights: dict | None = None,
+) -> dict:
+	"""Compute the combined address verification score (0-80).
+
+	One score per unique address+landmark: location accuracy (heuristics + ORS
+	geocoding) plus landmark validity (landmark text found in GMS results).
+	Returns {'score': int, 'status': 'Complete'|'Partial', 'details': dict}.
+	"""
+	from shop.integrations.geocoding import norm_text, haversine_km
 
 	w = weights or _get_weights(settings_doc)
-	result = {"score": 0, "geo": None, "landmark": None}
+	result = {"geo": None, "gms": None, "gms_landmark": None}
 	score = 0
-	a1 = (address.get("address_line1") or "").strip()
+	a1 = (address.get("address_line1") or address.get("line1") or "").strip()
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
-	landmark = (address.get("landmark") or "").strip()
 	stated_country = (address.get("country") or "").strip()
-	stated_province = (address.get("state") or "").strip()
+	stated_province = (address.get("state") or address.get("province") or "").strip()
 
-	# user-provided country mismatch (no geocode needed)
-	if stated_country and stated_country.lower() not in home_country_codes(settings_doc):
+	# --- Heuristics ---
+	if stated_country and stated_country.lower() not in _home_country_codes(settings_doc):
 		result["user_country_mismatch"] = stated_country
 		score += w["user_country_mismatch"]
 
-	# province vs city consistency check
 	if stated_province:
-		expected_province = province_for_city(city, settings_doc)
-		if expected_province and stated_province.lower() != expected_province.lower():
+		expected = _province_for_city(city, settings_doc)
+		if expected and stated_province.lower() != expected.lower():
 			result["province_mismatch"] = stated_province
 			score += w["province_mismatch"]
 
-	# heuristics (always run)
 	if len(a1) < 5:
 		score += w["address_short_line1"]
 	elif not re.search(r"\d", a1):
 		score += w["address_no_house_number"]
 	if pincode and not re.fullmatch(r"\d{5}", pincode):
 		score += w["address_bad_pincode"]
-	if city and city.lower() not in canonical_cities():
+	if city and city.lower() not in _canonical_cities():
 		score += w["address_unknown_city"]
-	if not landmark:
-		score += w["address_missing_landmark"]
-	if previous_address_failed(address):
+	if _previous_address_failed(address):
 		score += w["address_prior_failure"]
 
-	# geocode via cache (skips silently when no key / provider error)
-	from shop.integrations.geocoding import geocode_cached, match_landmark, norm_text
-
-	geo = geocode_cached(address, settings_doc)
-	if geo is None:
-		result["geo_unavailable"] = True
-	elif not geo.get("found"):
-		result["geo_not_found"] = True
-		score += w["geo_not_found"]
-	else:
+	# --- ORS signals ---
+	if ors_result and ors_result.get("found"):
 		result["geo"] = {
-			"label": geo.get("label"),
-			"confidence": geo.get("confidence"),
-			"match_type": geo.get("match_type"),
-			"local_area": geo.get("local_area"),
-			"admin_area": geo.get("admin_area"),
-			"cached": geo.get("cached"),
+			"label": ors_result.get("label"),
+			"confidence": ors_result.get("confidence"),
+			"match_type": ors_result.get("match_type"),
+			"local_area": ors_result.get("local_area"),
+			"admin_area": ors_result.get("admin_area"),
 		}
-		country = (geo.get("country") or "").strip()
-		wrong_country = country and country.lower() not in home_country_codes(settings_doc)
+		country = (ors_result.get("country") or "").strip()
+		wrong_country = country and country.lower() not in _home_country_codes(settings_doc)
 
 		if wrong_country:
-			# ORS resolved the text to another country entirely: treat as not found
 			result["wrong_country"] = country
 			score += w["geo_wrong_country"]
-		elif geo.get("match_type") == "exact" and flt(geo.get("confidence")) >= 0.8:
+		elif ors_result.get("match_type") == "exact" and flt(ors_result.get("confidence")) >= 0.8:
 			score += w["geo_exact_match_bonus"]
-		elif geo.get("match_type") == "fallback":
+		elif ors_result.get("match_type") == "fallback":
 			score += w["geo_fallback_vague"]
-		if not wrong_country and not geo.get("house_number"):
+		if not wrong_country and not ors_result.get("house_number"):
 			score += w["geo_no_house_number"]
 
-		# stated city vs where the address actually resolves
-		geo_area = norm_text(geo.get("local_area") or geo.get("admin_area"))
-		label_norm = norm_text(geo.get("label"))
+		geo_area = norm_text(ors_result.get("local_area") or ors_result.get("admin_area"))
+		label_norm = norm_text(ors_result.get("label"))
 		mismatch_target = geo_area or label_norm
 		if not wrong_country and city and mismatch_target:
 			city_norm = norm_text(city)
 			if city_norm not in mismatch_target and not any(
-				norm_text(c) in mismatch_target for c in canonical_cities(settings_doc) if len(c) > 3
+				norm_text(c) in mismatch_target for c in _canonical_cities(settings_doc) if len(c) > 3
 			):
 				result["city_mismatch"] = True
 				score += w["geo_city_mismatch"]
+	elif ors_result is not None:
+		result["geo_not_found"] = True
+		score += w["geo_not_found"]
+	else:
+		result["geo_unavailable"] = True
 
-		# landmark corroboration against the local POI table
-		if landmark:
-			match = match_landmark(geo.get("lat"), geo.get("lng"), landmark, city)
-			result["landmark"] = match
-			if match:
-				score += w["landmark_corroborated_bonus"]
-			else:
-				score += w["landmark_unmatched"]
+	# --- GMS signals ---
+	gms_count = len(gms_results) if isinstance(gms_results, list) else 0
 
-	result["score"] = max(0, min(score, 60))
-	return result
+	if gms_results is not None:
+		gms_info = {"result_count": gms_count}
+
+		if gms_count == 0:
+			score += w["gms_no_results"]
+			gms_info["no_results"] = True
+		else:
+			score += w["gms_results_bonus"]
+			gms_info["has_results"] = True
+
+			ors_lat = ors_result.get("lat") if ors_result else None
+			ors_lng = ors_result.get("lng") if ors_result else None
+			if ors_lat and ors_lng and gms_results:
+				first = gms_results[0] if isinstance(gms_results[0], dict) else {}
+				gms_lat = first.get("lat")
+				gms_lng = first.get("lng")
+				if gms_lat and gms_lng:
+					try:
+						dist = haversine_km(float(ors_lat), float(ors_lng), float(gms_lat), float(gms_lng))
+						gms_info["distance_km"] = round(dist, 2)
+						if dist > 5.0:
+							score += w["gms_coords_mismatch_ors"]
+							gms_info["coords_mismatch"] = True
+					except (ValueError, TypeError):
+						pass
+
+			categories = set()
+			for r in gms_results:
+				if isinstance(r, dict) and r.get("category"):
+					categories.add(r["category"].lower())
+			if gms_count > 0 and not categories:
+				score += w["gms_residential_area"]
+				gms_info["no_business_categories"] = True
+
+			gms_info["categories"] = list(categories)[:5]
+
+		result["gms"] = gms_info
+
+	# --- Landmark validation (part of the address; checked against GMS results) ---
+	landmark = (address.get("landmark") or "").strip()
+	if not landmark:
+		score += w["address_missing_landmark"]
+		result["missing_landmark"] = True
+	elif gms_results is not None:
+		landmark_norm = norm_text(landmark)
+		hits = 0
+		for r in gms_results:
+			if isinstance(r, dict):
+				name = norm_text(r.get("name") or "")
+				cat = norm_text(r.get("category") or "")
+				if landmark_norm in name or name in landmark_norm or landmark_norm in cat:
+					hits += 1
+		result["gms_landmark"] = {
+			"hits": hits,
+			"total_results": gms_count,
+			"matched": hits > 0,
+		}
+		if hits > 0:
+			score += w.get("landmark_gms_hit_bonus", -5)
+		else:
+			score += w.get("landmark_gms_miss", 3)
+
+	score = max(0, min(score, 80))
+	ors_available = ors_result is not None and ors_result.get("found")
+	gms_available = gms_results is not None
+	status = "Complete" if (ors_available and gms_available) else "Partial"
+	return {"score": score, "status": status, "details": result}
+
+
+def _get_weights(settings_doc=None):
+	from shop.integrations.signal_weights import get_weights as _gw
+	return _gw(settings_doc)
+
+
+def _home_country_codes(settings_doc=None):
+	return home_country_codes(settings_doc)
+
+
+def _province_for_city(city, settings_doc=None):
+	return province_for_city(city, settings_doc)
+
+
+def _canonical_cities(settings_doc=None):
+	return canonical_cities(settings_doc)
+
+
+def _previous_address_failed(address):
+	return previous_address_failed(address)
 
 
 def city_rto_rate(city: str) -> float:
@@ -480,6 +567,238 @@ def _normalized_score(value) -> float:
 	return min(max(v, 0.0), 1.0)
 
 
+def fast_risk(
+	customer: dict,
+	address: dict,
+	payment_method: str = "cod",
+	device_fingerprint: str = "",
+	as_of=None,
+) -> FraudResult:
+	"""DB-only fraud checks (~10ms). Runs synchronously in place_order.
+	Only blocks on blacklist + velocity. Everything else defers to background."""
+	from shop.integrations.signal_weights import get_weights as _get_weights
+
+	w = _get_weights()
+	settings_doc = settings()
+	phone = customer.get("phone") or ""
+	email = (customer.get("email") or "").strip().lower()
+	city = (address.get("city") or "").strip()
+	signals: dict = {}
+	score = 0
+	hit = None
+
+	# ---- missing fingerprint (instant check, no HTTP) ----
+	if payment_method == "cod" and not device_fingerprint:
+		score += w["missing_fingerprint"]
+		signals["missing_fingerprint"] = True
+
+	# ---- repeat fraud history (DB only) ----
+	stats = order_stats(phone, email)
+	signals["repeat_history"] = stats
+	failed_rto = stats["failed"] + stats["rto"]
+	if failed_rto:
+		score += min(failed_rto * w["history_failed_rto_per"], w["history_failed_rto_cap"])
+	if stats["total"] and flt(stats["cancelled"]) / stats["total"] > 0.5:
+		score += w["history_cancelled_ratio_pts"]
+		signals["history_cancelled"] = True
+
+	# ---- phone blacklist (DB only) ----
+	hit = blacklist_hit(phone, email)
+	if hit:
+		signals["blacklisted"] = hit.name
+		score += w["blacklist_hit"]
+
+	# ---- address heuristics only (no geocode HTTP) ----
+	a1 = (address.get("address_line1") or "").strip()
+	stated_province = (address.get("state") or "").strip()
+	stated_country = (address.get("country") or "").strip()
+	landmark_val = (address.get("landmark") or "").strip()
+	pincode = (address.get("pincode") or "").strip()
+
+	if stated_country and stated_country.lower() not in home_country_codes(settings_doc):
+		signals["address_country_mismatch"] = stated_country
+		score += w["user_country_mismatch"]
+	if stated_province:
+		expected_province = province_for_city(city, settings_doc)
+		if expected_province and stated_province.lower() != expected_province.lower():
+			signals["address_province_mismatch"] = stated_province
+			score += w["province_mismatch"]
+	if len(a1) < 5:
+		score += w["address_short_line1"]
+	elif not re.search(r"\d", a1):
+		score += w["address_no_house_number"]
+	if pincode and not re.fullmatch(r"\d{5}", pincode):
+		score += w["address_bad_pincode"]
+	if city and city.lower() not in canonical_cities():
+		score += w["address_unknown_city"]
+	if not landmark_val:
+		score += w["address_missing_landmark"]
+	if previous_address_failed(address):
+		score += w["address_prior_failure"]
+
+	# ---- order velocity (DB only) ----
+	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of,
+		exclude_order=exclude_order)
+	signals["orders_last_60m"] = orders_1hr
+	signals["fp_orders_last_60m"] = fp_1hr
+	max_per_hour = cint(settings_doc.fraud_velocity_max)
+	if max_per_hour and orders_1hr >= max_per_hour:
+		signals["velocity_block"] = True
+		score += w["velocity_block"]
+	elif orders_1hr > 1:
+		score += min((orders_1hr - 1) * w["velocity_extra_per_order"], w["velocity_extra_cap"])
+	if device_fingerprint and fp_1hr > orders_1hr:
+		signals["fp_multiple_phones"] = True
+		score += w["fp_multiple_phones"]
+
+	# ---- city RTO rate (DB only) ----
+	rto_high_pct = cint(settings_doc.fraud_rto_high_pct) or 40
+	rto_medium_pct = cint(settings_doc.fraud_rto_medium_pct) or 20
+	rate = city_rto_rate(city)
+	signals["city_rto_rate"] = rate
+	if rate >= rto_high_pct:
+		score += w["city_rto_high"]
+	elif rate >= rto_medium_pct:
+		score += w["city_rto_medium"]
+
+	# ---- time-of-day pattern ----
+	if payment_method == "cod" and in_risky_window(settings_doc):
+		signals["risky_hour"] = True
+		score += w["risky_hour"]
+
+	score = min(score, 100)
+	# fast_risk can only Block on blacklist or velocity (instant DB checks)
+	if hit and (payment_method == "cod" or cint(settings_doc.fraud_blacklist_blocks_all)):
+		verdict = "Block"
+	elif signals.get("velocity_block") and payment_method == "cod":
+		verdict = "Block"
+	else:
+		verdict = "Pass"
+
+	if hit:
+		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
+	return FraudResult(score, verdict, signals, False, None)
+
+
+def background_fraud_task(
+	order_name: str,
+	customer: dict,
+	address: dict,
+	payment_method: str,
+	device_fingerprint: str,
+	fp_request_id: str,
+):
+	"""Background job: register the order's delivery address for verification
+	(status Queued - processed later by the bulk queue), then run a provisional
+	fraud evaluation. The queue re-runs the evaluation once verification lands."""
+	import json as _json
+	from shop.integrations.verification import (
+		get_or_create_verification,
+		link_verification_to_order,
+	)
+	from shop.integrations.geocoding import address_hash as _addr_hash
+
+	frappe.db.set_value("Sales Order", order_name, {
+		"custom_ai_maps_status": "Queued",
+		"custom_payment_method": payment_method or "cod",
+		"custom_fraud_state": "Processing",
+	})
+	frappe.db.commit()
+
+	# --- Step 1: get or create the single verification record ---
+	ver = None
+	try:
+		ver = get_or_create_verification(address, source="Order Placement")
+		frappe.db.set_value(
+			"Shop Address Verification", ver["name"], {"status": "Queued"})
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(title=f"Verification create failed for {order_name}")
+
+	# --- Step 2: store hash + link order (queue fills in results later) ---
+	try:
+		frappe.db.set_value("Sales Order", order_name, {
+			"custom_address_hash": _addr_hash(address),
+		})
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(title=f"Failed to store hash for {order_name}")
+
+	if ver:
+		try:
+			link_verification_to_order(ver["name"], order_name,
+				phone=customer.get("phone") or "", fingerprint=device_fingerprint or "")
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(title=f"Failed to link order for {order_name}")
+
+
+	# --- Step 6: Provisional fraud evaluation (no verification signals yet) ---
+	try:
+		result = evaluate_risk(customer, address, payment_method, device_fingerprint, fp_request_id,
+			exclude_order=order_name)
+		stamp_order(order_name, device_fingerprint, fp_request_id, result)
+		log_fraud_event(order_name, customer, address, payment_method, device_fingerprint, result)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(title=f"Fraud evaluation failed for {order_name}")
+
+
+def reevaluate_order_for_verification(ver_name: str) -> None:
+	"""Called by the verification queue after ORS/GMS land for a record:
+	re-runs the full fraud evaluation for every linked order so the score and
+	verdict now include address-verification signals, then marks them Done."""
+	rows = frappe.db.sql(
+		"""SELECT v.name, v.address_line1, v.city, v.landmark, v.country,
+			v.pincode, v.linked_orders
+		FROM `tabShop Address Verification` v
+		WHERE v.name = %s AND v.status NOT IN ('Queued', 'Pending')""",
+		(ver_name,),
+		as_dict=True,
+	)
+	if not rows:
+		return
+	row = rows[0]
+	names = [s.strip() for s in (row.linked_orders or "").split(",") if s.strip()]
+	if not names:
+		return
+
+	address = {
+		"address_line1": row.address_line1 or "",
+		"city": row.city or "",
+		"landmark": row.landmark or "",
+		"country": row.country or "",
+		"pincode": row.pincode or "",
+	}
+	for order_name in names:
+		try:
+			so = frappe.db.get_value(
+				"Sales Order", order_name,
+				["contact_phone", "contact_email", "custom_device_fingerprint",
+				 "custom_fp_request_id", "custom_payment_method"],
+				as_dict=True,
+			)
+			if not so:
+				continue
+			customer = {
+				"phone": so.contact_phone or "",
+				"email": so.contact_email or "",
+			}
+			fingerprint = so.custom_device_fingerprint or ""
+			fp_request_id = so.custom_fp_request_id or ""
+			payment_method = so.custom_payment_method or "cod"
+			result = evaluate_risk(customer, address, payment_method,
+				fingerprint, fp_request_id, exclude_order=order_name)
+			stamp_order(order_name, fingerprint, fp_request_id, result)
+			log_fraud_event(order_name, customer, address, payment_method,
+				fingerprint, result)
+			frappe.db.set_value("Sales Order", order_name,
+				{"custom_fraud_state": "Done"})
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(title=f"Fraud re-evaluation failed for {order_name}")
+
+
 def evaluate_risk(
 	customer: dict,
 	address: dict,
@@ -487,6 +806,7 @@ def evaluate_risk(
 	device_fingerprint: str = "",
 	fp_request_id: str = "",
 	as_of=None,
+	exclude_order: str = "",
 ) -> FraudResult:
 	from shop.integrations.signal_weights import get_weights as _get_weights
 
@@ -552,6 +872,50 @@ def evaluate_risk(
 				score += w["proxy_detected"]
 			if incognito or privacy:
 				score += w["incognito_privacy"]
+
+			# --- new: advanced FP signals ---
+			high_activity = bool(_fp_signal(ident, "high_activity_device"))
+			rare_device = bool(_fp_signal(ident, "rare_device"))
+			datacenter = bool(ipinfo.get("datacenter_result"))
+			fp_velocity = _fp_signal(ident, "velocity") or {}
+			events = fp_velocity.get("events") or {}
+			distinct_ip = fp_velocity.get("distinct_ip") or {}
+			distinct_country = fp_velocity.get("distinct_country") or {}
+			events_5m = int(events.get("5_minutes") or 0)
+			events_1h = int(events.get("1_hour") or 0)
+			events_24h = int(events.get("24_hours") or 0)
+			dip_1h = int(distinct_ip.get("1_hour") or 0)
+			dcountry_24h = int(distinct_country.get("24_hours") or 0)
+
+			signals["fp_high_activity_device"] = high_activity
+			signals["fp_rare_device"] = rare_device
+			signals["fp_datacenter"] = datacenter
+			signals["fp_velocity"] = {
+				"events_5m": events_5m,
+				"events_1h": events_1h,
+				"events_24h": events_24h,
+				"distinct_ip_1h": dip_1h,
+				"distinct_country_24h": dcountry_24h,
+			}
+
+			if high_activity:
+				score += w["fp_high_activity_device"]
+			if rare_device:
+				score += w["fp_rare_device"]
+			if datacenter:
+				score += w["fp_datacenter_ip"]
+			if vpn:
+				score += w["fp_vpn"]
+			if vm:
+				score += w["fp_virtual_machine"]
+			if events_1h > 10:
+				score += w["fp_velocity_high"]
+			if events_5m > 5:
+				score += w["fp_velocity_rapid_fire"]
+			if dip_1h > 1:
+				score += w["fp_velocity_multi_ip"]
+			if dcountry_24h > 1:
+				score += w["fp_velocity_multi_country"]
 		else:
 			# request id sent but verification failed -> tampered/replayed id
 			signals["fp_verify_failed"] = True
@@ -576,9 +940,29 @@ def evaluate_risk(
 		signals["blacklisted"] = hit.name
 		score += w["blacklist_hit"]
 
-	# ---- 3. address risk ----
-	addr = address_risk(address, settings_doc, weights=w)
-	addr_risk = addr["score"]
+	# ---- 3. address verification risk (single record incl. landmark) ----
+	from shop.integrations.geocoding import address_hash as _addr_hash
+	import json as _json
+
+	addr = {"score": 0}
+
+	ahkey = _addr_hash(address)
+	ver = frappe.db.get_value(
+		"Shop Address Verification",
+		{"address_hash": ahkey},
+		["address_risk_status", "address_risk_score", "address_risk_json"],
+		as_dict=True,
+	)
+	if ver and ver.address_risk_status in ("Complete", "Partial") and ver.address_risk_json is not None:
+		try:
+			addr = _json.loads(ver.address_risk_json)
+			addr["score"] = ver.address_risk_score or 0
+		except Exception:
+			addr = {"score": 0}
+	else:
+		addr = {"score": 0, "geo_unavailable": True, "verification_unavailable": True}
+
+	addr_risk = addr.get("score") or 0
 	signals["address_score"] = addr_risk
 	if addr.get("geo_not_found"):
 		signals["address_geo_not_found"] = True
@@ -590,11 +974,18 @@ def evaluate_risk(
 		signals["address_province_mismatch"] = addr["province_mismatch"]
 	if addr.get("wrong_country"):
 		signals["address_wrong_country"] = addr["wrong_country"]
-	signals["address_landmark_match"] = addr.get("landmark")
+	if addr.get("geo_unavailable"):
+		signals["address_geo_unavailable"] = True
+	if addr.get("missing_landmark"):
+		signals["landmark_missing"] = True
+	gms_lm = addr.get("gms_landmark") or {}
+	if gms_lm.get("matched"):
+		signals["landmark_gms"] = gms_lm
 	score += addr_risk
 
 	# ---- 4. order velocity ----
-	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of)
+	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of,
+		exclude_order=exclude_order)
 	signals["orders_last_60m"] = orders_1hr
 	signals["fp_orders_last_60m"] = fp_1hr
 	max_per_hour = cint(settings_doc.fraud_velocity_max)

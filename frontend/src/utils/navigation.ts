@@ -39,7 +39,8 @@ export const navGroups = [
 	{
 		label: 'Store',
 		items: [
-			{ label: 'Landmarks Import', route: '/landmarks-import', icon: 'lucide-map-pin-plus' },
+
+			{ label: 'Verifications', route: '/verifications', icon: 'lucide-map-pin-check' },
 			{ label: 'Settings', route: '/settings', icon: 'lucide-settings' },
 			{ label: 'Fraud Weights', route: '/fraud-weights', icon: 'lucide-sliders-horizontal' },
 		],

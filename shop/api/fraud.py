@@ -68,6 +68,7 @@ FP_HIGHLIGHT_FIELDS = (
 	"suspect_score", "bot", "bot_type", "tampering", "replayed",
 	"incognito", "privacy_settings", "proxy", "proxy_confidence",
 	"vpn", "virtual_machine", "developer_tools",
+	"high_activity_device", "rare_device",
 )
 
 def _fp_highlights(order: str) -> dict | None:
@@ -115,6 +116,14 @@ def _fp_highlights(order: str) -> dict | None:
 		"isp": ipinfo.get("asn_name"),
 		"datacenter": bool(ipinfo.get("datacenter_result")),
 	}
+	# velocity summary from FP
+	fp_velocity = event.get("velocity") or {}
+	events = fp_velocity.get("events") or {}
+	highlights["velocity"] = {
+		"events_5m": int(events.get("5_minutes") or 0),
+		"events_1h": int(events.get("1_hour") or 0),
+		"events_24h": int(events.get("24_hours") or 0),
+	}
 	return highlights
 
 
@@ -156,7 +165,20 @@ def get_order_fraud_profile(order: str):
 			LIMIT 20
 		""", (so.shipping_address_name, order), as_dict=True)
 		
-	return {
+	# Look up the single verification record
+	verification_status = None
+	addr_hash = frappe.db.get_value("Sales Order", order, "custom_address_hash")
+	if addr_hash:
+		ver = frappe.db.get_value(
+			"Shop Address Verification",
+			{"address_hash": addr_hash},
+			["status"],
+			as_dict=True,
+		)
+		if ver:
+			verification_status = ver.status
+
+	payload = {
 		"fingerprint": so.custom_device_fingerprint,
 		"score": so.custom_fraud_score,
 		"verdict": so.custom_fraud_verdict,
@@ -167,8 +189,43 @@ def get_order_fraud_profile(order: str):
 		"creation": str(so.creation),
 		"fp_highlights": _fp_highlights(order),
 		"fp_matches": fp_matches,
-		"address_matches": address_matches
+		"address_matches": address_matches,
+		"ai_risk_score": frappe.db.get_value("Sales Order", order, "custom_ai_risk_score"),
+		"ai_risk_reasoning": frappe.db.get_value("Sales Order", order, "custom_ai_risk_reasoning"),
+		"ai_risk_confidence": frappe.db.get_value("Sales Order", order, "custom_ai_risk_confidence"),
+		"ai_risk_analyzed_on": str(frappe.db.get_value("Sales Order", order, "custom_ai_risk_analyzed_on") or ""),
+		"ai_maps_json": frappe.db.get_value("Sales Order", order, "custom_ai_maps_json"),
+		"ai_maps_status": frappe.db.get_value("Sales Order", order, "custom_ai_maps_status") or "Disabled",
+		"verification_status": verification_status,
+		"verification_done": verification_status in ("Complete", "Partial"),
 	}
+
+	# Per-domain AI sub-scores: stored JSON, with legacy fallback to the
+	# "[domains] a 20 | b 35 ..." prefix once embedded in the reasoning text.
+	raw_domains = frappe.db.get_value("Sales Order", order, "custom_ai_domain_scores")
+	domains = None
+	if raw_domains:
+		try:
+			parsed = json.loads(raw_domains)
+			if isinstance(parsed, dict) and parsed:
+				domains = parsed
+		except Exception:
+			domains = None
+	reasoning = payload["ai_risk_reasoning"]
+	if domains is None and reasoning.startswith("[domains]"):
+		try:
+			head, _, rest = reasoning.partition("\n")
+			domains = {}
+			for part in head[len("[domains] "):].split("|"):
+				k, _, v = part.strip().rpartition(" ")
+				if k and v.isdigit():
+					domains[k] = int(v)
+			reasoning = rest.lstrip()
+		except Exception:
+			domains = None
+	payload["ai_domain_scores"] = domains
+	payload["ai_risk_reasoning"] = reasoning
+	return payload
 
 
 @frappe.whitelist()
@@ -301,7 +358,8 @@ def recalculate_order_fraud(order: str):
 		address, 
 		payment_method, 
 		so.custom_device_fingerprint or "", 
-		""
+		"",
+		exclude_order=so.name,
 	)
 	
 	# Update SO
@@ -327,7 +385,8 @@ def get_related_orders(order: str):
 	def add_matches(field, val, label):
 		if not val: return
 		rows = frappe.db.sql(f"""
-			SELECT name, customer, custom_fraud_score, custom_fraud_verdict, creation
+			SELECT name, customer, custom_fraud_score, custom_fraud_verdict, creation,
+				docstatus, delivery_status, transaction_date
 			FROM `tabSales Order`
 			WHERE {field} = %s AND name != %s
 			ORDER BY creation DESC LIMIT 5
@@ -347,7 +406,8 @@ def get_related_orders(order: str):
 		norm = normalize_phone(so.contact_mobile)
 		if norm:
 			rows = frappe.db.sql("""
-				SELECT name, customer, custom_fraud_score, custom_fraud_verdict, creation
+				SELECT name, customer, custom_fraud_score, custom_fraud_verdict, creation,
+					docstatus, delivery_status, transaction_date
 				FROM `tabSales Order`
 				WHERE REPLACE(REPLACE(REPLACE(REPLACE(contact_mobile, ' ', ''), '-', ''), '+', ''), '(', '') LIKE %s
 				AND name != %s
@@ -363,9 +423,43 @@ def get_related_orders(order: str):
 
 	add_matches("shipping_address_name", so.shipping_address_name, "Address")
 
+	# Fetch delivered date for each related order
+	related_list = sorted(matches.values(), key=lambda x: x.creation, reverse=True)
+	order_names = [r.name for r in related_list]
+	dn_map = {}
+	status_map = {}
+
+	if order_names:
+		dn_rows = frappe.db.sql("""
+			SELECT dni.against_sales_order, MAX(dn.posting_date) as delivered_on
+			FROM `tabDelivery Note Item` dni
+			JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+			WHERE dni.against_sales_order IN %s AND dn.docstatus = 1
+			GROUP BY dni.against_sales_order
+		""", (tuple(order_names),), as_dict=True)
+		for dn in dn_rows:
+			dn_map[dn.against_sales_order] = str(dn.delivered_on)
+
+		for r in related_list:
+			if r.docstatus == 2:
+				status_map[r.name] = "Cancelled"
+			elif r.delivery_status == "Fulfilled":
+				status_map[r.name] = "Delivered"
+			elif r.delivery_status == "Returned":
+				status_map[r.name] = "Returned"
+			elif r.docstatus == 1:
+				status_map[r.name] = "Active"
+			else:
+				status_map[r.name] = "Draft"
+
+	for r in related_list:
+		r["display_status"] = status_map.get(r.name, "Unknown")
+		r["delivered_on"] = dn_map.get(r.name)
+		r["transaction_date"] = str(r.transaction_date) if r.transaction_date else None
+
 	return {
 		"fingerprint": so.custom_device_fingerprint,
-		"related": sorted(matches.values(), key=lambda x: x.creation, reverse=True)
+		"related": related_list,
 	}
 
 
@@ -374,8 +468,9 @@ def get_overview() -> dict:
 	"""Aggregated fraud intelligence for the overview page.
 
 	Snapshot data (score/verdict/signals/raw fingerprint event) is captured at
-	order placement and never changes. Everything returned here is computed
-	live: verdict counts, averages, blacklist state, city RTO rates.
+	order placement and refreshed by the verification queue once address
+	verification finishes. Until then an order is "Processing": it shows a
+	pending chip in the UI and is excluded from the KPI buckets.
 
 	Reads from Sales Order (every scored order carries a verdict, including
 	"Pass") so the overview reflects ALL orders, not just flagged ones.
@@ -384,10 +479,19 @@ def get_overview() -> dict:
 
 	def bucket(days: int) -> dict:
 		since = add_days(nowdate(), -days)
-		rows = frappe.get_all(
-			"Sales Order",
-			filters={"custom_fraud_verdict": ["is", "set"], "creation": [">=", since]},
-			fields=["custom_fraud_verdict", "custom_fraud_score", "custom_device_fingerprint"],
+		rows = frappe.db.sql(
+			"""
+			SELECT so.custom_fraud_verdict AS verdict, so.custom_fraud_score AS score,
+				(so.custom_device_fingerprint IS NOT NULL AND so.custom_device_fingerprint != '') AS fingerprinted
+			FROM `tabSales Order` so
+			LEFT JOIN `tabShop Address Verification` v ON v.address_hash = so.custom_address_hash
+			WHERE so.custom_fraud_verdict IS NOT NULL AND so.custom_fraud_verdict != ''
+			  AND COALESCE(NULLIF(so.custom_fraud_state, ''), 'Done') != 'Processing'
+			  AND (v.name IS NULL OR COALESCE(v.status, '') NOT IN ('Queued', 'Pending'))
+			  AND so.creation >= %s
+			""",
+			(since,),
+			as_dict=True,
 		)
 		out = {
 			"total": len(rows),
@@ -400,17 +504,17 @@ def get_overview() -> dict:
 		}
 		if rows:
 			for r in rows:
-				if r.custom_fraud_verdict == "Pass":
+				if r.verdict == "Pass":
 					out["pass"] += 1
-				elif r.custom_fraud_verdict == "Flag":
+				elif r.verdict == "Flag":
 					out["flag"] += 1
-				elif r.custom_fraud_verdict == "Advance Required":
+				elif r.verdict == "Advance Required":
 					out["advance"] += 1
-				elif r.custom_fraud_verdict == "Block":
+				elif r.verdict == "Block":
 					out["block"] += 1
-				if r.custom_device_fingerprint:
+				if r.fingerprinted:
 					out["fingerprinted"] += 1
-			out["avg_score"] = round(sum(r.custom_fraud_score or 0 for r in rows) / len(rows), 1)
+			out["avg_score"] = round(sum(r.score or 0 for r in rows) / len(rows), 1)
 		return out
 
 	recent_events = frappe.db.sql(
@@ -418,10 +522,13 @@ def get_overview() -> dict:
 		SELECT so.name AS order_name, so.creation, so.customer,
 			so.contact_mobile AS phone, a.city,
 			so.custom_fraud_verdict AS verdict, so.custom_fraud_score AS score,
+			COALESCE(NULLIF(so.custom_fraud_state, ''), 'Done') AS fraud_state,
+			v.status AS verification_status,
 			(so.custom_device_fingerprint IS NOT NULL AND so.custom_device_fingerprint != '') AS fingerprinted,
 			so.custom_delivery_outcome AS delivery_outcome
 		FROM `tabSales Order` so
 		LEFT JOIN `tabAddress` a ON a.name = so.shipping_address_name
+		LEFT JOIN `tabShop Address Verification` v ON v.address_hash = so.custom_address_hash
 		WHERE so.custom_fraud_verdict IS NOT NULL AND so.custom_fraud_verdict != ''
 		ORDER BY so.creation DESC
 		LIMIT 15

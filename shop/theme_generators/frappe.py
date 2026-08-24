@@ -113,6 +113,9 @@ a[data-active="true"] {{
 [data-shop="rating-star"][data-selected="true"] {{ color: {refs["badge"]}; }}
 input, textarea {{ font-family: inherit; }}
 input::placeholder {{ color: {refs["muted"]}; }}
+input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
+[data-shop="checkout-form"] input {{ transition: border-color 0.15s ease, box-shadow 0.15s ease; }}
+[data-shop="checkout-form"] input:focus {{ border-color: {refs["ink"]}; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }}
 [data-shop="thumb"][data-selected="true"] {{ border-color: {refs["ink"]}; }}
 [data-shop="thumb"]:hover {{ border-color: {refs["muted"]}; }}
 [data-shop="order-progress"] .progress-stage {{

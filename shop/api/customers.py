@@ -72,6 +72,35 @@ def contact_emails(names: list[str]) -> dict:
 	return {link.link_name: by_contact.get(link.parent) for link in links if by_contact.get(link.parent)}
 
 
+def all_contact_emails(names: list[str]) -> dict[str, list[str]]:
+	"""All emails for each customer (not just primary)."""
+	if not names:
+		return {}
+	links = frappe.get_all(
+		"Dynamic Link",
+		filters={"parenttype": "Contact", "link_doctype": "Customer", "link_name": ["in", names]},
+		fields=["parent", "link_name"],
+	)
+	if not links:
+		return {}
+	contact_parents = list({link.parent for link in links})
+	emails = frappe.get_all(
+		"Contact Email",
+		filters={"parent": ["in", contact_parents]},
+		fields=["parent", "email_id"],
+	)
+	by_contact: dict[str, list[str]] = {}
+	for row in emails:
+		by_contact.setdefault(row.parent, []).append(row.email_id.strip().lower())
+	result: dict[str, list[str]] = {}
+	for link in links:
+		for em in by_contact.get(link.parent, []):
+			result.setdefault(link.link_name, [])
+			if em not in result[link.link_name]:
+				result[link.link_name].append(em)
+	return result
+
+
 @frappe.whitelist()
 def get_customer(name: str) -> dict:
 	only_managers()
@@ -84,18 +113,20 @@ def get_customer(name: str) -> dict:
 	)
 	for order in orders:
 		order["formatted_total"] = pricing.format_amount(order.grand_total)
-	email = contact_emails([name]).get(name)
+	emails_map = all_contact_emails([name])
+	primary_email = emails_map.get(name, [None])[0] if emails_map.get(name) else None
 	return {
 		"name": customer.name,
 		"customer_name": customer.customer_name,
-		"email": email,
+		"email": primary_email,
+		"all_emails": emails_map.get(name, []),
 		"joined": str(customer.creation)[:10],
 		"orders": orders,
 		"formatted_spent": pricing.format_amount(
 			sum(flt(order.grand_total) for order in orders if order.status != "Cancelled")
 		),
 		"addresses": addresses(name),
-		"reviews": reviews(email),
+		"reviews": reviews(primary_email),
 	}
 
 
@@ -109,7 +140,35 @@ def addresses(customer: str) -> list[dict]:
 		return []
 	from frappe.contacts.doctype.address.address import get_address_display
 
-	return [{"name": name, "display": get_address_display(name)} for name in names]
+	verifications = frappe.get_all(
+		"Address",
+		filters={"name": ["in", names]},
+		fields=[
+			"name",
+			"custom_landmark",
+			"custom_verification_status",
+			"custom_address_risk_score",
+			"custom_ors_confidence",
+			"custom_gms_result_count",
+			"custom_last_verified_on",
+		],
+	)
+	by_name = {row.name: row for row in verifications}
+	result = []
+	for name in names:
+		entry = {"name": name, "display": get_address_display(name)}
+		row = by_name.get(name)
+		if row:
+			entry.update({
+				"landmark": row.custom_landmark,
+				"verification_status": row.custom_verification_status,
+				"risk_score": row.custom_address_risk_score,
+				"ors_confidence": row.custom_ors_confidence,
+				"gms_result_count": row.custom_gms_result_count,
+				"last_verified_on": str(row.custom_last_verified_on or ""),
+			})
+		result.append(entry)
+	return result
 
 
 def reviews(email: str | None) -> list[dict]:

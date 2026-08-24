@@ -23,6 +23,9 @@ INT_FIELDS = frozenset((
 	"fraud_auto_blacklist_failures",
 	"fraud_rto_high_pct",
 	"fraud_rto_medium_pct",
+	"geocode_cache_ttl",
+	"queue_schedule",
+	"gms_concurrency",
 ))
 
 CURRENCY_FIELDS = frozenset((
@@ -69,6 +72,11 @@ EDITABLE = (
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
 	"fingerprint_region",
+	"maps_provider",
+	"gms_depth",
+	"gms_concurrency",
+	"geocode_cache_ttl",
+	"queue_schedule",
 )
 
 
@@ -175,12 +183,17 @@ def save_settings(payload: dict) -> dict:
 			value = 1 if value else 0
 		elif field in INT_FIELDS:
 			value = cint(value)
+			if field == "gms_concurrency":
+				value = max(1, min(8, value))
 		elif field in CURRENCY_FIELDS:
 			value = flt(value)
 		elif field in PASSWORD_FIELDS:
 			# Skip empty/masked values so the existing password is not wiped.
 			if not value or value == "******":
 				continue
+		elif field == "queue_schedule":
+			if value not in ("Every 10 Minutes", "Every 20 Minutes", "Hourly"):
+				value = "Every 20 Minutes"
 		elif field == "fraud_signal_weights":
 			from shop.integrations.signal_weights import validate_weights_json
 
@@ -207,3 +220,19 @@ def save_provinces(provinces: list) -> dict:
 		settings.append("province_table", {"province_name": prov_name, "cities": cities})
 	settings.save(ignore_permissions=True)
 	return get_settings()
+
+
+@frappe.whitelist()
+def get_gms_status() -> dict:
+	"""Get Google Maps Scraper status: installed, version, path."""
+	only_managers()
+	from shop.integrations.gms import get_gms_status as _get_status
+	return _get_status()
+
+
+@frappe.whitelist(methods=["POST"])
+def download_gms(version: str | None = None) -> dict:
+	"""Download or update Google Maps Scraper binary."""
+	only_managers()
+	from shop.integrations.gms import download_gms as _download
+	return _download(version)

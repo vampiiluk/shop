@@ -26,6 +26,16 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	"ip_blocklist_hit": 20,
 	"proxy_detected": 15,
 	"incognito_privacy": 5,
+	# --- fingerprint advanced signals ---
+	"fp_high_activity_device": 25,   # FP: high_activity_device=true
+	"fp_vpn": 15,                    # FP: vpn=true
+	"fp_virtual_machine": 15,        # FP: virtual_machine=true
+	"fp_datacenter_ip": 15,          # FP: ip_info.v4.datacenter_result=true
+	"fp_rare_device": 10,            # FP: rare_device=true
+	"fp_velocity_high": 15,          # FP: velocity.events.1_hour > 10
+	"fp_velocity_rapid_fire": 20,    # FP: velocity.events.5_minutes > 5
+	"fp_velocity_multi_ip": 20,      # FP: velocity.distinct_ip.1_hour > 1
+	"fp_velocity_multi_country": 25, # FP: velocity.distinct_country.24_hours > 1
 	# --- address quality ---
 	"address_short_line1": 15,
 	"address_no_house_number": 5,
@@ -42,8 +52,14 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	"geo_no_house_number": 5,
 	"geo_exact_match_bonus": -15,
 	"geo_fallback_vague": 5,
-	"landmark_corroborated_bonus": -15,
-	"landmark_unmatched": 5,
+	# --- landmark (validated as part of the address via GMS) ---
+	"landmark_gms_hit_bonus": -5,
+	"landmark_gms_miss": 3,
+	# --- Google Maps Scraper (GMS) ---
+	"gms_no_results": 15,
+	"gms_coords_mismatch_ors": 10,
+	"gms_results_bonus": -10,
+	"gms_residential_area": 5,
 	# --- city RTO rate ---
 	"city_rto_high": 30,         # >= fraud_rto_high_pct
 	"city_rto_medium": 15,       # >= fraud_rto_medium_pct
@@ -66,13 +82,24 @@ WEIGHT_SCHEMA = [
 	]),
 	("Fingerprint verification", [
 		("fp_bot_tamper_replay", "Bot / tampered / replayed"),
-		("fp_suspect_high", "Suspect score ≥ 0.8"),
-		("fp_suspect_medium", "Suspect score ≥ 0.5"),
+		("fp_suspect_high", "Suspect score >= 0.8"),
+		("fp_suspect_medium", "Suspect score >= 0.5"),
 		("fp_verify_failed", "Verification failed"),
 		("missing_fingerprint", "COD order without fingerprint"),
 		("ip_blocklist_hit", "IP blocklist hit"),
 		("proxy_detected", "Proxy detected"),
 		("incognito_privacy", "Incognito / privacy mode"),
+	]),
+	("Fingerprint advanced", [
+		("fp_high_activity_device", "High-activity device"),
+		("fp_vpn", "VPN detected"),
+		("fp_virtual_machine", "Virtual machine detected"),
+		("fp_datacenter_ip", "Datacenter IP address"),
+		("fp_rare_device", "Rare / uncommon device"),
+		("fp_velocity_high", "High event velocity (10+ events/hr)"),
+		("fp_velocity_rapid_fire", "Rapid-fire events (5+ in 5 min)"),
+		("fp_velocity_multi_ip", "Multiple IPs in 1 hour"),
+		("fp_velocity_multi_country", "Multiple countries in 24 hours"),
 	]),
 	("Address quality", [
 		("address_short_line1", "Street line too short"),
@@ -91,8 +118,14 @@ WEIGHT_SCHEMA = [
 		("geo_no_house_number", "No house number in match"),
 		("geo_fallback_vague", "Vague/fallback match"),
 		("geo_exact_match_bonus", "Exact match bonus (negative)"),
-		("landmark_corroborated_bonus", "Landmark corroborated (negative)"),
-		("landmark_unmatched", "Landmark filled but unmatched"),
+	]),
+	("Google Maps Scraper (GMS)", [
+		("gms_no_results", "No Maps results for address+landmark"),
+		("gms_coords_mismatch_ors", "Maps result far from ORS coords"),
+		("gms_results_bonus", "Maps results found bonus (negative)"),
+		("gms_residential_area", "Only non-business results"),
+		("landmark_gms_hit_bonus", "Landmark found in GMS results (negative)"),
+		("landmark_gms_miss", "Landmark not found in GMS results"),
 	]),
 	("City RTO & time", [
 		("city_rto_high", "City RTO high threshold"),

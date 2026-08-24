@@ -48,6 +48,7 @@ def checkout_prefill() -> dict:
 	prefill = dict.fromkeys(PREFILL_FIELDS, "")
 	user = frappe.session.user
 	if user in ("Guest", None, "Administrator"):
+		prefill["country"] = frappe.db.get_default("country") or ""
 		return prefill
 	prefill["email"] = user
 	prefill["full_name"] = frappe.db.get_value("User", user, "full_name") or ""
@@ -55,11 +56,16 @@ def checkout_prefill() -> dict:
 
 	customers = session_customers()
 	if not customers:
+		prefill["country"] = frappe.db.get_default("country") or ""
 		return prefill
 	prefill["phone"] = contact_phone(user) or ""
 	address = last_shipping_address(customers)
 	for field, value in (address or {}).items():
 		prefill[field] = value or ""
+	if not prefill["phone"]:
+		prefill["phone"] = address.get("phone", "") if address else ""
+	if not prefill["country"]:
+		prefill["country"] = frappe.db.get_default("country") or ""
 	return prefill
 
 
@@ -151,7 +157,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 
 	fraud = None
 	if cint(frappe.db.get_single_value("Shop Settings", "enable_fraud_check")):
-		fraud = fraud_module.evaluate_risk(customer, address, payment_method, device_fingerprint or "", fp_request_id or "")
+		fraud = fraud_module.fast_risk(customer, address, payment_method, device_fingerprint or "")
 		if fraud.verdict == "Block":
 			fraud_module.log_fraud_event(None, customer, address, payment_method, device_fingerprint or "", fraud)
 			frappe.throw(_("This order could not be placed with Cash on Delivery. Please pay online or contact us."))
@@ -161,6 +167,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
 		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer)
+		# stamp initial fast_risk verdict immediately
 		if fraud:
 			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
 			fraud_module.log_fraud_event(sales_order.name, customer, address, payment_method, device_fingerprint or "", fraud)
@@ -171,11 +178,24 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 			"sales_order": sales_order.name,
 			"confirmation_url": confirmation_url,
 		}
+		# enqueue full fraud evaluation (geocode + fingerprint) as background job
+		if cint(frappe.db.get_single_value("Shop Settings", "enable_fraud_check")):
+			frappe.enqueue(
+				"shop.integrations.fraud.background_fraud_task",
+				queue="default",
+				order_name=sales_order.name,
+				customer=customer,
+				address=address,
+				payment_method=payment_method,
+				device_fingerprint=device_fingerprint or "",
+				fp_request_id=fp_request_id or "",
+			)
 		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
 			if settings and not settings.payment_gateway_account and payment_method == "cod":
 				# no way to take payment yet: allow the order, keep the flag visible
-				fraud.signals["advance_deferred"] = True
-				fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
+				if fraud:
+					fraud.signals["advance_deferred"] = True
+					fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
 			else:
 				response["payment_url"] = create_payment_request(sales_order, customer)
 				if fraud and fraud.verdict == "Advance Required":
@@ -330,17 +350,30 @@ def create_contact(party: str, customer: dict, email: str):
 
 
 def create_address(party: str, customer: dict, address: dict):
+	from shop.integrations.geocoding import address_hash
+
+	hkey = address_hash(address)
 	existing = find_address(party, address)
 	if existing:
 		# bump modified so saved addresses stay ordered by last use
-		frappe.db.set_value("Address", existing, "modified", frappe.utils.now())
-		updates = {}
+		old_hash = frappe.db.get_value("Address", existing, "custom_address_hash")
+		updates = {"custom_address_hash": hkey}
+		if old_hash != hkey:
+			# landmark changed -> new hash; reset the stale verification summary
+			updates.update({
+				"custom_verification_status": None,
+				"custom_address_risk_score": None,
+				"custom_ors_confidence": None,
+				"custom_latitude": None,
+				"custom_longitude": None,
+				"custom_gms_result_count": None,
+				"custom_last_verified_on": None,
+			})
 		if address.get("landmark"):
 			updates["custom_landmark"] = address.get("landmark")
 		if address.get("alt_phone"):
 			updates["custom_alt_phone"] = address.get("alt_phone")
-		if updates:
-			frappe.db.set_value("Address", existing, updates)
+		frappe.db.set_value("Address", existing, updates)
 		return frappe.get_doc("Address", existing)
 	doc = frappe.get_doc(
 		{
@@ -357,6 +390,7 @@ def create_address(party: str, customer: dict, address: dict):
 			"email_id": customer.get("email"),
 			"custom_landmark": address.get("landmark"),
 			"custom_alt_phone": address.get("alt_phone"),
+			"custom_address_hash": hkey,
 			"links": [{"link_doctype": "Customer", "link_name": party}],
 		}
 	)
@@ -405,6 +439,7 @@ def create_sales_order(cart, party: str, shipping_address, device_fingerprint: s
 			"shipping_address_name": shipping_address.name,
 			"custom_device_fingerprint": device_fingerprint or None,
 			"contact_email": (customer_data or {}).get("email"),
+			"contact_phone": (customer_data or {}).get("phone"),
 			"contact_mobile": (customer_data or {}).get("phone"),
 			"items": [
 				{
