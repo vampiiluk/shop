@@ -795,6 +795,13 @@ def reevaluate_order_for_verification(ver_name: str) -> None:
 			frappe.db.set_value("Sales Order", order_name,
 				{"custom_fraud_state": "Done"})
 			frappe.db.commit()
+			# Verification data ORS/GMS is now in place - run the AI deep
+			# analysis so custom_ai_* fields fill without manual action.
+			try:
+				from shop.agent.tools import _do_score_order_risk
+				_do_score_order_risk(order_name)
+			except Exception:
+				frappe.log_error(title=f"AI risk scoring failed for {order_name}")
 		except Exception:
 			frappe.log_error(title=f"Fraud re-evaluation failed for {order_name}")
 

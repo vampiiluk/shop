@@ -34,6 +34,29 @@ def apply_custom_fields():
 
 	create_custom_fields(custom_fields, ignore_validate=True, update=True)
 
+	# Single doctypes have no table - their defaults must be seeded per-row,
+	# otherwise settings like queue_schedule stay blank until first save.
+	for dt, fields in custom_fields.items():
+		try:
+			if not frappe.get_meta(dt).issingle:
+				continue
+		except Exception:
+			continue
+		for f in fields:
+			default = f.get("default")
+			if default in (None, ""):
+				continue
+			if frappe.db.get_single_value(dt, f["fieldname"]) in (None, ""):
+				# Write tabSingles directly - set_single_value() runs a full
+				# document save whose Version diff can choke on fresh fields.
+				frappe.db.sql(
+					"""INSERT INTO `tabSingles` (doctype, field, value)
+					VALUES (%s, %s, %s)
+					ON DUPLICATE KEY UPDATE value = VALUES(value)""",
+					(dt, f["fieldname"], str(default)),
+				)
+	frappe.db.commit()
+
 
 def download_gms_background():
 	"""Auto-download GMS binary in background if not already installed."""
