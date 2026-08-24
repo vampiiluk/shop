@@ -320,6 +320,29 @@ def get_live_check(order: str):
 	}
 
 @frappe.whitelist()
+def run_ai_risk_analysis(order: str) -> dict:
+	"""Manually run the AI deep analysis for one order (AI usage limits -
+	never automatic). Requires verification data to already exist."""
+	from shop.agent.tools import _do_score_order_risk
+
+	frappe.only_for(("Shop Manager", "System Manager"))
+	ver = frappe.db.get_value(
+		"Shop Address Verification",
+		{"address_hash": frappe.db.get_value("Sales Order", order, "custom_address_hash")},
+		["status", "ors_status", "gms_status"],
+		as_dict=True,
+	)
+	if not ver or ver.ors_status != "Complete":
+		frappe.throw("Address verification (ORS) has not completed yet")
+	result = _do_score_order_risk(order)
+	return {
+		"score": result.get("score", 0),
+		"domain_scores": result.get("domain_scores") or {},
+		"confidence": result.get("confidence", "low"),
+	}
+
+
+@frappe.whitelist()
 def recalculate_order_fraud(order: str):
 	"""Manually recalculates the fraud score for a sales order."""
 	import json

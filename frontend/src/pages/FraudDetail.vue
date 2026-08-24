@@ -113,11 +113,17 @@
 						<div v-if="verificationPending" class="space-y-2">
 							<span class="inline-block size-5 rounded-full bg-orange-100 text-orange-600 animate-pulse">...</span>
 							<p class="text-sm text-ink-gray-6">Address verification in progress</p>
-							<p class="text-xs text-ink-gray-4">AI Risk Score will appear once ORS and GMS complete.</p>
+							<p class="text-xs text-ink-gray-4">AI Risk Analysis will appear once ORS and GMS complete.</p>
 						</div>
 						<div v-else-if="!profile.data.ai_risk_score" class="space-y-2">
-							<p class="text-sm text-ink-gray-6">AI Risk Score not yet computed.</p>
-							<p class="text-xs text-ink-gray-4">Use the Score Order Risk tool to analyze.</p>
+							<p class="text-sm text-ink-gray-6">AI Risk Analysis not yet computed.</p>
+							<Button
+								variant="subtle"
+								theme="blue"
+								:loading="aiRunning"
+								label="Run AI Risk Analysis"
+								@click="runAiAnalysis"
+							/>
 						</div>
 					</section>
 
@@ -291,6 +297,24 @@ import { verdictTheme } from '@/utils/verdict'
 const props = defineProps<{ name: string }>()
 
 const showRaw = ref(false)
+const aiRunning = ref(false)
+
+async function runAiAnalysis() {
+	aiRunning.value = true
+	try {
+		await fetch('/api/method/shop.api.fraud.run_ai_risk_analysis', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-Frappe-CSRF-Token': (window as any).csrf_token || '',
+			},
+			body: JSON.stringify({ order: props.name }),
+		})
+		profile.reload()
+	} finally {
+		aiRunning.value = false
+	}
+}
 
 const profile = createResource({
 	url: 'shop.api.fraud.get_order_fraud_profile',

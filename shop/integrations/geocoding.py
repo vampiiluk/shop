@@ -26,13 +26,24 @@ def address_hash(address: dict) -> str:
 
 	The landmark is part of the address identity: one verification record per
 	unique street address + landmark combination. Changing the landmark produces
-	a new hash and therefore a fresh verification."""
+	a new hash and therefore a fresh verification.
+	Accepts both key conventions: 'address_line1' (checkout/verification)
+	and 'line1' (tools._get_order_address)."""
+
+	def _g(*keys: str) -> str:
+		for k in keys:
+			v = address.get(k)
+			if v:
+				return str(v)
+		return ""
+
 	parts = [
-		norm_text(address.get(f) or "")
-		for f in ("address_line1", "address_line2", "city")
+		norm_text(_g("address_line1", "line1")),
+		norm_text(_g("address_line2", "line2")),
+		norm_text(_g("city")),
 	]
 	parts.append((address.get("pincode") or "").strip())
-	parts.append(norm_text(address.get("landmark") or ""))
+	parts.append(norm_text(_g("landmark", "custom_landmark")))
 	return hashlib.md5("|".join(parts).encode()).hexdigest()
 
 
