@@ -14,68 +14,68 @@
 
 </div>
 
+> [!IMPORTANT]
+> **What's New in This Fork** — this is the **vampiiluk/shop** fork of Frappe
+> Shop. It ships everything from upstream **plus** a fraud-protection and
+> delivery-risk suite, on top of the stock storefront. Install it from the
+> `develop` branch:
+>
+> ```bash
+> bench get-app shop https://github.com/vampiiluk/shop --branch develop
+> ```
+>
+> ### Fraud protection & identity
+>
+> - **Device fingerprint at checkout:** shoppers are fingerprinted with
+>   FingerprintJS v5 when they place an order — no account required.
+> - **Hybrid identification:** checkout is hardened with the Fingerprint
+>   Identification API and Smart Signal extraction from every event.
+> - **Fraud Intelligence UI:** Overview and per-order Detail pages with a
+>   snapshot-vs-live split, customer live checks, and one-click recalculation.
+>
+> ### Address verification pipeline
+>
+> - **Single record per address:** one verification record per street address +
+>   landmark combination — no more duplicate lookups for the same doorstep.
+> - **Queue-first model:** nothing scans or geocodes at checkout. A scheduler
+>   (every 10 / 20 minutes or hourly — configurable) drains a work queue, and a
+>   re-verify action re-queues any record.
+> - **Merged risk score:** openrouteservice geocoding and Google Maps results are
+>   combined into a /80 risk score, mirrored to the Address and every linked
+>   Sales Order.
+> - **Landmark intelligence:** a landmark dataset pipeline feeds cached geocoding
+>   so fraud scoring never re-pays for the same coordinates.
+>
+> ### AI risk analysis
+>
+> - **Deep per-order analysis:** each order gets a Gemini-powered risk assessment
+>   scored across five domains — address consistency, device trust, behavioral,
+>   geographic, and payment.
+> - **Domain breakdown in the UI:** the five sub-scores render as labeled bars on
+>   the Fraud Detail page and the order's Fraud panel.
+> - **Manual, on-demand run:** AI analysis is deliberately manual to conserve AI
+>   usage — run it from the Fraud page whenever you need it.
+>
+> ### Configurable rules
+>
+> - **Editable fraud weights:** tune every signal weight from Shop Settings.
+> - **City RTO thresholds:** per-city return-to-origin rates drive geographic
+>   risk.
+> - **Provinces & multi-country addresses:** editable province lists and generic
+>   international address support.
+> - **Queue scheduling:** set how often the verification queue drains.
+>
+> ### Security notes
+>
+> - Sensitive fields (API keys, AI keys) are shown as stored secrets with a purge
+>   option, and are never echoed back to the client.
+> - Checkout collects the fingerprint once per order attempt, so you are not
+>   billed for repeated Identify calls.
+
 > [!WARNING]
 > Frappe Shop is under active development and is **not production ready**.
 > Doctypes, APIs and theme internals are still changing without migrations, so
 > treat it as a preview: try it on a fresh site, not on a store you sell from.
-
-## What's New in This Fork
-
-> This is the **vampiiluk/shop** fork of Frappe Shop. It ships everything from
-> upstream **plus** a fraud-protection and delivery-risk suite, on top of the
-> stock storefront. Install it from the `develop` branch:
-
-```bash
-bench get-app shop https://github.com/vampiiluk/shop --branch develop
-```
-
-### Fraud protection & identity
-
-- **Device fingerprint at checkout:** shoppers are fingerprinted with
-  FingerprintJS v5 when they place an order — no account required.
-- **Hybrid identification:** checkout is hardened with the Fingerprint
-  Identification API and Smart Signal extraction from every event.
-- **Fraud Intelligence UI:** Overview and per-order Detail pages with a
-  snapshot-vs-live split, customer live checks, and one-click recalculation.
-
-### Address verification pipeline
-
-- **Single record per address:** one verification record per street address +
-  landmark combination — no more duplicate lookups for the same doorstep.
-- **Queue-first model:** nothing scans or geocodes at checkout. A scheduler
-  (every 10 / 20 minutes or hourly — configurable) drains a work queue, and a
-  re-verify action re-queues any record.
-- **Merged risk score:** openrouteservice geocoding and Google Maps results are
-  combined into a /80 risk score, mirrored to the Address and every linked
-  Sales Order.
-- **Landmark intelligence:** a landmark dataset pipeline feeds cached geocoding
-  so fraud scoring never re-pays for the same coordinates.
-
-### AI risk analysis
-
-- **Deep per-order analysis:** each order gets a Gemini-powered risk assessment
-  scored across five domains — address consistency, device trust, behavioral,
-  geographic, and payment.
-- **Domain breakdown in the UI:** the five sub-scores render as labeled bars on
-  the Fraud Detail page and the order's Fraud panel.
-- **Manual, on-demand run:** AI analysis is deliberately manual to conserve AI
-  usage — run it from the Fraud page whenever you need it.
-
-### Configurable rules
-
-- **Editable fraud weights:** tune every signal weight from Shop Settings.
-- **City RTO thresholds:** per-city return-to-origin rates drive geographic
-  risk.
-- **Provinces & multi-country addresses:** editable province lists and generic
-  international address support.
-- **Queue scheduling:** set how often the verification queue drains.
-
-### Security notes
-
-- Sensitive fields (API keys, AI keys) are shown as stored secrets with a purge
-  option, and are never echoed back to the client.
-- Checkout collects the fingerprint once per order attempt, so you are not
-  billed for repeated Identify calls.
 
 ## Frappe Shop
 
