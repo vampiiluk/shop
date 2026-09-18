@@ -213,7 +213,7 @@ def get_order_fraud_profile(order: str):
 				domains = parsed
 		except Exception:
 			domains = None
-	reasoning = payload["ai_risk_reasoning"]
+	reasoning = payload["ai_risk_reasoning"] or ""
 	if domains is None and reasoning.startswith("[domains]"):
 		try:
 			head, _, rest = reasoning.partition("\n")
