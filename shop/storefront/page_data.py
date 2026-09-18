@@ -235,8 +235,10 @@ def store_details() -> dict:
 	}
 	from shop.integrations.fraud import canonical_cities, canonical_provinces
 
-	result["address_cities"] = [c.title() for c in canonical_cities()]
-	result["address_provinces"] = canonical_provinces()
+	result["address_cities"] = [{"name": c.title()} for c in canonical_cities()]
+	result["address_provinces"] = [{"name": p.title()} for p in canonical_provinces()]
+	if settings.address_country:
+		result["address_country"] = [{"name": settings.address_country}]
 	if settings.address_country:
 		result["address_country"] = settings.address_country
 	# Build province→cities mapping for the checkout cascading dropdown
