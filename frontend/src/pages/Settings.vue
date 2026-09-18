@@ -269,49 +269,61 @@
 
 				<div class="mt-5 space-y-3">
 					<p class="text-p-sm font-medium text-ink-gray-7">Address Verification</p>
-					<FormControl
-						v-model="address_cfg.maps_provider"
-						type="select"
-						label="Maps verification"
-						:options="[
-							{ label: 'Google Maps Scraper', value: 'Google Maps Scraper' },
-							{ label: 'None (skip Maps check)', value: 'None' },
-						]"
-						class="max-w-sm"
+					<Switch
+						v-model="address_cfg.ors_enabled"
+						label="Enable ORS Geocoding"
+						description="Use OpenRouteService for address geocoding and fraud checks."
 					/>
-					<div class="grid max-w-md grid-cols-3 gap-3">
+					<Switch
+						v-model="address_cfg.gms_enabled"
+						label="Enable Google Maps Scraper (GMS)"
+						description="Use Google Maps Scraper for address verification. Requires GMS binary installed."
+					/>
+					<template v-if="address_cfg.gms_enabled">
 						<FormControl
-							v-model.number="address_cfg.gms_depth"
-							type="number"
-							label="Search depth"
-							description="Higher = more results, slower."
+							v-model="address_cfg.maps_provider"
+							type="select"
+							label="Maps verification"
+							:options="[
+								{ label: 'Google Maps Scraper', value: 'Google Maps Scraper' },
+								{ label: 'None (skip Maps check)', value: 'None' },
+							]"
+							class="max-w-sm"
 						/>
-						<FormControl
-							v-model.number="address_cfg.gms_concurrency"
-							type="number"
-							label="Concurrency"
-							min="1"
-							max="8"
-							description="Parallel GMS tabs (1-8)."
-						/>
-						<FormControl
-							v-model.number="address_cfg.geocode_cache_ttl"
-							type="number"
-							label="Cache TTL (days)"
-							description="Re-verify after this many days."
-						/>
-					</div>
-					<div class="flex items-center gap-3">
-						<Button
-							variant="subtle"
-							:loading="downloadingGms"
-							@click="downloadGms"
-						>
+						<div class="grid max-w-md grid-cols-3 gap-3">
+							<FormControl
+								v-model.number="address_cfg.gms_depth"
+								type="number"
+								label="Search depth"
+								description="Higher = more results, slower."
+							/>
+							<FormControl
+								v-model.number="address_cfg.gms_concurrency"
+								type="number"
+								label="Concurrency"
+								min="1"
+								max="8"
+								description="Parallel GMS tabs (1-8)."
+							/>
+							<FormControl
+								v-model.number="address_cfg.geocode_cache_ttl"
+								type="number"
+								label="Cache TTL (days)"
+								description="Re-verify after this many days."
+							/>
+						</div>
+						<div class="flex items-center gap-3">
+							<Button
+								variant="subtle"
+								:loading="downloadingGms"
+								@click="downloadGms"
+							>
 							{{ gmsStatus.data?.installed ? 'Update GMS Scraper' : 'Install GMS Scraper' }}
 						</Button>
 						<span v-if="gmsStatus.data?.installed" class="text-xs text-green-600">Installed</span>
 						<span v-else class="text-xs text-ink-gray-5">Not installed</span>
 					</div>
+					</template>
 				</div>
 
 				<div class="mt-4">
@@ -428,7 +440,9 @@ const address_cfg = reactive({
 	address_provinces: '',
 	address_cities: '',
 	ors_api_key: '',
+	ors_enabled: true,
 	maps_provider: 'Google Maps Scraper',
+	gms_enabled: true,
 	gms_depth: 5,
 	gms_concurrency: 4,
 	geocode_cache_ttl: 30,
@@ -501,7 +515,9 @@ function hydrate(doc: Record<string, any>) {
 		address_provinces: doc.address_provinces || '',
 		address_cities: doc.address_cities || '',
 		ors_api_key: doc.ors_api_key || '',
+		ors_enabled: doc.ors_enabled !== false,
 		maps_provider: doc.maps_provider || 'Google Maps Scraper',
+		gms_enabled: doc.gms_enabled !== false,
 		gms_depth: doc.gms_depth || 5,
 		gms_concurrency: doc.gms_concurrency || 4,
 		geocode_cache_ttl: doc.geocode_cache_ttl || 30,

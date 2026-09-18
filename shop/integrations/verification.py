@@ -292,6 +292,7 @@ def queue_status() -> dict:
 	"""Is the queue worker running, and how many items still need work?"""
 	ttl = _get_ttl()
 	gms_enabled = _gms_enabled()
+	ors_enabled = _ors_enabled()
 	rows = frappe.db.sql(
 		f"""SELECT name, status, ors_status, gms_status, last_verified_on
 		FROM `tabShop Address Verification`
@@ -301,7 +302,7 @@ def queue_status() -> dict:
 		LIMIT 5000""",
 		as_dict=True,
 	)
-	pending = sum(1 for r in rows if _needs_work(r, ttl, gms_enabled))
+	pending = sum(1 for r in rows if _needs_work(r, ttl, gms_enabled, ors_enabled))
 	return {
 		"running": bool(frappe.cache().get_value(QUEUE_LOCK_KEY)),
 		"pending": pending,
@@ -310,16 +311,28 @@ def queue_status() -> dict:
 
 def _gms_enabled() -> bool:
 	settings_doc = frappe.get_cached_doc("Shop Settings")
+	if not getattr(settings_doc, "gms_enabled", True):
+		return False
 	return (getattr(settings_doc, "maps_provider", None) or "Google Maps Scraper") == "Google Maps Scraper"
 
 
-def _needs_work(row, ttl_days: int, gms_enabled: bool) -> bool:
+def _ors_enabled() -> bool:
+	settings_doc = frappe.get_cached_doc("Shop Settings")
+	if not getattr(settings_doc, "ors_enabled", True):
+		return False
+	return bool(getattr(settings_doc, "ors_api_key", None))
+
+
+def _needs_work(row, ttl_days: int, gms_enabled: bool, ors_enabled: bool = True) -> bool:
 	if getattr(row, "status", None) == "Queued":
 		return True
-	if row.ors_status != "Complete":
+	if ors_enabled and row.ors_status != "Complete":
 		return True
 	if gms_enabled and row.gms_status != "Complete":
 		return True
+	if not ors_enabled and not gms_enabled:
+		# Both disabled — nothing to do
+		return False
 	if not row.last_verified_on:
 		return True
 	return (now_datetime() - get_datetime(row.last_verified_on)).days >= ttl_days
@@ -354,6 +367,7 @@ def get_queue_items(limit: int | None = None) -> list[frappe._dict]:
 	_seed_missing_rows()
 	ttl = _get_ttl()
 	gms_enabled = _gms_enabled()
+	ors_enabled = _ors_enabled()
 	limit = cint(limit) or 100
 	rows = frappe.db.sql(
 		f"""SELECT name, address_line1, city, landmark, country, pincode,
@@ -367,7 +381,7 @@ def get_queue_items(limit: int | None = None) -> list[frappe._dict]:
 		(limit,),
 		as_dict=True,
 	)
-	return [r for r in rows if _needs_work(r, ttl, gms_enabled)]
+	return [r for r in rows if _needs_work(r, ttl, gms_enabled, ors_enabled)]
 
 
 def run_queue(limit: int | None = None) -> dict:
@@ -501,12 +515,15 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 
 	settings_doc = frappe.get_cached_doc("Shop Settings")
 	gms_enabled = _gms_enabled()
+	ors_enabled = _ors_enabled()
 	depth = cint(getattr(settings_doc, "gms_depth", 0)) or 5
 	concurrency = min(max(cint(getattr(settings_doc, "gms_concurrency", 0)) or 4, 1), 8)
 
 	stats = {"completed": 0, "partial": 0, "failed": 0}
 	if not items:
 		return stats
+
+	ors_out: dict = {}
 
 	for r in items:
 		frappe.db.set_value(
@@ -518,45 +535,54 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 	# --- Stage 1: ORS geocoding ---
 	# Threads only do pure HTTP: frappe's DB connection has no site context
 	# inside pool threads, so every frappe.db write happens on the main thread.
-	from shop.integrations.geocoding import _call_ors, _ors_key, _summarize_ors
+	if ors_enabled:
+		from shop.integrations.geocoding import _call_ors, _ors_key, _summarize_ors
 
-	api_key = _ors_key(settings_doc)
+		api_key = _ors_key(settings_doc)
 
-	def _do_ors(rec):
-		full_address = ", ".join(
-			p.strip()
-			for p in (rec.address_line1, rec.landmark, rec.city, rec.pincode,
-				rec.country or "Pakistan")
-			if p and p.strip()
-		)
-		try:
-			return rec.name, _summarize_ors(_call_ors(full_address, api_key))
-		except Exception:
-			return rec.name, None
+		def _do_ors(rec):
+			full_address = ", ".join(
+				p.strip()
+				for p in (rec.address_line1, rec.landmark, rec.city, rec.pincode,
+					rec.country or "Pakistan")
+				if p and p.strip()
+			)
+			try:
+				return rec.name, _summarize_ors(_call_ors(full_address, api_key))
+			except Exception:
+				return rec.name, None
 
-	with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(items), concurrency)) as pool:
-		ors_out = dict(pool.map(_do_ors, items))
+		with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(items), concurrency)) as pool:
+			ors_out = dict(pool.map(_do_ors, items))
 
-	for r in items:
-		summary = ors_out.get(r.name)
-		if summary is None:
+		for r in items:
+			summary = ors_out.get(r.name)
+			if summary is None:
+				frappe.db.set_value(
+					"Shop Address Verification", r.name,
+					{"ors_status": "Failed"}, update_modified=False,
+				)
+				continue
+			if not summary.get("found"):
+				summary["lat"] = summary["lng"] = None
+			frappe.db.set_value("Shop Address Verification", r.name, {
+				"ors_status": "Complete",
+				"ors_result_json": _json.dumps(summary, default=str),
+				"ors_confidence": summary.get("confidence"),
+				"ors_match_type": summary.get("match_type", ""),
+				"latitude": summary.get("lat"),
+				"longitude": summary.get("lng"),
+				"last_verified_on": now_datetime(),
+			}, update_modified=False)
+		frappe.db.commit()
+	else:
+		# ORS disabled — mark all as skipped
+		for r in items:
 			frappe.db.set_value(
 				"Shop Address Verification", r.name,
-				{"ors_status": "Failed"}, update_modified=False,
+				{"ors_status": "Disabled"}, update_modified=False,
 			)
-			continue
-		if not summary.get("found"):
-			summary["lat"] = summary["lng"] = None
-		frappe.db.set_value("Shop Address Verification", r.name, {
-			"ors_status": "Complete",
-			"ors_result_json": _json.dumps(summary, default=str),
-			"ors_confidence": summary.get("confidence"),
-			"ors_match_type": summary.get("match_type", ""),
-			"latitude": summary.get("lat"),
-			"longitude": summary.get("lng"),
-			"last_verified_on": now_datetime(),
-		}, update_modified=False)
-	frappe.db.commit()
+		frappe.db.commit()
 
 	# --- Stage 2: GMS — one subprocess, N concurrent browser tabs ---
 	gms_by_id: dict[str, list[dict]] = {}
@@ -621,7 +647,7 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 				gms_results=gms_results,
 				settings_doc=settings_doc,
 			)
-			ors_ok = ors_out.get(r.name) is not None
+			ors_ok = ors_enabled and (ors_out.get(r.name) is not None)
 			gms_ok = (not gms_enabled) or (gms_results is not None)
 			vstatus = "Complete" if (ors_ok and gms_ok) else ("Partial" if (ors_ok or gms_ok) else "Failed")
 

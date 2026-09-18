@@ -12,6 +12,8 @@ CHECK_FIELDS = frozenset((
 	"enable_fraud_check",
 	"fraud_blacklist_blocks_all",
 	"landmark_required",
+	"gms_enabled",
+	"ors_enabled",
 ))
 
 INT_FIELDS = frozenset((
@@ -73,6 +75,8 @@ EDITABLE = (
 	"fingerprint_secret_key",
 	"fingerprint_region",
 	"maps_provider",
+	"gms_enabled",
+	"ors_enabled",
 	"gms_depth",
 	"gms_concurrency",
 	"geocode_cache_ttl",
