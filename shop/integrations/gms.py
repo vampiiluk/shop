@@ -82,6 +82,14 @@ def download_gms(version: str | None = None) -> dict:
 				download_url = asset["browser_download_url"]
 				break
 
+		# Fallback: try linux-amd64 if native arch binary not found (qemu can run it)
+		if not download_url and binary_suffix == "linux-arm64":
+			binary_suffix = "linux-amd64"
+			for asset in assets:
+				if binary_suffix in asset["name"]:
+					download_url = asset["browser_download_url"]
+					break
+
 		if not download_url:
 			return {"success": False, "error": f"No binary found for {binary_suffix} in release {tag}"}
 
