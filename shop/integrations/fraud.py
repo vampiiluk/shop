@@ -76,7 +76,13 @@ def canonical_provinces(settings_doc=None) -> list[str]:
 	raw = getattr(settings_doc, "address_provinces", None)
 	if raw:
 		return [p.strip().lower() for p in raw.split(",") if p.strip()]
-	return []
+	# Fall back to province_table entries
+	provinces = []
+	for row in (getattr(settings_doc, "province_table", None) or []):
+		name = (getattr(row, "province_name", None) or "").strip()
+		if name:
+			provinces.append(name.lower())
+	return provinces
 
 
 def _get_province_city_map(settings_doc=None) -> dict[str, list[str]]:

@@ -2557,11 +2557,11 @@ def checkout_blocks(refs):
 			input_block(refs, "phone", "Phone", "tel", prefill=True),
 			input_block(refs, "address_line1", "Address", required=True, prefill=True),
 			input_block(refs, "address_line2", "Apartment, suite, etc. (optional)", prefill=True),
+			input_block(refs, "landmark", "Nearest landmark", half=True, prefill=True),
 			select_block(refs, "city", "address_cities", "City", required=True, half=True, prefill_key="prefill.city"),
 			select_block(refs, "state", "address_provinces", "State / Province", half=True, prefill_key="prefill.state"),
 			input_block(refs, "pincode", "Pincode", half=True, prefill=True),
 			select_block(refs, "country", "address_country", "Country", half=True, prefill_key="prefill.country"),
-			input_block(refs, "landmark", "Nearest landmark", half=True, prefill=True),
 			block(
 				"p",
 				text="Payment",
