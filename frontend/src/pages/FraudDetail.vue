@@ -429,6 +429,23 @@ const scoreBreakdown = computed<ScoreRow[]>(() => {
 	// Multiple phones
 	add('Multiple phones', '', signals.fp_multiple_phones ? 10 : 0)
 
+	// Missing fingerprint
+	add('Missing fingerprint', '', signals.missing_fingerprint ? 10 : 0)
+
+	// Risky hour
+	add('Risky hour', '', signals.risky_hour ? 15 : 0)
+
+	// Blacklist
+	add('Blacklist hit', '', signals.blacklisted ? 40 : 0)
+
+	// Velocity block
+	add('Velocity block', '', signals.velocity_block ? 40 : 0)
+
+	// History
+	if (signals.history_cancelled) {
+		add('High cancel ratio', '', 10)
+	}
+
 	return rows
 })
 
