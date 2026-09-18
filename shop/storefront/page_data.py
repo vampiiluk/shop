@@ -239,8 +239,6 @@ def store_details() -> dict:
 	result["address_provinces"] = [{"name": p.title()} for p in canonical_provinces()]
 	if settings.address_country:
 		result["address_country"] = [{"name": settings.address_country}]
-	if settings.address_country:
-		result["address_country"] = settings.address_country
 	# Build province→cities mapping for the checkout cascading dropdown
 	province_map = {}
 	province_table = getattr(settings, "province_table", None)
