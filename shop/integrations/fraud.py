@@ -51,7 +51,7 @@ def canonical_cities(settings_doc=None) -> list[str]:
 	settings_doc = settings_doc or settings()
 	raw = getattr(settings_doc, "address_cities", None)
 	if raw is None:  # field missing on very old installs
-		raw = settings_doc.pk_cities
+		raw = getattr(settings_doc, "pk_cities", None)
 	custom = [c.strip().lower() for c in (raw or "").split(",") if c.strip()]
 	return custom or DEFAULT_PK_CITIES
 
