@@ -46,7 +46,7 @@ def generate():
 		("frappe-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("frappe-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("frappe-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses"), False),
+		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"), False),
 		(
 			"frappe-order-confirmation",
 			"Order Confirmed",
@@ -2764,6 +2764,47 @@ def input_block(refs, name, label, input_type="text", required=False, half=False
 	)
 
 
+def select_block(refs, name, data_key, label_text, required=False, half=False, prefill_key=None):
+	"""Build a <select> whose <option>s are populated by a repeater from data_key."""
+	placeholder = block(
+		"option",
+		text=label_text,
+		attrs={"value": "", "disabled": "disabled"},
+		styles={"display": "none"},
+	)
+	option = block(
+		"option",
+		text="",
+		dynamicValues=[dv("item", "innerHTML"), dv("item", "value", "attribute")],
+	)
+	attrs = {"name": name, "aria-label": label_text}
+	if required:
+		attrs["required"] = "required"
+	sel = repeater(
+		data_key,
+		option,
+		{
+			"backgroundColor": refs["paper"],
+			"borderColor": refs["line"],
+			"borderRadius": "2px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"color": refs["ink"],
+			"fontSize": "13px",
+			"gridColumn": "span 1" if half else "span 2",
+			"padding": "11px 13px",
+			"width": "100%",
+		},
+		element="select",
+		attrs=attrs,
+		name=f"Select · {name}",
+	)
+	sel["children"] = [placeholder, option]
+	if prefill_key:
+		sel["dynamicValues"] = [dv(prefill_key, "value", "attribute")]
+	return sel
+
+
 def form_section_label(refs, text):
 	return block(
 		"p",
@@ -2856,10 +2897,11 @@ def checkout_blocks(refs):
 			input_block(refs, "phone", "Phone", "tel", prefill=True),
 			input_block(refs, "address_line1", "Address", required=True, prefill=True),
 			input_block(refs, "address_line2", "Apartment, suite, etc. (optional)", prefill=True),
-			input_block(refs, "city", "City", required=True, half=True, prefill=True),
+			select_block(refs, "city", "address_cities", "City", required=True, half=True, prefill_key="prefill.city"),
 			input_block(refs, "state", "State", half=True, prefill=True),
 			input_block(refs, "pincode", "Pincode", half=True, prefill=True),
-			input_block(refs, "country", "Country", half=True, prefill=True),
+			select_block(refs, "country", "address_country", "Country", half=True, prefill_key="prefill.country"),
+			input_block(refs, "landmark", "Nearest landmark", half=True, prefill=True),
 			form_section_label(refs, "Payment"),
 			repeater(
 				"payment_methods",

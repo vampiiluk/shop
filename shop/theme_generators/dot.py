@@ -47,7 +47,7 @@ def generate():
 		("dot-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("dot-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("dot-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses"), False),
+		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"), False),
 		(
 			"dot-order-confirmation",
 			"Order Confirmed",
@@ -2386,6 +2386,37 @@ def input_block(refs, name, label_text, input_type="text", required=False, half=
 	)
 
 
+def select_block(refs, name, data_key, label_text, required=False, half=False, prefill_key=None):
+	"""Build a <select> whose <option>s are populated by a repeater from data_key."""
+	placeholder = block(
+		"option",
+		text=label_text,
+		attrs={"value": "", "disabled": "disabled"},
+		styles={"display": "none"},
+	)
+	option = block(
+		"option",
+		text="",
+		dynamicValues=[dv("item", "innerHTML"), dv("item", "value", "attribute")],
+	)
+	attrs = {"name": name, "aria-label": label_text}
+	if required:
+		attrs["required"] = "required"
+	sel = repeater(
+		data_key,
+		option,
+		{**field_styles(refs), "gridColumn": "span 1" if half else "span 2"},
+		element="select",
+		attrs=attrs,
+		name=f"Select · {name}",
+	)
+	# Prepend the disabled placeholder option as the first child.
+	sel["children"] = [placeholder, option]
+	if prefill_key:
+		sel["dynamicValues"] = [dv(prefill_key, "value", "attribute")]
+	return sel
+
+
 def coupon_box(refs):
 	form = block(
 		"form",
@@ -2526,10 +2557,11 @@ def checkout_blocks(refs):
 			input_block(refs, "phone", "Phone", "tel", prefill=True),
 			input_block(refs, "address_line1", "Address", required=True, prefill=True),
 			input_block(refs, "address_line2", "Apartment, suite, etc. (optional)", prefill=True),
-			input_block(refs, "city", "City", required=True, half=True, prefill=True),
+			select_block(refs, "city", "address_cities", "City", required=True, half=True, prefill_key="prefill.city"),
 			input_block(refs, "state", "State", half=True, prefill=True),
 			input_block(refs, "pincode", "Pincode", half=True, prefill=True),
-			input_block(refs, "country", "Country", half=True, prefill=True),
+			select_block(refs, "country", "address_country", "Country", half=True, prefill_key="prefill.country"),
+			input_block(refs, "landmark", "Nearest landmark", half=True, prefill=True),
 			block(
 				"p",
 				text="Payment",

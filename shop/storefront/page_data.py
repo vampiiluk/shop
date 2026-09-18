@@ -196,7 +196,13 @@ def cart_page() -> dict:
 
 @frappe.whitelist(allow_guest=True)
 def checkout_page() -> dict:
-	return {"store": store_details(), **checkout.get_checkout_summary()}
+	store = store_details()
+	result = checkout.get_checkout_summary()
+	result["store"] = store
+	# Expose store fields at the top level so Builder page_data_script can access them.
+	for key in ("address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"):
+		result[key] = store.get(key)
+	return result
 
 
 @frappe.whitelist(allow_guest=True)
