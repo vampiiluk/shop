@@ -52,6 +52,10 @@ def ensure_gms() -> str:
 def download_gms(version: str | None = None) -> dict:
 	"""Download GMS binary from GitHub releases. Returns dict with success/error."""
 	try:
+		# If a working binary already exists, skip download unless a specific version is requested
+		if not version and get_gms_binary():
+			return {"success": True, "version": None, "path": _GMS_BIN, "skipped": True}
+
 		os.makedirs(_GMS_DIR, exist_ok=True)
 
 		# Get latest release info
