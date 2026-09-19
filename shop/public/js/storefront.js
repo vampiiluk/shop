@@ -56,6 +56,14 @@
 			const messages = JSON.parse(body._server_messages || "[]");
 			if (messages.length) return JSON.parse(messages[0]).message.replace(/<[^>]+>/g, "");
 		} catch (e) {}
+		// Fallback: try exc (exception string) or message field
+		try {
+			if (body.message && typeof body.message === "string") return body.message.replace(/<[^>]+>/g, "");
+			if (body.exc) {
+				var excLines = body.exc.split("\n").filter(function(l){return l.indexOf("frappe.exceptions")===-1 && l.trim();});
+				if (excLines.length) return excLines[excLines.length-1].replace(/<[^>]+>/g, "");
+			}
+		} catch(e) {}
 		return "Something went wrong. Please try again.";
 	}
 
