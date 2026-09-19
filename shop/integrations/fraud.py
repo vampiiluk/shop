@@ -589,6 +589,7 @@ def fast_risk(
 	payment_method: str = "cod",
 	device_fingerprint: str = "",
 	as_of=None,
+	exclude_order=None,
 ) -> FraudResult:
 	"""DB-only fraud checks (~10ms). Runs synchronously in place_order.
 	Only blocks on blacklist + velocity. Everything else defers to background."""
