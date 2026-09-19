@@ -58,6 +58,25 @@ def mark_delivery_outcome(order: str, outcome: str) -> dict:
 	return fraud.record_delivery_outcome(order, outcome)
 
 
+@frappe.whitelist(methods=["POST"])
+def mark_delivered(fulfillment: str) -> dict:
+	"""Mark a shipped fulfillment as delivered. Files the delivery note if
+	needed and records the outcome for fraud tracking."""
+	only_managers()
+	doc = frappe.get_doc("Shop Fulfillment", fulfillment)
+	if doc.status not in ("Shipped", "Delivered"):
+		frappe.throw(_("Only shipped fulfillments can be marked as delivered"))
+	if doc.status != "Delivered":
+		service.apply_result(doc, {"status": "Delivered"})
+	# Record delivery outcome for fraud
+	try:
+		from shop.integrations import fraud
+		fraud.record_delivery_outcome(doc.sales_order, "Delivered")
+	except Exception:
+		frappe.log_error(title="Delivery outcome recording failed")
+	return service.summary(doc)
+
+
 @frappe.whitelist()
 def list_fulfillments(status: str | None = None, start: int = 0, limit: int = 20) -> dict:
 	only_managers()

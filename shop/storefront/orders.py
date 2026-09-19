@@ -70,6 +70,7 @@ def order_summary(order) -> dict:
 		"display_status": STATUS_LABELS.get(order.status, order.status),
 		"progress": order_progress(order, shipment),
 		"shipment": shipment,
+		"fulfillment_name": shipment.name if shipment else None,
 		"awaiting_shipment": None if shipment else "true",
 		"transaction_date": str(order.transaction_date),
 		"total": order.total,
@@ -139,7 +140,7 @@ def shipment_summary(order_name: str) -> dict | None:
 	rows = frappe.get_all(
 		"Shop Fulfillment",
 		filters={"sales_order": order_name, "status": ["!=", "Cancelled"]},
-		fields=["status", "carrier", "tracking_number", "tracking_url", "shipped_on"],
+		fields=["name", "status", "carrier", "tracking_number", "tracking_url", "shipped_on"],
 		order_by="creation desc",
 		limit=1,
 	)
