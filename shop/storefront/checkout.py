@@ -149,7 +149,7 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 # generous enough for shoppers sharing an office or campus network
 @rate_limit(limit=30, seconds=60)
-def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "") -> dict:
+def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "") -> dict:
 	cart = cart_module.resolve_cart()
 	validate_order(cart, customer, address, payment_method)
 	settings = frappe.get_cached_doc("Shop Settings")
@@ -166,10 +166,10 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		if device_fingerprint:
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
-		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer)
+		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer, fingerprint_provider)
 		# stamp initial fast_risk verdict immediately
 		if fraud:
-			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
+			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)
 			fraud_module.log_fraud_event(sales_order.name, customer, address, payment_method, device_fingerprint or "", fraud)
 		convert_cart(cart, sales_order)
 		confirmation_url = f"/order-confirmation/{sales_order.name}?token={cart.token}"
@@ -195,7 +195,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 				# no way to take payment yet: allow the order, keep the flag visible
 				if fraud:
 					fraud.signals["advance_deferred"] = True
-					fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud)
+					fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)
 			else:
 				response["payment_url"] = create_payment_request(sales_order, customer)
 				if fraud and fraud.verdict == "Advance Required":
@@ -417,7 +417,7 @@ def find_address(party: str, address: dict) -> str | None:
 	)
 
 
-def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = "", customer_data: dict = None):
+def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = "", customer_data: dict = None, fingerprint_provider: str = ""):
 	settings = frappe.get_cached_doc("Shop Settings")
 	cart_module.refresh_rates(cart)
 	coupon, discount = cart_module.applied_discount(
@@ -438,6 +438,7 @@ def create_sales_order(cart, party: str, shipping_address, device_fingerprint: s
 			"customer_address": shipping_address.name,
 			"shipping_address_name": shipping_address.name,
 			"custom_device_fingerprint": device_fingerprint or None,
+			"custom_fingerprint_provider": fingerprint_provider or None,
 			"contact_email": (customer_data or {}).get("email"),
 			"contact_phone": (customer_data or {}).get("phone"),
 			"contact_mobile": (customer_data or {}).get("phone"),

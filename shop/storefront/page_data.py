@@ -231,6 +231,7 @@ def store_details() -> dict:
 		"account_url": "/account/orders" if signed_in else "/login?redirect-to=/account/orders",
 		"fp_public_key": settings.fingerprint_public_key or "",
 		"fp_region": settings.fingerprint_region or "ap",
+		"fingerprint_provider": settings.fingerprint_provider or "thumbmarkjs",
 		"landmark_required": settings.landmark_required,
 	}
 	from shop.integrations.fraud import canonical_cities, canonical_provinces

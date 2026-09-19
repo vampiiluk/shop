@@ -137,7 +137,7 @@ def get_order_fraud_profile(order: str):
 	The placement snapshot is immutable evidence — this endpoint NEVER
 	writes to the Sales Order."""
 	so = frappe.db.get_value("Sales Order", order,
-		["customer", "contact_email", "contact_mobile", "custom_device_fingerprint", "custom_fraud_score", "custom_fraud_verdict", "custom_fraud_signals", "shipping_address_name", "creation"],
+		["customer", "contact_email", "contact_mobile", "custom_device_fingerprint", "custom_fingerprint_provider", "custom_fraud_score", "custom_fraud_verdict", "custom_fraud_signals", "shipping_address_name", "creation"],
 		as_dict=True)
 		
 	if not so:
@@ -182,6 +182,7 @@ def get_order_fraud_profile(order: str):
 
 	payload = {
 		"fingerprint": so.custom_device_fingerprint,
+		"fingerprint_provider": so.custom_fingerprint_provider or "",
 		"score": so.custom_fraud_score,
 		"verdict": so.custom_fraud_verdict,
 		"signals": so.custom_fraud_signals,

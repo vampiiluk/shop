@@ -164,21 +164,28 @@
 					<!-- Fingerprint Identification event -->
 					<section class="rounded-lg border border-outline-gray-1 p-4">
 						<div class="flex items-center justify-between">
-							<h2 class="text-base font-medium text-ink-gray-8">Fingerprint Identification event</h2>
-							<Button size="sm" @click="showRaw = !showRaw">{{ showRaw ? 'Show tree' : 'Show raw JSON' }}</Button>
+							<div>
+								<h2 class="text-base font-medium text-ink-gray-8">Device Fingerprint</h2>
+								<p v-if="profile.data.fingerprint_provider" class="mt-0.5 text-xs text-ink-gray-5">
+									Provider: {{ fpProviderLabel }}
+								</p>
+							</div>
+							<Button v-if="event.data?.event" size="sm" @click="showRaw = !showRaw">{{ showRaw ? 'Show tree' : 'Show raw JSON' }}</Button>
 						</div>
 
 						<div v-if="event.loading" class="mt-4 flex justify-center"><Spinner class="size-4" /></div>
 						<template v-else>
 							<div v-if="event.data?.event" class="mt-3">
 								<p v-if="!showRaw" class="mb-3 text-xs text-ink-gray-4">
-									Captured server-side from Fingerprint at checkout. Expand a group to inspect every field.
+									Captured from {{ fpProviderLabel }} at checkout. Expand a group to inspect every field.
 								</p>
 								<pre v-if="showRaw" class="max-h-96 overflow-auto rounded bg-surface-gray-2 p-3 text-xs text-ink-gray-8 border border-outline-gray-2">{{ JSON.stringify(event.data.event, null, 2) }}</pre>
 								<JsonTree v-else :data="event.data.event" :depth="0" />
 							</div>
 							<p v-else class="mt-3 text-sm text-ink-gray-5">
-								No stored event (order placed before event capture was enabled).
+								No stored event data for {{ fpProviderLabel }}.
+								<span v-if="profile.data.fingerprint_provider === 'thumbmarkjs'">ThumbmarkJS runs fully client-side — raw event data is not captured server-side.</span>
+								<span v-else-if="profile.data.fingerprint_provider === 'fingerprintjs-oss'">FingerprintJS OSS runs fully client-side — raw event data is not captured server-side.</span>
 							</p>
 						</template>
 					</section>
@@ -367,6 +374,15 @@ const parsedSignals = computed(() => {
 })
 
 const fp = computed(() => profile.data?.fp_highlights)
+
+const fpProviderLabel = computed(() => {
+	const providers: Record<string, string> = {
+		thumbmarkjs: 'ThumbmarkJS',
+		'fingerprintjs-oss': 'FingerprintJS (OSS)',
+		'fingerprintjs-pro': 'FingerprintJS Pro',
+	}
+	return providers[profile.data?.fingerprint_provider] || profile.data?.fingerprint_provider || 'Unknown'
+})
 
 interface MapsResult {
 	name: string

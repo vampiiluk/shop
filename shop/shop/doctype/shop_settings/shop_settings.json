@@ -44,22 +44,23 @@
   "fraud_risky_hour_end",
   "fraud_auto_blacklist_failures",
   "fraud_blacklist_blocks_all",
-   "address_section",
-   "address_country",
-   "address_provinces",
-   "address_cities",
-   "province_table",
-   "landmark_required",
+  "address_section",
+  "address_country",
+  "address_provinces",
+  "address_cities",
+  "province_table",
+  "landmark_required",
   "fraud_rto_high_pct",
   "fraud_rto_medium_pct",
   "fraud_signal_weights",
-   "fingerprint_section",
-   "fingerprint_public_key",
-   "fingerprint_secret_key",
-   "column_break_fingerprint",
-   "fingerprint_region",
-   "theme_pages_section",
-   "theme_pages"
+  "fingerprint_section",
+  "fingerprint_provider",
+  "fingerprint_public_key",
+  "fingerprint_secret_key",
+  "column_break_fingerprint",
+  "fingerprint_region",
+  "theme_pages_section",
+  "theme_pages"
  ],
  "fields": [
   {
@@ -325,21 +326,21 @@
    "label": "Province / State List",
    "description": "Comma-separated provinces or states offered in the checkout province box."
   },
-   {
-    "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
-    "fieldname": "address_cities",
-    "fieldtype": "Small Text",
-    "label": "City List",
-    "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
-   },
-   {
-    "fieldname": "province_table",
-    "fieldtype": "Table",
-    "label": "Provinces & Cities",
-    "options": "Shop Province",
-    "description": "Each row is a province/state with its comma-separated cities. Used for fraud province validation and checkout dropdowns."
-   },
-   {
+  {
+   "default": "Islamabad, Rawalpindi, Lahore, Karachi, Faisalabad, Multan, Peshawar, Quetta, Gujranwala, Gujrat, Sialkot, Hyderabad, Bahawalpur, Sargodha, Jhelum, Wah Cantt, Attock, Abbotabad, Mardan, Kohat, Dera Ghazi Khan, Rahim Yar Khan, Sheikhupura, Jhang, Kasur, Okara, Sahiwal, Wah, Murree, Mirpur, Muzaffarabad, Gilgit, Skardu, Sukkur, Larkana, Nawabshah, Mirpurkhas, Jacobabad, Khairpur, Dadu, Burewala, Chiniot, Khanewal, Vehari, Mandi Bahauddin, Toba Tek Singh",
+   "fieldname": "address_cities",
+   "fieldtype": "Small Text",
+   "label": "City List",
+   "description": "Comma-separated canonical cities offered in the checkout city box. Cities outside this list add to the fraud score."
+  },
+  {
+   "fieldname": "province_table",
+   "fieldtype": "Table",
+   "label": "Provinces & Cities",
+   "options": "Shop Province",
+   "description": "Each row is a province/state with its comma-separated cities. Used for fraud province validation and checkout dropdowns."
+  },
+  {
    "default": "1",
    "fieldname": "landmark_required",
    "fieldtype": "Check",
@@ -364,13 +365,21 @@
    "fieldname": "fraud_signal_weights",
    "fieldtype": "Code",
    "label": "Fraud Signal Weights",
-   "description": "JSON of per-signal points. Managed from the Fraud Weights page — leave blank for defaults."
+   "description": "JSON of per-signal points. Managed from the Fraud Weights page \u2014 leave blank for defaults."
   },
   {
    "collapsible": 1,
    "fieldname": "fingerprint_section",
    "fieldtype": "Section Break",
    "label": "Fingerprint Identification"
+  },
+  {
+   "default": "thumbmarkjs",
+   "fieldname": "fingerprint_provider",
+   "fieldtype": "Select",
+   "label": "Fingerprint Provider",
+   "options": "thumbmarkjs\nfingerprintjs-oss\nfingerprintjs-pro",
+   "description": "Client-side device fingerprinting. ThumbmarkJS (free, no API key) or FingerprintJS OSS (free, no API key) or FingerprintJS Pro (paid, requires API key)."
   },
   {
    "fieldname": "fingerprint_public_key",
@@ -388,14 +397,14 @@
    "fieldname": "column_break_fingerprint",
    "fieldtype": "Column Break"
   },
-   {
-    "default": "ap",
-    "fieldname": "fingerprint_region",
-    "fieldtype": "Select",
-    "label": "Fingerprint Region",
-    "options": "us\neu\nap",
-    "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
-   },
+  {
+   "default": "ap",
+   "fieldname": "fingerprint_region",
+   "fieldtype": "Select",
+   "label": "Fingerprint Region",
+   "options": "us\neu\nap",
+   "description": "Workspace region shown in your Fingerprint dashboard (us, eu or ap)."
+  },
   {
    "collapsible": 1,
    "fieldname": "theme_pages_section",

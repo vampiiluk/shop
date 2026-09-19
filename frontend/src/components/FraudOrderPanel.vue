@@ -232,6 +232,15 @@ const keyRows = computed<Row[]>(() => {
 
 	const rows: Row[] = []
 
+	if (signals.fingerprint_provider) {
+		const labels: Record<string, string> = {
+			thumbmarkjs: 'ThumbmarkJS',
+			'fingerprintjs-oss': 'FingerprintJS OSS',
+			'fingerprintjs-pro': 'FingerprintJS Pro',
+		}
+		rows.push({ label: 'Fingerprint', value: labels[signals.fingerprint_provider] || signals.fingerprint_provider })
+	}
+
 	if (typeof signals.fp_suspect_score === 'number') {
 		rows.push({ label: 'Suspect score', value: `${Math.round(signals.fp_suspect_score * 100)}/100` })
 	}

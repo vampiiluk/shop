@@ -5,29 +5,66 @@
 		cart: (window.page_data && window.page_data.cart) || null,
 	};
 
-	// Device fingerprint via Fingerprint Identification (API-only).
-	// Identification runs ONLY when Place Order is clicked — one billed
-	// event per order attempt, not per page view.
+	// Device fingerprint — supports three providers:
+	//   thumbmarkjs      – free, no API key, self-hosted via CDN
+	//   fingerprintjs-oss – free, no API key, self-hosted via CDN
+	//   fingerprintjs-pro – paid API, requires public key
 	function loadFingerprint() {
 		const store = (window.page_data && window.page_data.store) || {};
-		if (!store.fp_public_key) {
-			return Promise.resolve({ visitorId: "", requestId: "" });
+		const provider = store.fingerprint_provider || "thumbmarkjs";
+
+		if (provider === "fingerprintjs-pro") {
+			if (!store.fp_public_key) {
+				return Promise.resolve({ visitorId: "", requestId: "", provider: "fingerprintjs-pro" });
+			}
+			return import(
+				"https://metrics.sananahmad.dpdns.org/web/v4/" + encodeURIComponent(store.fp_public_key)
+			)
+				.then((Fingerprint) => Fingerprint.start({
+					region: store.fp_region || "ap",
+					endpoint: "https://metrics.sananahmad.dpdns.org",
+				}))
+				.then((agent) => agent.get())
+				.then((result) => ({
+					visitorId: result.visitorId || result.visitor_id || "",
+					requestId: result.requestId || result.event_id || "",
+					provider: "fingerprintjs-pro",
+				}))
+				.catch((error) => {
+					console.warn("fingerprintjs-pro unavailable:", error && error.message);
+					return { visitorId: "", requestId: "", provider: "fingerprintjs-pro" };
+				});
 		}
-		return import(
-			"https://metrics.sananahmad.dpdns.org/web/v4/" + encodeURIComponent(store.fp_public_key)
-		)
-			.then((Fingerprint) => Fingerprint.start({
-				region: store.fp_region || "ap",
-				endpoint: "https://metrics.sananahmad.dpdns.org",
-			}))
-			.then((agent) => agent.get())
+
+		if (provider === "fingerprintjs-oss") {
+			return import("https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fingerprintjs.min.js")
+				.then((FingerprintJS) => FingerprintJS.load())
+				.then((agent) => agent.get())
+				.then((result) => ({
+					visitorId: result.visitorId || "",
+					requestId: "",
+					provider: "fingerprintjs-oss",
+				}))
+				.catch((error) => {
+					console.warn("fingerprintjs-oss unavailable:", error && error.message);
+					return { visitorId: "", requestId: "", provider: "fingerprintjs-oss" };
+				});
+		}
+
+		// Default: thumbmarkjs
+		return import("https://cdn.jsdelivr.net/npm/@thumbmarkjs/thumbmarkjs/dist/thumbmark.umd.js")
+			.then(() => {
+				const tm = new window.ThumbmarkJS.Thumbmark({ logging: false });
+				return tm.get();
+			})
 			.then((result) => ({
-				visitorId: result.visitorId || result.visitor_id || "",
-				requestId: result.requestId || result.event_id || "",
+				visitorId: result.thumbmark || "",
+				requestId: "",
+				provider: "thumbmarkjs",
 			}))
 			.catch((error) => {
-				console.warn("fingerprint identification unavailable:", error && error.message);
-				return { visitorId: "", requestId: "" };
+				console.warn("thumbmarkjs unavailable:", error && error.message);
+				return { visitorId: "", requestId: "", provider: "thumbmarkjs" };
 			});
 	}
 
@@ -332,6 +369,7 @@
 				payment_method: getVal("payment_method") || "cod",
 				device_fingerprint: fp.visitorId,
 				fp_request_id: fp.requestId,
+				fingerprint_provider: fp.provider,
 			});
 			window.location.href = result.payment_url || result.confirmation_url;
 		} catch (error) {
