@@ -361,12 +361,12 @@ def create_address(party: str, customer: dict, address: dict):
 		if old_hash != hkey:
 			# landmark changed -> new hash; reset the stale verification summary
 			updates.update({
-				"custom_verification_status": None,
-				"custom_address_risk_score": None,
-				"custom_ors_confidence": None,
-				"custom_latitude": None,
-				"custom_longitude": None,
-				"custom_gms_result_count": None,
+				"custom_verification_status": "",
+				"custom_address_risk_score": 0,
+				"custom_ors_confidence": 0,
+				"custom_latitude": 0,
+				"custom_longitude": 0,
+				"custom_gms_result_count": 0,
 				"custom_last_verified_on": None,
 			})
 		if address.get("landmark"):
