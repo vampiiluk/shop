@@ -64,6 +64,9 @@
 				<Button v-if="canMarkShipped" variant="solid" @click="showShipDialog = true">
 					Mark shipped
 				</Button>
+				<Button v-if="canMarkDelivered" variant="solid" :loading="busy === 'deliver'" @click="markDelivered">
+					Mark delivered
+				</Button>
 				<Button v-if="canResend" variant="solid" :loading="busy === 'send'" @click="send">
 					Send to fulfillment
 				</Button>
@@ -236,6 +239,10 @@ const canMarkShipped = computed(
 		['Pending', 'Accepted'].includes(shipment.value.status),
 )
 
+const canMarkDelivered = computed(
+	() => !!shipment.value && shipment.value.status === 'Shipped',
+)
+
 const canResend = computed(
 	() =>
 		!!shipment.value && !cancelled.value && ['Cancelled', 'Failed'].includes(shipment.value.status),
@@ -330,5 +337,15 @@ function confirmCancel() {
 				'Could not cancel this shipment',
 			),
 	})
+}
+
+function markDelivered() {
+	run(
+		'deliver',
+		'shop.api.fulfillment.mark_delivered',
+		{ fulfillment: shipment.value?.name },
+		'Marked as delivered',
+		'Could not mark as delivered',
+	)
 }
 </script>

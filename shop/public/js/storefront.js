@@ -340,23 +340,6 @@
 		}
 	}
 
-	async function markDelivered(btn) {
-		const fulfillmentName = btn.getAttribute("data-fulfillment-name");
-		if (!fulfillmentName) return;
-		btn.disabled = true;
-		btn.textContent = "Marking…";
-		try {
-			const data = await call("shop.api.fulfillment.mark_delivered", { fulfillment: fulfillmentName });
-			btn.textContent = "Delivered ✓";
-			btn.style.backgroundColor = "#22c55e";
-			setTimeout(() => location.reload(), 1200);
-		} catch (err) {
-			btn.textContent = err.message || "Error — retry";
-			btn.disabled = false;
-			btn.style.backgroundColor = "#ef4444";
-		}
-	}
-
 	document.addEventListener("click", (event) => {
 		const stepper = event.target.closest("[data-drawer-step]");
 		if (stepper) {
@@ -379,7 +362,6 @@
 		else if (action === "qty-inc") setQty(target.dataset.itemCode, rowQty(target.dataset.itemCode) + 1);
 		else if (action === "qty-dec") setQty(target.dataset.itemCode, rowQty(target.dataset.itemCode) - 1);
 		else if (action === "remove") setQty(target.dataset.itemCode, 0);
-		else if (action === "mark-delivered") markDelivered(target);
 	});
 
 	document.addEventListener("keydown", (event) => {
