@@ -74,6 +74,7 @@ EDITABLE = (
 	"fingerprint_public_key",
 	"fingerprint_secret_key",
 	"fingerprint_region",
+	"fingerprint_provider",
 	"maps_provider",
 	"gms_enabled",
 	"ors_enabled",

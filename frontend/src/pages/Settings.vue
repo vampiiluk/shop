@@ -341,37 +341,58 @@
 				</template>
 			</CatalogSection>
 
-			<CatalogSection title="Fingerprint Identification" description="Server-verified device fingerprinting on every checkout via Fingerprint v4.">
-				<p class="text-p-sm text-ink-gray-5">
-					When a public key is configured, the v4 agent loads at checkout and sends an
-					event ID that the server verifies for bot, tamper and proxy signals.
-					<a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
-				</p>
-				<div class="grid max-w-lg grid-cols-2 gap-4">
+			<CatalogSection title="Device Fingerprinting" description="Client-side device fingerprinting on every checkout for fraud detection.">
+				<div class="max-w-lg space-y-4">
 					<FormControl
-						v-model="fingerprint.fingerprint_public_key"
-						label="Public key"
-						placeholder="e.g. 73Ia25Y0GgzY0HwWAWfD"
-					/>
-					<FormControl
-						v-model="fingerprint.fingerprint_region"
+						v-model="fingerprint.fingerprint_provider"
 						type="select"
-						label="Region"
+						label="Fingerprint provider"
 						:options="[
-							{ label: 'Asia (Mumbai) — ap', value: 'ap' },
-							{ label: 'Global (US) — us', value: 'us' },
-							{ label: 'EU (Frankfurt) — eu', value: 'eu' },
+							{ label: 'ThumbmarkJS (free, no API key)', value: 'thumbmarkjs' },
+							{ label: 'FingerprintJS OSS (free, no API key)', value: 'fingerprintjs-oss' },
+							{ label: 'FingerprintJS Pro (paid, requires API key)', value: 'fingerprintjs-pro' },
 						]"
 					/>
-					<Password
-						v-model="fingerprint.fingerprint_secret_key"
-
-						label="Secret key"
-						placeholder="Enter to change"
-					/>
-					<p v-if="data.fingerprint_secret_key_set && !fingerprint.fingerprint_secret_key" class="text-xs text-green-600">
-						✓ Key stored — leave blank to keep it, type to replace
+					<p class="text-p-sm text-ink-gray-5">
+						<span v-if="fingerprint.fingerprint_provider === 'thumbmarkjs'">
+							ThumbmarkJS generates a stable device hash entirely in the browser. No API key needed.
+						</span>
+						<span v-else-if="fingerprint.fingerprint_provider === 'fingerprintjs-oss'">
+							FingerprintJS Open Source generates a visitor ID in the browser. No API key needed.
+						</span>
+						<span v-else>
+							FingerprintJS Pro provides server-verified bot, tamper and proxy signals.
+							<a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
+						</span>
 					</p>
+					<template v-if="fingerprint.fingerprint_provider === 'fingerprintjs-pro'">
+						<div class="grid max-w-lg grid-cols-2 gap-4">
+							<FormControl
+								v-model="fingerprint.fingerprint_public_key"
+								label="Public key"
+								placeholder="e.g. 73Ia25Y0GgzY0HwWAWfD"
+							/>
+							<FormControl
+								v-model="fingerprint.fingerprint_region"
+								type="select"
+								label="Region"
+								:options="[
+									{ label: 'Asia (Mumbai) — ap', value: 'ap' },
+									{ label: 'Global (US) — us', value: 'us' },
+									{ label: 'EU (Frankfurt) — eu', value: 'eu' },
+								]"
+							/>
+							<Password
+								v-model="fingerprint.fingerprint_secret_key"
+
+								label="Secret key"
+								placeholder="Enter to change"
+							/>
+							<p v-if="data.fingerprint_secret_key_set && !fingerprint.fingerprint_secret_key" class="text-xs text-green-600">
+								✓ Key stored — leave blank to keep it, type to replace
+							</p>
+						</div>
+					</template>
 				</div>
 				<template #footer>
 					<Button
@@ -449,6 +470,7 @@ const address_cfg = reactive({
 })
 const provinces = ref<Array<{ name?: string; province_name: string; cities: string }>>([])
 const fingerprint = reactive({
+	fingerprint_provider: 'thumbmarkjs',
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
 	fingerprint_region: 'ap',
@@ -528,6 +550,7 @@ function hydrate(doc: Record<string, any>) {
 		cities: p.cities || '',
 	}))
 	Object.assign(fingerprint, {
+		fingerprint_provider: doc.fingerprint_provider || 'thumbmarkjs',
 		fingerprint_public_key: doc.fingerprint_public_key || '',
 		fingerprint_secret_key: doc.fingerprint_secret_key || '',
 		fingerprint_region: doc.fingerprint_region || 'ap',
