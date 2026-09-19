@@ -17,13 +17,13 @@
 			"https://metrics.sananahmad.dpdns.org/web/v4/" + encodeURIComponent(store.fp_public_key)
 		)
 			.then((Fingerprint) => Fingerprint.start({
-                region: store.fp_region || "ap",
-                endpoints: ["https://metrics.sananahmad.dpdns.org"]
-            }))
+				region: store.fp_region || "ap",
+				endpoint: "https://metrics.sananahmad.dpdns.org",
+			}))
 			.then((agent) => agent.get())
 			.then((result) => ({
-				visitorId: result.visitor_id || "",
-				requestId: result.event_id || "",
+				visitorId: result.visitorId || result.visitor_id || "",
+				requestId: result.requestId || result.event_id || "",
 			}))
 			.catch((error) => {
 				console.warn("fingerprint identification unavailable:", error && error.message);
