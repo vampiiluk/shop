@@ -149,10 +149,24 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 # generous enough for shoppers sharing an office or campus network
 @rate_limit(limit=30, seconds=60)
+def _get_client_ip() -> str:
+	"""Extract the real client IP from the current request."""
+	try:
+		ip = frappe.request.headers.get("CF-Connecting-IP") or frappe.request.headers.get("X-Forwarded-For") or ""
+		if not ip and frappe.request:
+			ip = getattr(frappe.request, "remote_addr", "") or ""
+		# CF-Connecting-IP is the first IP; X-Forwarded-For may have commas
+		ip = (ip.split(",")[0]).strip() if ip else ""
+		return ip
+	except Exception:
+		return ""
+
+
 def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "") -> dict:
 	cart = cart_module.resolve_cart()
 	validate_order(cart, customer, address, payment_method)
 	settings = frappe.get_cached_doc("Shop Settings")
+	client_ip = _get_client_ip()
 	from shop.integrations import fraud as fraud_module
 
 	fraud = None
@@ -167,6 +181,9 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
 		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer, fingerprint_provider)
+		# Store client IP for fraud intel
+		if client_ip:
+			frappe.db.set_value("Sales Order", sales_order.name, "custom_client_ip", client_ip)
 		# stamp initial fast_risk verdict immediately
 		if fraud:
 			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)
@@ -189,6 +206,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 				payment_method=payment_method,
 				device_fingerprint=device_fingerprint or "",
 				fp_request_id=fp_request_id or "",
+				ip_address=client_ip,
 			)
 		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
 			if settings and not settings.payment_gateway_account and payment_method == "cod":

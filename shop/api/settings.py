@@ -14,6 +14,7 @@ CHECK_FIELDS = frozenset((
 	"landmark_required",
 	"gms_enabled",
 	"ors_enabled",
+	"ip_intel_enabled",
 ))
 
 INT_FIELDS = frozenset((
@@ -38,6 +39,7 @@ CURRENCY_FIELDS = frozenset((
 PASSWORD_FIELDS = frozenset((
 	"fingerprint_secret_key",
 	"ors_api_key",
+	"abuseipdb_api_key",
 ))
 
 EDITABLE = (
@@ -81,6 +83,8 @@ EDITABLE = (
 	"gms_depth",
 	"gms_concurrency",
 	"geocode_cache_ttl",
+	"ip_intel_enabled",
+	"abuseipdb_api_key",
 	"queue_schedule",
 )
 
@@ -108,6 +112,9 @@ def get_settings() -> dict:
 			"ors_api_key_set": bool(settings.get_password("ors_api_key", raise_exception=False)),
 			"fingerprint_secret_key_set": bool(
 				settings.get_password("fingerprint_secret_key", raise_exception=False)
+			),
+			"abuseipdb_api_key_set": bool(
+				settings.get_password("abuseipdb_api_key", raise_exception=False)
 			),
 			"gateway_accounts": frappe.get_all(
 				"Payment Gateway Account", fields=["name", "payment_gateway", "currency"]

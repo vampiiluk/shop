@@ -704,6 +704,7 @@ def background_fraud_task(
 	payment_method: str,
 	device_fingerprint: str,
 	fp_request_id: str,
+	ip_address: str = "",
 ):
 	"""Background job: register the order's delivery address for verification
 	(status Queued - processed later by the bulk queue), then run a provisional
@@ -752,8 +753,11 @@ def background_fraud_task(
 
 	# --- Step 6: Provisional fraud evaluation (no verification signals yet) ---
 	try:
+		# Look up IP if not passed (for older orders)
+		if not ip_address:
+			ip_address = frappe.db.get_value("Sales Order", order_name, "custom_client_ip") or ""
 		result = evaluate_risk(customer, address, payment_method, device_fingerprint, fp_request_id,
-			exclude_order=order_name)
+			exclude_order=order_name, ip_address=ip_address)
 		stamp_order(order_name, device_fingerprint, fp_request_id, result)
 		log_fraud_event(order_name, customer, address, payment_method, device_fingerprint, result)
 		frappe.db.commit()
@@ -804,8 +808,9 @@ def reevaluate_order_for_verification(ver_name: str) -> None:
 			fingerprint = so.custom_device_fingerprint or ""
 			fp_request_id = so.custom_fp_request_id or ""
 			payment_method = so.custom_payment_method or "cod"
+			ip_address = frappe.db.get_value("Sales Order", order_name, "custom_client_ip") or ""
 			result = evaluate_risk(customer, address, payment_method,
-				fingerprint, fp_request_id, exclude_order=order_name)
+				fingerprint, fp_request_id, exclude_order=order_name, ip_address=ip_address)
 			stamp_order(order_name, fingerprint, fp_request_id, result)
 			log_fraud_event(order_name, customer, address, payment_method,
 				fingerprint, result)
@@ -827,6 +832,7 @@ def evaluate_risk(
 	fp_request_id: str = "",
 	as_of=None,
 	exclude_order: str = "",
+	ip_address: str = "",
 ) -> FraudResult:
 	from shop.integrations.signal_weights import get_weights as _get_weights
 
@@ -943,6 +949,40 @@ def evaluate_risk(
 	elif payment_method == "cod" and not device_fingerprint:
 		score += w["missing_fingerprint"]
 		signals["missing_fingerprint"] = True
+
+	# ---- IP Intelligence (ip-api.com + AbuseIPDB + Tor) ----
+	if ip_address and cint(settings_doc.get("ip_intel_enabled", 1)):
+		try:
+			from shop.integrations.ip_intel import check_ip as _check_ip
+			ip_intel = _check_ip(ip_address)
+			if ip_intel:
+				signals["ip_intel"] = {
+					"ip": ip_address,
+					"proxy": ip_intel.get("proxy", False),
+					"hosting": ip_intel.get("hosting", False),
+					"isp": ip_intel.get("isp", ""),
+					"country_code": ip_intel.get("country_code", ""),
+					"abuse_score": ip_intel.get("abuse_score", 0),
+					"total_reports": ip_intel.get("total_reports", 0),
+					"is_tor": ip_intel.get("is_tor", False),
+					"is_whitelisted": ip_intel.get("is_whitelisted", False),
+					"usage_type": ip_intel.get("usage_type", ""),
+				}
+				if ip_intel.get("proxy"):
+					score += w["ip_proxy_detected"]
+				if ip_intel.get("hosting"):
+					score += w["ip_hosting_detected"]
+				abuse = ip_intel.get("abuse_score", 0)
+				if abuse >= 50:
+					score += w["ip_abuse_high"]
+				elif abuse >= 20:
+					score += w["ip_abuse_medium"]
+				if ip_intel.get("is_tor"):
+					score += w["ip_tor_exit"]
+				if ip_intel.get("total_reports", 0) > 100:
+					score += w["ip_blacklisted"]
+		except Exception:
+			pass  # IP intel is best-effort, don't break the fraud flow
 
 	# ---- 1. repeat fraud history ----
 	stats = order_stats(phone, email)

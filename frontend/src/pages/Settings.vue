@@ -350,6 +350,7 @@
 						:options="[
 							{ label: 'ThumbmarkJS (free, no API key)', value: 'thumbmarkjs' },
 							{ label: 'FingerprintJS OSS (free, no API key)', value: 'fingerprintjs-oss' },
+							{ label: 'CreepJS (free, self-hosted, most signals)', value: 'creepjs' },
 							{ label: 'FingerprintJS Pro (paid, requires API key)', value: 'fingerprintjs-pro' },
 						]"
 					/>
@@ -359,6 +360,9 @@
 						</span>
 						<span v-else-if="fingerprint.fingerprint_provider === 'fingerprintjs-oss'">
 							FingerprintJS Open Source generates a visitor ID in the browser. No API key needed.
+						</span>
+						<span v-else-if="fingerprint.fingerprint_provider === 'creepjs'">
+							CreepJS uses 50+ browser signals for the most comprehensive free fingerprint. No API key needed.
 						</span>
 						<span v-else>
 							FingerprintJS Pro provides server-verified bot, tamper and proxy signals.
@@ -399,6 +403,35 @@
 						variant="solid"
 						:loading="saving === 'fingerprint'"
 						@click="saveSection('fingerprint', fingerprint)"
+					>
+						Save
+					</Button>
+				</template>
+			</CatalogSection>
+
+			<CatalogSection title="IP Intelligence" description="Server-side IP checks for proxy, hosting, abuse, and Tor detection.">
+				<div class="max-w-lg space-y-4">
+					<Switch
+						v-model="ip_intel.ip_intel_enabled"
+						label="Enable IP Intelligence"
+						description="Check orders against ip-api.com (free), AbuseIPDB (free tier), and Tor exit node list."
+					/>
+					<template v-if="ip_intel.ip_intel_enabled">
+						<Password
+							v-model="ip_intel.abuseipdb_api_key"
+							label="AbuseIPDB API Key"
+							placeholder="Optional — for abuse scoring"
+						/>
+						<p class="text-xs text-ink-gray-5">
+							Free API key from <a href="https://www.abuseipdb.com/account/api" target="_blank" class="text-brand-blue hover:underline">abuseipdb.com</a>. 1000 checks/day on free tier. Leave blank to skip AbuseIPDB checks.
+						</p>
+					</template>
+				</div>
+				<template #footer>
+					<Button
+						variant="solid"
+						:loading="saving === 'ip_intel'"
+						@click="saveSection('ip_intel', ip_intel)"
 					>
 						Save
 					</Button>
@@ -474,6 +507,10 @@ const fingerprint = reactive({
 	fingerprint_public_key: '',
 	fingerprint_secret_key: '',
 	fingerprint_region: 'ap',
+})
+const ip_intel = reactive({
+	ip_intel_enabled: true,
+	abuseipdb_api_key: '',
 })
 const downloadingGms = ref(false)
 
@@ -554,6 +591,10 @@ function hydrate(doc: Record<string, any>) {
 		fingerprint_public_key: doc.fingerprint_public_key || '',
 		fingerprint_secret_key: doc.fingerprint_secret_key || '',
 		fingerprint_region: doc.fingerprint_region || 'ap',
+	})
+	Object.assign(ip_intel, {
+		ip_intel_enabled: !!doc.ip_intel_enabled,
+		abuseipdb_api_key: doc.abuseipdb_api_key || '',
 	})
 }
 

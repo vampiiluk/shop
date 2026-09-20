@@ -63,6 +63,13 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	# --- city RTO rate ---
 	"city_rto_high": 30,         # >= fraud_rto_high_pct
 	"city_rto_medium": 15,       # >= fraud_rto_medium_pct
+	# --- IP intelligence (ip-api.com + AbuseIPDB + Tor) ---
+	"ip_proxy_detected": 15,        # ip-api.com proxy=true
+	"ip_hosting_detected": 10,      # ip-api.com hosting=true (datacenter/cloud)
+	"ip_abuse_high": 25,            # AbuseIPDB abuse_score >= 50
+	"ip_abuse_medium": 10,          # AbuseIPDB abuse_score >= 20
+	"ip_tor_exit": 30,              # Tor exit node detected
+	"ip_blacklisted": 40,           # AbuseIPDB total_reports > 100
 }
 
 
@@ -131,6 +138,14 @@ WEIGHT_SCHEMA = [
 		("city_rto_high", "City RTO high threshold"),
 		("city_rto_medium", "City RTO medium threshold"),
 		("risky_hour", "Risky-hour order"),
+	]),
+	("IP intelligence", [
+		("ip_proxy_detected", "Proxy/VPN detected (ip-api.com)"),
+		("ip_hosting_detected", "Hosting/datacenter IP (ip-api.com)"),
+		("ip_abuse_high", "High abuse score (AbuseIPDB >= 50)"),
+		("ip_abuse_medium", "Medium abuse score (AbuseIPDB >= 20)"),
+		("ip_tor_exit", "Tor exit node detected"),
+		("ip_blacklisted", "IP blacklisted (AbuseIPDB 100+ reports)"),
 	]),
 ]
 

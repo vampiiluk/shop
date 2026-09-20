@@ -193,6 +193,9 @@
 								<span v-else-if="profile.data.fingerprint_provider === 'fingerprintjs-oss'">
 									FingerprintJS OSS runs fully client-side — raw event data is not captured server-side. The hash above uniquely identifies this browser.
 								</span>
+								<span v-else-if="profile.data.fingerprint_provider === 'creepjs'">
+									CreepJS runs fully client-side with 50+ browser signals — raw event data is not captured server-side. The hash above uniquely identifies this browser.
+								</span>
 								<span v-else>
 									No stored event data for {{ fpProviderLabel }}.
 								</span>
@@ -245,6 +248,48 @@
 							<li class="flex justify-between">
 								<span class="text-ink-gray-6">City RTO now ({{ live.data.city || '—' }})</span>
 								<span class="font-semibold text-ink-gray-8">{{ live.data.city_rto_rate.toFixed(1) }}%</span>
+							</li>
+						</ul>
+					</section>
+
+					<!-- IP Intelligence -->
+					<section v-if="parsedSignals?.ip_intel" class="rounded-lg border border-outline-gray-1 p-4">
+						<h2 class="text-base font-medium text-ink-gray-8">IP Intelligence</h2>
+						<p class="mt-0.5 text-xs text-ink-gray-5">ip-api.com + AbuseIPDB + Tor exit node list</p>
+						<ul class="mt-3 space-y-2 text-sm">
+							<li v-if="parsedSignals.ip_intel.ip" class="flex justify-between">
+								<span class="text-ink-gray-6">IP Address</span>
+								<span class="font-mono text-xs text-ink-gray-8">{{ parsedSignals.ip_intel.ip }}</span>
+							</li>
+							<li v-if="parsedSignals.ip_intel.isp" class="flex justify-between">
+								<span class="text-ink-gray-6">ISP</span>
+								<span class="text-xs text-ink-gray-8">{{ parsedSignals.ip_intel.isp }}</span>
+							</li>
+							<li class="flex justify-between">
+								<span class="text-ink-gray-6">Proxy/VPN</span>
+								<UiStatusBadge :label="parsedSignals.ip_intel.proxy ? 'Yes' : 'No'" :theme="parsedSignals.ip_intel.proxy ? 'red' : 'green'" />
+							</li>
+							<li class="flex justify-between">
+								<span class="text-ink-gray-6">Datacenter/Hosting</span>
+								<UiStatusBadge :label="parsedSignals.ip_intel.hosting ? 'Yes' : 'No'" :theme="parsedSignals.ip_intel.hosting ? 'red' : 'green'" />
+							</li>
+							<li class="flex justify-between">
+								<span class="text-ink-gray-6">Tor Exit Node</span>
+								<UiStatusBadge :label="parsedSignals.ip_intel.is_tor ? 'Yes' : 'No'" :theme="parsedSignals.ip_intel.is_tor ? 'red' : 'green'" />
+							</li>
+							<li class="flex justify-between">
+								<span class="text-ink-gray-6">Abuse Score</span>
+								<span class="font-semibold" :class="parsedSignals.ip_intel.abuse_score >= 50 ? 'text-red-600' : parsedSignals.ip_intel.abuse_score >= 20 ? 'text-yellow-600' : 'text-green-600'">
+									{{ parsedSignals.ip_intel.abuse_score }}/100
+								</span>
+							</li>
+							<li class="flex justify-between">
+								<span class="text-ink-gray-6">Total Reports</span>
+								<span class="font-semibold text-ink-gray-8">{{ parsedSignals.ip_intel.total_reports }}</span>
+							</li>
+							<li v-if="parsedSignals.ip_intel.usage_type" class="flex justify-between">
+								<span class="text-ink-gray-6">Usage Type</span>
+								<span class="text-xs text-ink-gray-8">{{ parsedSignals.ip_intel.usage_type }}</span>
 							</li>
 						</ul>
 					</section>
@@ -390,6 +435,7 @@ const fpProviderLabel = computed(() => {
 		thumbmarkjs: 'ThumbmarkJS',
 		'fingerprintjs-oss': 'FingerprintJS (OSS)',
 		'fingerprintjs-pro': 'FingerprintJS Pro',
+		'creepjs': 'CreepJS',
 	}
 	return providers[profile.data?.fingerprint_provider] || profile.data?.fingerprint_provider || 'Legacy (pre-provider)'
 })
@@ -470,6 +516,17 @@ const scoreBreakdown = computed<ScoreRow[]>(() => {
 	// History
 	if (signals.history_cancelled) {
 		add('High cancel ratio', '', 10)
+	}
+
+	// IP Intelligence (ip-api.com + AbuseIPDB + Tor)
+	if (signals.ip_intel) {
+		const ip = signals.ip_intel
+		if (ip.proxy) add('Proxy detected (ip-api)', '', 15)
+		if (ip.hosting) add('Datacenter/hosting IP', '', 10)
+		if (ip.is_tor) add('Tor exit node', '', 30)
+		if (ip.abuse_score >= 50) add('High abuse score (AbuseIPDB)', '', 25)
+		else if (ip.abuse_score >= 20) add('Medium abuse score', '', 10)
+		if (ip.total_reports > 100) add('IP blacklisted (AbuseIPDB)', '', 40)
 	}
 
 	return rows

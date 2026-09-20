@@ -237,6 +237,7 @@ const keyRows = computed<Row[]>(() => {
 			thumbmarkjs: 'ThumbmarkJS',
 			'fingerprintjs-oss': 'FingerprintJS OSS',
 			'fingerprintjs-pro': 'FingerprintJS Pro',
+			'creepjs': 'CreepJS',
 		}
 		rows.push({ label: 'Fingerprint', value: labels[signals.fingerprint_provider] || signals.fingerprint_provider })
 	}
@@ -267,6 +268,17 @@ const keyRows = computed<Row[]>(() => {
 		rows.push({ label: 'Risky hour', badge: !!signals.risky_hour })
 	}
 
-	return rows.slice(0, 8)
+	// IP Intelligence signals
+	if (signals.ip_intel) {
+		const ip = signals.ip_intel
+		if (ip.proxy) rows.push({ label: 'Proxy/VPN', badge: true })
+		if (ip.hosting) rows.push({ label: 'Datacenter IP', badge: true })
+		if (ip.is_tor) rows.push({ label: 'Tor exit node', badge: true })
+		if (ip.abuse_score >= 50) rows.push({ label: 'High abuse score', value: `${ip.abuse_score}/100` })
+		else if (ip.abuse_score >= 20) rows.push({ label: 'Abuse score', value: `${ip.abuse_score}/100` })
+		if (ip.total_reports > 100) rows.push({ label: 'IP blacklisted', value: `${ip.total_reports} reports` })
+	}
+
+	return rows.slice(0, 10)
 })
 </script>
