@@ -146,9 +146,6 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 	}
 
 
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-# generous enough for shoppers sharing an office or campus network
-@rate_limit(limit=30, seconds=60)
 def _get_client_ip() -> str:
 	"""Extract the real client IP from the current request."""
 	try:
@@ -162,6 +159,8 @@ def _get_client_ip() -> str:
 		return ""
 
 
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=30, seconds=60)
 def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "", fp_signals: str = "") -> dict:
 	cart = cart_module.resolve_cart()
 	validate_order(cart, customer, address, payment_method)
