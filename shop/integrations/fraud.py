@@ -1072,14 +1072,21 @@ def stamp_order(order: str, fingerprint: str, fp_request_id: str, result: FraudR
 	values = {
 		"custom_device_fingerprint": fingerprint or None,
 		"custom_fp_request_id": fp_request_id or None,
-		"custom_fingerprint_provider": fingerprint_provider or None,
 		"custom_fraud_score": result.score,
 		"custom_fraud_verdict": result.verdict,
 	}
+	# Only set fingerprint_provider if explicitly provided (preserve existing value from checkout)
+	if fingerprint_provider:
+		values["custom_fingerprint_provider"] = fingerprint_provider
 	# Include provider in signals JSON for the signal matrix
 	signals = dict(result.signals) if result.signals else {}
 	if fingerprint_provider:
 		signals["fingerprint_provider"] = fingerprint_provider
+	else:
+		# Read existing provider from order for the signals JSON
+		existing = frappe.db.get_value("Sales Order", order, "custom_fingerprint_provider")
+		if existing:
+			signals["fingerprint_provider"] = existing
 	values["custom_fraud_signals"] = json.dumps(signals)
 	if getattr(result, "raw_event", None):
 		values["custom_fp_event"] = json.dumps(result.raw_event)
