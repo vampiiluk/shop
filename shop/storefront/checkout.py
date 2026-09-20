@@ -162,7 +162,7 @@ def _get_client_ip() -> str:
 		return ""
 
 
-def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "") -> dict:
+def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "", fp_signals: str = "") -> dict:
 	cart = cart_module.resolve_cart()
 	validate_order(cart, customer, address, payment_method)
 	settings = frappe.get_cached_doc("Shop Settings")
@@ -184,6 +184,9 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		# Store client IP for fraud intel
 		if client_ip:
 			frappe.db.set_value("Sales Order", sales_order.name, "custom_client_ip", client_ip)
+		# Store raw browser signals from fingerprint provider
+		if fp_signals:
+			frappe.db.set_value("Sales Order", sales_order.name, "custom_fp_event", fp_signals)
 		# stamp initial fast_risk verdict immediately
 		if fraud:
 			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)

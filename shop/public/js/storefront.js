@@ -45,6 +45,8 @@
 					visitorId: result.visitorId || "",
 					requestId: "",
 					provider: "fingerprintjs-oss",
+					// Capture raw browser signals from components
+					signals: result.components || {},
 				}))
 				.catch((error) => {
 					console.warn("fingerprintjs-oss unavailable:", error && error.message);
@@ -63,6 +65,8 @@
 					visitorId: result.hash || result.fingerprint || "",
 					requestId: "",
 					provider: "creepjs",
+					// Capture raw browser signals for fraud analysis
+					signals: result || {},
 				}))
 				.catch((error) => {
 					console.warn("creepjs unavailable:", error && error.message);
@@ -389,6 +393,7 @@
 				device_fingerprint: fp.visitorId,
 				fp_request_id: fp.requestId,
 				fingerprint_provider: fp.provider,
+				fp_signals: fp.signals ? JSON.stringify(fp.signals) : "",
 			});
 			window.location.href = result.payment_url || result.confirmation_url;
 		} catch (error) {
