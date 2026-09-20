@@ -381,7 +381,7 @@ const fpProviderLabel = computed(() => {
 		'fingerprintjs-oss': 'FingerprintJS (OSS)',
 		'fingerprintjs-pro': 'FingerprintJS Pro',
 	}
-	return providers[profile.data?.fingerprint_provider] || profile.data?.fingerprint_provider || 'Unknown'
+	return providers[profile.data?.fingerprint_provider] || profile.data?.fingerprint_provider || 'Legacy (pre-provider)'
 })
 
 interface MapsResult {
