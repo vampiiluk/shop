@@ -362,7 +362,7 @@
 							FingerprintJS Open Source generates a visitor ID in the browser. No API key needed.
 						</span>
 						<span v-else-if="fingerprint.fingerprint_provider === 'creepjs'">
-							CreepJS uses 50+ browser signals for the most comprehensive free fingerprint. No API key needed.
+							CreepJS captures 20+ browser signals (canvas, WebGL, audio, fonts, screen) and generates a stable hash. No API key needed.
 						</span>
 						<span v-else>
 							FingerprintJS Pro provides server-verified bot, tamper and proxy signals.

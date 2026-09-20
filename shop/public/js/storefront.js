@@ -55,23 +55,34 @@
 		}
 
 		if (provider === "creepjs") {
-			return import("https://cdn.jsdelivr.net/npm/creepjs@0.12.1/dist/creepjs.min.js")
-				.then(() => {
-					const creep = window.$creep;
-					if (!creep) throw new Error("CreepJS not loaded");
-					return creep.getFingerprint ? creep.getFingerprint() : creep;
-				})
-				.then((result) => ({
-					visitorId: result.hash || result.fingerprint || "",
-					requestId: "",
-					provider: "creepjs",
-					// Capture raw browser signals for fraud analysis
-					signals: result || {},
-				}))
-				.catch((error) => {
-					console.warn("creepjs unavailable:", error && error.message);
-					return { visitorId: "", requestId: "", provider: "creepjs" };
-				});
+			// CreepJS self-hosted: run in hidden iframe, receive hash via postMessage
+			return new Promise((resolve) => {
+				const timeout = setTimeout(() => {
+					try { document.body.removeChild(iframe); } catch(e) {}
+					resolve({ visitorId: "", requestId: "", provider: "creepjs" });
+				}, 15000);
+
+				const iframe = document.createElement("iframe");
+				iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
+				iframe.src = "/assets/shop/fingerprint/index.html";
+
+				const handler = (event) => {
+					if (event.data && event.data.type === "creepjs-fingerprint") {
+						clearTimeout(timeout);
+						window.removeEventListener("message", handler);
+						try { document.body.removeChild(iframe); } catch(e) {}
+						const d = event.data.data || {};
+						resolve({
+							visitorId: d.hash || "",
+							requestId: "",
+							provider: "creepjs",
+							signals: d.sections || d,
+						});
+					}
+				};
+				window.addEventListener("message", handler);
+				document.body.appendChild(iframe);
+			});
 		}
 
 		// Default: thumbmarkjs

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>CreepJS Fingerprint</title>
+	<script src="creep.js" defer></script>
+	<style>
+		body { margin: 0; padding: 10px; font-family: monospace; font-size: 11px; background: #fafafa; }
+		#status { padding: 8px; color: #666; }
+		.done { color: green; }
+		.error { color: red; }
+	</style>
+</head>
+<body>
+	<div id="status">Computing fingerprint...</div>
+	<div id="fp-app">
+		<fingerprint>
+			<div id="fingerprint-data"></div>
+		</fingerprint>
+	</div>
+	<script>
+		// When CreepJS finishes, extract the hash and send it to the parent
+		function extractAndPost() {
+			try {
+				// CreepJS puts the FP ID in the header
+				const headerEl = document.querySelector('.fingerprint-header .ellipsis-all');
+				if (!headerEl) return false;
+				
+				const text = headerEl.textContent || '';
+				// Format: "FP ID: abc123..."
+				const match = text.match(/FP ID:\s*(.+)/);
+				if (!match || !match[1].trim()) return false;
+				
+				const hash = match[1].trim();
+				if (!hash || hash === 'Computing...') return false;
+				
+				// Extract fuzzy hash
+				const fuzzyEl = document.querySelector('.fuzzy-fp');
+				const fuzzyText = fuzzyEl ? fuzzyEl.textContent : '';
+				const fuzzyMatch = fuzzyText.match(/Fuzzy:\s*(.+)/);
+				const fuzzyHash = fuzzyMatch ? fuzzyMatch[1].trim() : '';
+				
+				// Extract all collector data from the DOM
+				const sections = {};
+				document.querySelectorAll('.fingerprint-section, .col-six, .col-four').forEach(section => {
+					const heading = section.querySelector('strong, h3, h4');
+					if (heading) {
+						const key = heading.textContent.trim();
+						sections[key] = section.textContent.trim().substring(0, 500);
+					}
+				});
+				
+				// Extract the trust score if present
+				const trustEl = document.querySelector('.trust-score, [class*="trust"]');
+				const trustScore = trustEl ? trustEl.textContent.trim() : '';
+				
+				// Post the result to parent window
+				const result = {
+					hash: hash,
+					fuzzyHash: fuzzyHash,
+					trustScore: trustScore,
+					sections: sections,
+					timestamp: Date.now(),
+				};
+				
+				window.parent.postMessage({
+					type: 'creepjs-fingerprint',
+					data: result
+				}, '*');
+				
+				const status = document.getElementById('status');
+				status.textContent = 'Fingerprint captured: ' + hash.substring(0, 20) + '...';
+				status.className = 'done';
+				
+				return true;
+			} catch (e) {
+				return false;
+			}
+		}
+		
+		// Poll for completion - CreepJS takes 2-5 seconds
+		let attempts = 0;
+		const maxAttempts = 30; // 30 * 500ms = 15 seconds max
+		
+		const pollInterval = setInterval(function() {
+			attempts++;
+			if (extractAndPost()) {
+				clearInterval(pollInterval);
+			} else if (attempts >= maxAttempts) {
+				clearInterval(pollInterval);
+				const status = document.getElementById('status');
+				status.textContent = 'Fingerprint computation timed out';
+				status.className = 'error';
+				window.parent.postMessage({
+					type: 'creepjs-fingerprint',
+					data: { hash: '', error: 'timeout' }
+				}, '*');
+			}
+		}, 500);
+	</script>
+</body>
+</html>
