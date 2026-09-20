@@ -193,6 +193,9 @@
 								<span v-else-if="profile.data.fingerprint_provider === 'fingerprintjs-oss'">
 									FingerprintJS OSS runs fully client-side — raw event data is not captured server-side. The hash above uniquely identifies this browser.
 								</span>
+								<span v-else-if="profile.data.fingerprint_provider === 'creepjs'">
+									CreepJS runs fully client-side with 50+ browser signals — raw event data is not captured server-side. The hash above uniquely identifies this browser.
+								</span>
 								<span v-else>
 									No stored event data for {{ fpProviderLabel }}.
 								</span>
@@ -432,6 +435,7 @@ const fpProviderLabel = computed(() => {
 		thumbmarkjs: 'ThumbmarkJS',
 		'fingerprintjs-oss': 'FingerprintJS (OSS)',
 		'fingerprintjs-pro': 'FingerprintJS Pro',
+		'creepjs': 'CreepJS',
 	}
 	return providers[profile.data?.fingerprint_provider] || profile.data?.fingerprint_provider || 'Legacy (pre-provider)'
 })

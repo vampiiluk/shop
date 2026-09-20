@@ -5,10 +5,11 @@
 		cart: (window.page_data && window.page_data.cart) || null,
 	};
 
-	// Device fingerprint — supports three providers:
+	// Device fingerprint — supports four providers:
 	//   thumbmarkjs      – free, no API key, self-hosted via CDN
 	//   fingerprintjs-oss – free, no API key, self-hosted via CDN
 	//   fingerprintjs-pro – paid API, requires public key
+	//   creepjs           – free, self-hosted via CDN, most signals
 	function loadFingerprint() {
 		const store = (window.page_data && window.page_data.store) || {};
 		const provider = store.fingerprint_provider || "thumbmarkjs";
@@ -48,6 +49,24 @@
 				.catch((error) => {
 					console.warn("fingerprintjs-oss unavailable:", error && error.message);
 					return { visitorId: "", requestId: "", provider: "fingerprintjs-oss" };
+				});
+		}
+
+		if (provider === "creepjs") {
+			return import("https://cdn.jsdelivr.net/npm/creepjs@0.12.1/dist/creepjs.min.js")
+				.then(() => {
+					const creep = window.$creep;
+					if (!creep) throw new Error("CreepJS not loaded");
+					return creep.getFingerprint ? creep.getFingerprint() : creep;
+				})
+				.then((result) => ({
+					visitorId: result.hash || result.fingerprint || "",
+					requestId: "",
+					provider: "creepjs",
+				}))
+				.catch((error) => {
+					console.warn("creepjs unavailable:", error && error.message);
+					return { visitorId: "", requestId: "", provider: "creepjs" };
 				});
 		}
 

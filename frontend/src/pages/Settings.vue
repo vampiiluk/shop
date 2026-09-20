@@ -350,6 +350,7 @@
 						:options="[
 							{ label: 'ThumbmarkJS (free, no API key)', value: 'thumbmarkjs' },
 							{ label: 'FingerprintJS OSS (free, no API key)', value: 'fingerprintjs-oss' },
+							{ label: 'CreepJS (free, self-hosted, most signals)', value: 'creepjs' },
 							{ label: 'FingerprintJS Pro (paid, requires API key)', value: 'fingerprintjs-pro' },
 						]"
 					/>
@@ -359,6 +360,9 @@
 						</span>
 						<span v-else-if="fingerprint.fingerprint_provider === 'fingerprintjs-oss'">
 							FingerprintJS Open Source generates a visitor ID in the browser. No API key needed.
+						</span>
+						<span v-else-if="fingerprint.fingerprint_provider === 'creepjs'">
+							CreepJS uses 50+ browser signals for the most comprehensive free fingerprint. No API key needed.
 						</span>
 						<span v-else>
 							FingerprintJS Pro provides server-verified bot, tamper and proxy signals.

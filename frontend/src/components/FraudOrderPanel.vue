@@ -237,6 +237,7 @@ const keyRows = computed<Row[]>(() => {
 			thumbmarkjs: 'ThumbmarkJS',
 			'fingerprintjs-oss': 'FingerprintJS OSS',
 			'fingerprintjs-pro': 'FingerprintJS Pro',
+			'creepjs': 'CreepJS',
 		}
 		rows.push({ label: 'Fingerprint', value: labels[signals.fingerprint_provider] || signals.fingerprint_provider })
 	}
