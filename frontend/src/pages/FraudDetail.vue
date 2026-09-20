@@ -183,9 +183,19 @@
 								<JsonTree v-else :data="event.data.event" :depth="0" />
 							</div>
 							<p v-else class="mt-3 text-sm text-ink-gray-5">
-								No stored event data for {{ fpProviderLabel }}.
-								<span v-if="profile.data.fingerprint_provider === 'thumbmarkjs'">ThumbmarkJS runs fully client-side — raw event data is not captured server-side.</span>
-								<span v-else-if="profile.data.fingerprint_provider === 'fingerprintjs-oss'">FingerprintJS OSS runs fully client-side — raw event data is not captured server-side.</span>
+								<span v-if="profile.data.fingerprint" class="block mb-2">
+									<span class="font-medium text-ink-gray-7">Hash:</span>
+									<code class="ml-1 rounded bg-surface-gray-2 px-1.5 py-0.5 text-xs">{{ profile.data.fingerprint }}</code>
+								</span>
+								<span v-if="profile.data.fingerprint_provider === 'thumbmarkjs'">
+									ThumbmarkJS runs fully client-side — raw event data is not captured server-side. The hash above uniquely identifies this browser.
+								</span>
+								<span v-else-if="profile.data.fingerprint_provider === 'fingerprintjs-oss'">
+									FingerprintJS OSS runs fully client-side — raw event data is not captured server-side. The hash above uniquely identifies this browser.
+								</span>
+								<span v-else>
+									No stored event data for {{ fpProviderLabel }}.
+								</span>
 							</p>
 						</template>
 					</section>
