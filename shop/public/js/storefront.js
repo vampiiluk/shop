@@ -55,7 +55,24 @@
 		}
 
 		if (provider === "creepjs") {
-			// CreepJS self-hosted: run in hidden iframe, receive hash via postMessage
+			// CreepJS self-hosted: check cache first, then iframe + postMessage
+			const CACHE_KEY = "creepjs_fp";
+			const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+			// Return cached fingerprint if fresh
+			try {
+				const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+				if (cached && cached.hash && (Date.now() - cached.ts) < CACHE_TTL) {
+					return Promise.resolve({
+						visitorId: cached.hash,
+						requestId: "",
+						provider: "creepjs",
+						signals: cached.sections || {},
+					});
+				}
+			} catch(e) {}
+
+			// Compute via iframe
 			return new Promise((resolve) => {
 				const timeout = setTimeout(() => {
 					try { document.body.removeChild(iframe); } catch(e) {}
@@ -72,8 +89,19 @@
 						window.removeEventListener("message", handler);
 						try { document.body.removeChild(iframe); } catch(e) {}
 						const d = event.data.data || {};
+						const hash = d.hash || "";
+						// Cache the result
+						if (hash) {
+							try {
+								localStorage.setItem(CACHE_KEY, JSON.stringify({
+									hash: hash,
+									sections: d.sections || {},
+									ts: Date.now(),
+								}));
+							} catch(e) {}
+						}
 						resolve({
-							visitorId: d.hash || "",
+							visitorId: hash,
 							requestId: "",
 							provider: "creepjs",
 							signals: d.sections || d,
@@ -773,5 +801,11 @@
 			.forEach((radio) => radio.addEventListener("change", syncPaymentUI));
 		const picker = document.querySelector('[data-shop="address-picker"]');
 		if (picker) picker.addEventListener("change", () => applySavedAddress(picker));
+
+		// Preload CreepJS fingerprint on checkout page (runs in background, cached in localStorage)
+		const store = (window.page_data && window.page_data.store) || {};
+		if (store.fingerprint_provider === "creepjs") {
+			loadFingerprint(); // kicks off iframe + caches result
+		}
 	});
 })();
