@@ -1218,3 +1218,18 @@ def record_delivery_outcome(order: str, outcome: str):
 	update_city_stats(city)
 	frappe.db.commit()
 	return {"order": order, "outcome": outcome}
+
+
+def reset_delivery_outcome(order: str):
+	"""Undo a recorded outcome when a delivery gets unmarked, so the order
+	reads Pending again and a later re-delivery can be recorded. Failures are
+	never cleared: the customer failure count and blacklist learned from them."""
+	so = frappe.get_doc("Sales Order", order)
+	current = so.custom_delivery_outcome or ""
+	if current in ("", "Pending") or current in FAILED_OUTCOMES:
+		return {"order": order, "outcome": current or "Pending"}
+	so.db_set("custom_delivery_outcome", "Pending")
+	city = frappe.db.get_value("Address", so.shipping_address_name, "city") or ""
+	update_city_stats(city)
+	frappe.db.commit()
+	return {"order": order, "outcome": "Pending"}

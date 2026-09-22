@@ -79,19 +79,57 @@ def mark_delivered(fulfillment: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def unmark_delivered(fulfillment: str) -> dict:
-	"""Revert a delivered fulfillment back to Shipped."""
+	"""Revert a delivered fulfillment back to Shipped: clears the timestamps,
+	forgets the fraud outcome, and cancels the delivery note the delivered
+	transition itself filed when the order never actually shipped."""
 	only_managers()
 	doc = frappe.get_doc("Shop Fulfillment", fulfillment)
 	if doc.status != "Delivered":
 		frappe.throw(_("Only delivered fulfillments can be unmarked"))
-	service.apply_result(doc, {"status": "Shipped", "delivered_on": None})
+	# A fulfillment that never passed through Shipped got its delivery note
+	# from the delivered transition itself; one that shipped keeps its note,
+	# because the goods really did leave the warehouse.
+	never_shipped = not doc.shipped_on
+	# Sales Order has no delivered_on column of its own — the order-level
+	# delivery date is derived from the delivery note, which stays put for a
+	# shipped order. Clear the fulfillment's own stamp here: apply_result only
+	# touches timestamps for statuses it is asked to set, so assign first and
+	# let its save persist the clear.
+	doc.delivered_on = None
+	service.apply_result(doc, {"status": "Shipped"})
 	try:
-		frappe.db.set_value(
-			"Sales Order", doc.sales_order, "delivered_on", None
-		)
+		from shop.integrations import fraud
+
+		fraud.reset_delivery_outcome(doc.sales_order)
 	except Exception:
-		frappe.log_error(title="Clearing delivered_on failed")
+		frappe.log_error(title="Resetting delivery outcome failed")
+	if never_shipped:
+		cancel_delivery_notes(doc.sales_order)
 	return service.summary(doc)
+
+
+def cancel_delivery_notes(order: str) -> None:
+	"""Cancel submitted delivery notes filed against an order. Notes already
+	invoiced are skipped: ERPNext blocks the cancel and the ledger should
+	stay honest about what was billed."""
+	notes = frappe.get_all(
+		"Delivery Note Item",
+		filters={"against_sales_order": order, "docstatus": 1},
+		pluck="parent",
+		distinct=True,
+	)
+	for name in notes:
+		try:
+			note = frappe.get_doc("Delivery Note", name)
+			note.flags.ignore_permissions = True
+			note.cancel()
+		except Exception:
+			frappe.log_error(
+				title="Cancelling delivery note failed",
+				reference_doctype="Delivery Note",
+				reference_name=name,
+			)
+	frappe.db.commit()
 
 
 @frappe.whitelist()
