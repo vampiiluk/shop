@@ -67,6 +67,9 @@
 				<Button v-if="canMarkDelivered" variant="solid" :loading="busy === 'deliver'" @click="markDelivered">
 					Mark delivered
 				</Button>
+				<Button v-if="canUnmarkDelivered" :loading="busy === 'undeliver'" @click="unmarkDelivered">
+					Unmark delivered
+				</Button>
 				<Button v-if="canResend" variant="solid" :loading="busy === 'send'" @click="send">
 					Send to fulfillment
 				</Button>
@@ -243,6 +246,10 @@ const canMarkDelivered = computed(
 	() => !!shipment.value && shipment.value.status === 'Shipped',
 )
 
+const canUnmarkDelivered = computed(
+	() => !!shipment.value && shipment.value.status === 'Delivered',
+)
+
 const canResend = computed(
 	() =>
 		!!shipment.value && !cancelled.value && ['Cancelled', 'Failed'].includes(shipment.value.status),
@@ -346,6 +353,16 @@ function markDelivered() {
 		{ fulfillment: shipment.value?.name },
 		'Marked as delivered',
 		'Could not mark as delivered',
+	)
+}
+
+function unmarkDelivered() {
+	run(
+		'undeliver',
+		'shop.api.fulfillment.unmark_delivered',
+		{ fulfillment: shipment.value?.name },
+		'Reverted to shipped',
+		'Could not unmark delivered',
 	)
 }
 </script>

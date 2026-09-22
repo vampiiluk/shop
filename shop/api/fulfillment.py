@@ -77,6 +77,23 @@ def mark_delivered(fulfillment: str) -> dict:
 	return service.summary(doc)
 
 
+@frappe.whitelist(methods=["POST"])
+def unmark_delivered(fulfillment: str) -> dict:
+	"""Revert a delivered fulfillment back to Shipped."""
+	only_managers()
+	doc = frappe.get_doc("Shop Fulfillment", fulfillment)
+	if doc.status != "Delivered":
+		frappe.throw(_("Only delivered fulfillments can be unmarked"))
+	service.apply_result(doc, {"status": "Shipped", "delivered_on": None})
+	try:
+		frappe.db.set_value(
+			"Sales Order", doc.sales_order, "delivered_on", None
+		)
+	except Exception:
+		frappe.log_error(title="Clearing delivered_on failed")
+	return service.summary(doc)
+
+
 @frappe.whitelist()
 def list_fulfillments(status: str | None = None, start: int = 0, limit: int = 20) -> dict:
 	only_managers()
