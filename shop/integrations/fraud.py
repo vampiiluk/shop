@@ -46,15 +46,10 @@ def normalize_phone(phone) -> str:
 
 
 def canonical_cities(settings_doc=None) -> list[str]:
-	"""Canonical cities from the generic address settings."""
+	"""Canonical cities from the province table (primary) or the generic field."""
 	settings_doc = settings_doc or settings()
-	raw = getattr(settings_doc, "address_cities", None)
-	if raw is None:  # field missing on very old installs
-		raw = getattr(settings_doc, "pk_cities", None)
-	custom = [c.strip().lower() for c in (raw or "").split(",") if c.strip()]
-	if custom:
-		return custom
-	# Fall back: collect all unique cities from province_table
+	# The province table drives the checkout dropdowns; prefer it when configured
+	# so a stale generic city list cannot shadow what the merchant actually set up.
 	seen = set()
 	cities = []
 	for row in (getattr(settings_doc, "province_table", None) or []):
@@ -63,7 +58,12 @@ def canonical_cities(settings_doc=None) -> list[str]:
 			if c and c not in seen:
 				seen.add(c)
 				cities.append(c)
-	return cities
+	if cities:
+		return cities
+	raw = getattr(settings_doc, "address_cities", None)
+	if raw is None:  # field missing on very old installs
+		raw = getattr(settings_doc, "pk_cities", None)
+	return [c.strip().lower() for c in (raw or "").split(",") if c.strip()]
 
 
 def home_country_codes(settings_doc=None) -> set[str]:

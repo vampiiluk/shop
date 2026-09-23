@@ -43,7 +43,8 @@ export function uniqueBuyer(prefix: string) {
 	return {
 		email: `${prefix}-${Date.now()}@example.test`,
 		full_name: "Persona Shopper",
-		phone: "9876543210",
+		// Unique per call: a shared phone trips the fraud velocity guard on repeats.
+		phone: `98${Math.floor(Math.random() * 1e8).toString().padStart(8, "0")}`,
 		address_line1: "12 Persona Lane",
 		city: "Bengaluru",
 		state: "Karnataka",

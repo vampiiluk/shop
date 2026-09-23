@@ -10,8 +10,14 @@
 	//   fingerprintjs-oss – free, no API key, self-hosted via CDN
 	//   fingerprintjs-pro – paid API, requires public key
 	//   creepjs           – free, self-hosted via CDN, most signals
+	// Checkout whitelists store fields flat on page_data; other pages nest
+	// them under store. Fall back so both shapes resolve.
+	function storeContext() {
+		const data = window.page_data || {};
+		return data.store || data;
+	}
 	function loadFingerprint() {
-		const store = (window.page_data && window.page_data.store) || {};
+		const store = storeContext();
 		const provider = store.fingerprint_provider || "thumbmarkjs";
 
 		if (provider === "fingerprintjs-pro") {
@@ -743,7 +749,7 @@
 	}
 
 	function initAddressDatalists() {
-		const store = (window.page_data && window.page_data.store) || {};
+		const store = storeContext();
 		const form = document.querySelector('[data-shop="checkout-form"]');
 		if (!form) return;
 
@@ -780,7 +786,47 @@
 			if (select.required) select.options[0].selected = true;
 			else if (previous) select.value = previous;
 		});
-		if (stateInput && stateInput.tagName === "SELECT") return;
+		// Native <select> pair (what the generated themes render): wire the
+		// bidirectional cascade — picking a city selects its province, and
+		// picking a province clears a city that is not one of its own.
+		if (stateInput && stateInput.tagName === "SELECT") {
+			if (cityInput && cityInput.tagName === "SELECT" && allProvinces.length) {
+				const cityToProvince = {};
+				Object.keys(provinceMap).forEach((prov) => {
+					(provinceMap[prov] || []).forEach((city) => {
+						cityToProvince[String(city).trim().toLowerCase()] = prov;
+					});
+				});
+				const citiesFor = (prov) => {
+					const key = Object.keys(provinceMap).find(
+						(p) => p.toLowerCase() === String(prov || "").trim().toLowerCase()
+					);
+					return key ? provinceMap[key] : null;
+				};
+				cityInput.addEventListener("change", () => {
+					const city = cityInput.value.trim();
+					if (!city) return;
+					const prov = cityToProvince[city.toLowerCase()];
+					if (!prov) return;
+					const option = Array.from(stateInput.options).find(
+						(o) => o.value && o.value.toLowerCase() === prov.toLowerCase()
+					);
+					if (option && stateInput.value !== option.value) {
+						stateInput.value = option.value;
+						stateInput.dispatchEvent(new Event("change", { bubbles: true }));
+					}
+				});
+				stateInput.addEventListener("change", () => {
+					const city = cityInput.value.trim();
+					if (!city) return;
+					const cities = citiesFor(stateInput.value);
+					if (!(cities || []).some((c) => String(c).trim().toLowerCase() === city.toLowerCase())) {
+						cityInput.value = "";
+					}
+				});
+			}
+			return;
+		}
 
 		// Province: searchable dropdown from DB
 		const provinceSel = createShopSelect(stateInput, allProvinces, {
@@ -796,7 +842,17 @@
 		});
 
 		// City: initially shows all, then filtered by province
-		const citySel = createShopSelect(cityInput, allCities, {});
+		const citySel = createShopSelect(cityInput, allCities, {
+			onChange(city) {
+				// reverse cascade: a city selects the province it belongs to
+				const prov = Object.keys(provinceMap).find((p) =>
+					(provinceMap[p] || []).some(
+						(c) => String(c).trim().toLowerCase() === String(city).trim().toLowerCase()
+					)
+				);
+				if (prov) provinceSel.setValue(prov);
+			},
+		});
 
 		// Pre-fill from saved address if present
 		if (stateInput.value.trim() && allProvinces.some((p) => p.toLowerCase() === stateInput.value.trim().toLowerCase())) {
@@ -823,7 +879,7 @@
 		if (picker) picker.addEventListener("change", () => applySavedAddress(picker));
 
 		// Preload CreepJS fingerprint on checkout page (runs in background, cached in localStorage)
-		const store = (window.page_data && window.page_data.store) || {};
+		const store = storeContext();
 		if (store.fingerprint_provider === "creepjs") {
 			loadFingerprint(); // kicks off iframe + caches result
 		}

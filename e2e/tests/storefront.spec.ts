@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { fillCheckout } from "./personas/helpers";
+import { addToCartViaPDP, fillCheckout } from "./personas/helpers";
 
 const BUYER = {
 	email: `buyer-${Date.now()}@example.com`,
 	full_name: "Ada Buyer",
-	phone: "9876543210",
+	phone: `98${Math.floor(Math.random() * 1e8).toString().padStart(8, "0")}`,
 	address_line1: "42 Test Lane",
 	city: "Bengaluru",
 	state: "Karnataka",
@@ -65,6 +65,39 @@ test.describe("storefront", () => {
 		await expect(main).toHaveAttribute("src", first!);
 		await page.locator('[data-shop="variant-option"][data-value="White"]').click();
 		await expect(main).toHaveAttribute("src", second!);
+	});
+
+	test("checkout address cascade: city sets province, province clears stray city", async ({ page }) => {
+		await addToCartViaPDP(page, "crew-neck-t-shirt");
+		await page.goto("/checkout");
+
+		const map = await page.evaluate(() => {
+			const data = (window as any).page_data || {};
+			return (data.store || data).province_city_map as Record<string, string[]>;
+		});
+		expect(Object.keys(map).length).toBeGreaterThan(0);
+		const [province, cities] = Object.entries(map)[0];
+		expect(cities.length).toBeGreaterThan(0);
+
+		// Inject a province that is not in the table so both directions of the
+		// cascade are observable (the store configures a single province).
+		await page.evaluate(() => {
+			const state = document.querySelector('[name="state"]') as HTMLSelectElement | null;
+			if (!state) return;
+			const opt = document.createElement("option");
+			opt.value = "__other";
+			opt.textContent = "Other Province";
+			state.appendChild(opt);
+		});
+		await page.selectOption('[name="state"]', "__other");
+
+		// city → province: picking a city selects the province it belongs to
+		await page.selectOption('[name="city"]', cities[0]);
+		await expect(page.locator('[name="state"]')).toHaveValue(province);
+
+		// province → city: a city outside the chosen province is cleared
+		await page.selectOption('[name="state"]', "__other");
+		await expect(page.locator('[name="city"]')).toHaveValue("");
 	});
 
 	test("full purchase flow: PDP, variant, cart, checkout, confirmation", async ({ page }) => {
