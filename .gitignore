@@ -64,3 +64,6 @@ e2e/tmp-*
 shop/public/frontend/
 shop/www/shop.html
 *.bak
+
+# stray workspace symlink must never be committed (breaks pilot app install validation)
+shop/public/node_modules
