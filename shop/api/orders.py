@@ -168,6 +168,12 @@ def create_sales_invoice_for_order(order_name: str) -> str | None:
 		return None
 	if invoice.meta.has_field("custom_submit_to_fbr"):
 		invoice.custom_submit_to_fbr = 0
+	if invoice.meta.has_field("custom_province") and not invoice.custom_province:
+		# FBR's Seller Province is mandatory; fetch_from only runs on the
+		# form, so server-side inserts must pull it from the company.
+		invoice.custom_province = frappe.db.get_value(
+			"Company", invoice.company, "custom_province"
+		)
 	invoice.insert(ignore_permissions=True)
 	invoice.submit()
 	return invoice.name
@@ -212,15 +218,33 @@ def get_order(name: str) -> dict:
 
 def timeline(order) -> list[dict]:
 	events = [{"label": "Order placed", "on": str(order.creation)[:16]}]
-	payment = frappe.db.get_value(
-		"Payment Entry Reference",
-		{"reference_doctype": "Sales Order", "reference_name": order.name, "docstatus": 1},
-		"parent",
+	# Payments may land on the order itself (COD/advance) or on the invoice
+	# auto-billing created at placement - accept either and show the first.
+	invoices = frappe.get_all(
+		"Sales Invoice Item",
+		filters={"sales_order": order.name, "docstatus": 1},
+		pluck="parent",
+		distinct=True,
 	)
-	if payment:
-		events.append(
-			{"label": "Payment recorded", "on": str(frappe.db.get_value("Payment Entry", payment, "creation"))[:16]}
+	payments = frappe.get_all(
+		"Payment Entry Reference",
+		filters={
+			"docstatus": 1,
+			"reference_doctype": ["in", ["Sales Order", "Sales Invoice"]],
+			"reference_name": ["in", [order.name, *invoices]],
+		},
+		pluck="parent",
+		distinct=True,
+	)
+	if payments:
+		created = frappe.get_all(
+			"Payment Entry",
+			filters={"name": ["in", payments]},
+			fields=["creation"],
+			order_by="creation asc",
+			limit=1,
 		)
+		events.append({"label": "Payment recorded", "on": str(created[0].creation)[:16]})
 	for note in frappe.get_all(
 		"Delivery Note Item",
 		filters={"against_sales_order": order.name, "docstatus": 1},

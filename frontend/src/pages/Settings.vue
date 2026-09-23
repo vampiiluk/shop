@@ -33,6 +33,11 @@
 					label="Cash on Delivery"
 					description="Let customers pay in cash when their order arrives."
 				/>
+				<Switch
+					v-model="payments.auto_bill_on_payment"
+					label="Auto-create Sales Invoices"
+					description="Submit an unpaid Sales Invoice the moment an order is placed. Mark paid settles it."
+				/>
 				<FormControl
 					v-model="payments.payment_gateway_account"
 					type="select"
@@ -466,7 +471,7 @@ import StorefrontThemes from '@/components/StorefrontThemes.vue'
 const saving = ref('')
 
 const store = reactive({ store_name: '', store_logo: '' })
-const payments = reactive({ enable_cod: true, payment_gateway_account: '' })
+const payments = reactive({ enable_cod: true, payment_gateway_account: '', auto_bill_on_payment: false })
 const shipping = reactive({ flat_shipping_rate: 0, free_shipping_above: 0, shipping_account: '' })
 const fulfillment = reactive({ fulfillment_provider: 'manual', auto_send_to_fulfillment: false })
 const catalog = reactive({
@@ -539,6 +544,7 @@ function hydrate(doc: Record<string, any>) {
 	Object.assign(payments, {
 		enable_cod: !!doc.enable_cod,
 		payment_gateway_account: doc.payment_gateway_account || '',
+		auto_bill_on_payment: !!doc.auto_bill_on_payment,
 	})
 	Object.assign(shipping, {
 		flat_shipping_rate: doc.flat_shipping_rate || 0,

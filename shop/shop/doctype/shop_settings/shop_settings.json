@@ -215,7 +215,7 @@
    "fieldname": "auto_bill_on_payment",
    "fieldtype": "Check",
    "label": "Auto-create Sales Invoices",
-   "description": "Create the Sales Invoice automatically when an order is paid (prepaid) or delivered (COD). Invoices are kept out of FBR e-invoicing until reviewed."
+   "description": "Submit an unpaid Sales Invoice the moment an order is placed. COD invoices stay unpaid until you click Mark paid; prepaid orders get settled by the gateway. Invoices are kept out of FBR e-invoicing until reviewed."
   },
   {
    "fieldname": "tax_template",

@@ -6,6 +6,7 @@ from shop.api import only_managers
 
 CHECK_FIELDS = frozenset((
 	"enable_cod",
+	"auto_bill_on_payment",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"auto_send_to_fulfillment",
@@ -47,6 +48,7 @@ EDITABLE = (
 	"store_logo",
 	"enable_cod",
 	"payment_gateway_account",
+	"auto_bill_on_payment",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"tax_template",

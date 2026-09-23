@@ -485,6 +485,20 @@ def create_sales_order(cart, party: str, shipping_address, device_fingerprint: s
 		from shop.storefront import coupons
 
 		coupons.redeem(cart.coupon_code)
+	from shop.api.orders import auto_billing_enabled, create_sales_invoice_for_order
+
+	if auto_billing_enabled():
+		# The invoice goes out submitted but unpaid: COD settles it through
+		# Mark paid, prepaid orders through the gateway reallocation. Billing
+		# must never lose a placed order, so failures are logged, not raised.
+		try:
+			create_sales_invoice_for_order(sales_order.name)
+		except Exception:
+			frappe.log_error(
+				title="Storefront auto-invoice failed",
+				reference_doctype="Sales Order",
+				reference_name=sales_order.name,
+			)
 	return sales_order
 
 
