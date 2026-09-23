@@ -13,6 +13,7 @@ ADDRESS = {
 	"state": "Karnataka",
 	"country": "India",
 	"pincode": "560001",
+	"landmark": "Gate 7",
 }
 
 

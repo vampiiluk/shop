@@ -100,7 +100,14 @@ custom_fields = {
 			"fieldtype": "Data",
 			"hidden": 1,
 			"read_only": 1,
-			"description": "cod / gateway, captured at checkout for fraud re-evaluation.",
+			"description": "cod / gateway / advance, captured at checkout for fraud re-evaluation and payment status.",
+		},
+		{
+			"fieldname": "custom_advance_amount",
+			"label": "Advance Amount",
+			"fieldtype": "Currency",
+			"read_only": 1,
+			"description": "Required upfront for advance payment orders; the courier collects the remaining balance on delivery.",
 		},
 		{
 			"fieldname": "custom_fp_event",

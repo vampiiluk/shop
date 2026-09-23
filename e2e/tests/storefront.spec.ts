@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { fillCheckout } from "./personas/helpers";
 
 const BUYER = {
 	email: `buyer-${Date.now()}@example.com`,
@@ -81,18 +82,15 @@ test.describe("storefront", () => {
 
 		await page.goto("/cart");
 		await expect(page.locator("body")).toContainText("Crew Neck T-Shirt");
+		// set_qty reloads the cart page; wait for the document replacement itself
+		// (framenavigated also fires for iframes and can resolve too early).
+		await page.evaluate(() => ((window as any).__preReload = true));
 		await page.locator('[data-shop="qty-inc"]').first().click();
-		await page.waitForLoadState("networkidle");
+		await page.waitForFunction(() => !(window as any).__preReload);
 		await expect(page.locator("body")).toContainText("2");
 
 		await page.goto("/checkout");
-		await page.fill('[name="email"]', BUYER.email);
-		await page.fill('[name="full_name"]', BUYER.full_name);
-		await page.fill('[name="phone"]', BUYER.phone);
-		await page.fill('[name="address_line1"]', BUYER.address_line1);
-		await page.fill('[name="city"]', BUYER.city);
-		await page.fill('[name="state"]', BUYER.state);
-		await page.fill('[name="pincode"]', BUYER.pincode);
+		await fillCheckout(page, BUYER);
 		await page.locator('[data-shop="checkout-form"] [type="submit"]').click();
 
 		await page.waitForURL(/order-confirmation/);

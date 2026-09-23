@@ -5,6 +5,14 @@
 			<FulfillmentStatusBadge v-if="shipment" :status="shipment.status" />
 		</div>
 
+		<p
+			v-if="collectBalance"
+			class="mt-4 rounded border border-outline-gray-1 px-3 py-2 text-p-sm text-ink-gray-7"
+		>
+			Collect balance <span class="font-medium text-ink-gray-9">{{ collectBalance }}</span> from
+			the customer on delivery.
+		</p>
+
 		<div v-if="loading" class="mt-4 space-y-2">
 			<div class="h-4 w-1/3 animate-pulse rounded bg-surface-gray-2" />
 			<div class="h-4 w-2/3 animate-pulse rounded bg-surface-gray-2" />
@@ -160,7 +168,7 @@ interface Provider {
 
 const OPEN_STATUSES = ['Pending', 'Accepted', 'Shipped']
 
-const props = defineProps<{ order: string; docstatus: number }>()
+const props = defineProps<{ order: string; docstatus: number; collectBalance?: string }>()
 const emit = defineEmits<{ changed: [] }>()
 
 const busy = ref('')

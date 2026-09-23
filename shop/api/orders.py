@@ -34,6 +34,7 @@ LIST_FIELDS = [
 	"contact_email",
 	"custom_fraud_score",
 	"custom_fraud_verdict",
+	"custom_payment_method",
 ]
 
 
@@ -73,11 +74,15 @@ def get_orders(
 
 
 def decorate(orders: list) -> None:
-	paid = paid_orders([order.name for order in orders])
+	received_map = payments_received([order.name for order in orders])
 	for order in orders:
 		order["formatted_total"] = pricing.format_amount(order.grand_total)
 		order["display_status"] = DISPLAY_STATUS.get(order.status, order.status)
-		order["payment_status"] = "Paid" if order.name in paid else "Unpaid"
+		received = flt(received_map.get(order.name))
+		total = flt(order.grand_total)
+		order["payment_status"] = payment_status_label(order.get("custom_payment_method"), received, total)
+		order["payment_received"] = received
+		order["payment_balance"] = max(total - received, 0.0)
 		order["fulfillment_status"] = fulfillment_label(order)
 
 
@@ -127,6 +132,52 @@ def paid_orders(names: list[str]) -> set:
 				)
 			)
 	return settled
+
+
+def payments_received(names: list[str]) -> dict:
+	"""Total allocated Payment Entry amount per Sales Order.
+
+	Payments may reference the order directly (advance) or its submitted
+	Sales Invoices (auto-billing), so both are summed and invoice references
+	mapped back to their orders.
+	"""
+	if not names:
+		return {}
+	invoices = frappe.get_all(
+		"Sales Invoice Item",
+		filters={"sales_order": ["in", names], "docstatus": 1},
+		fields=["parent", "sales_order"],
+	)
+	by_invoice = {row.parent: row.sales_order for row in invoices}
+	references = [*names, *by_invoice]
+	received = {name: 0.0 for name in names}
+	if not references:
+		return received
+	rows = frappe.db.sql(
+		"""
+		SELECT reference_name, SUM(allocated_amount) AS allocated
+		FROM `tabPayment Entry Reference`
+		WHERE docstatus = 1 AND reference_name IN %(references)s
+		GROUP BY reference_name
+		""",
+		{"references": references},
+		as_dict=True,
+	)
+	for row in rows:
+		order_name = row.reference_name if row.reference_name in received else by_invoice.get(row.reference_name)
+		if order_name in received:
+			received[order_name] += flt(row.allocated)
+	return received
+
+
+def payment_status_label(method, received, total) -> str:
+	"""Tri-state payment status: Unpaid, Advance Received / Partially Paid, Paid."""
+	received, total = flt(received), flt(total)
+	if total > 0 and received >= total - 0.005:
+		return "Paid"
+	if received > 0:
+		return "Advance Received" if (method or "cod") == "advance" else "Partially Paid"
+	return "Unpaid"
 
 
 def billed_invoice_for_order(order_name: str) -> str | None:
@@ -183,6 +234,11 @@ def create_sales_invoice_for_order(order_name: str) -> str | None:
 def get_order(name: str) -> dict:
 	only_managers()
 	order = frappe.get_doc("Sales Order", name)
+	received = payments_received([order.name]).get(order.name) or 0.0
+	total = flt(order.grand_total)
+	balance = max(total - received, 0.0)
+	advance = flt(order.custom_advance_amount or 0)
+	courier = max(total - max(received, min(advance, total)), 0.0)
 	return {
 		"name": order.name,
 		"customer": order.customer,
@@ -193,7 +249,16 @@ def get_order(name: str) -> dict:
 		"status": order.status,
 		"display_status": "Cancelled" if order.docstatus == 2 else DISPLAY_STATUS.get(order.status, order.status),
 		"docstatus": order.docstatus,
-		"payment_status": "Paid" if paid_orders([order.name]) else "Unpaid",
+		"payment_status": payment_status_label(order.custom_payment_method, received, total),
+		"payment_method": order.custom_payment_method or "cod",
+		"payment_received": received,
+		"payment_balance": balance,
+		"advance_amount": advance,
+		"courier_balance": courier,
+		"formatted_payment_received": pricing.format_amount(received),
+		"formatted_payment_balance": pricing.format_amount(balance),
+		"formatted_advance_amount": pricing.format_amount(advance),
+		"formatted_courier_balance": pricing.format_amount(courier),
 		"fulfillment_status": fulfillment_label(order),
 		"delivery_outcome": order.custom_delivery_outcome or "",
 		"fraud_verdict": order.custom_fraud_verdict or "",
@@ -270,8 +335,10 @@ def mark_paid(name: str, mode_of_payment: str | None = None) -> dict:
 	only_managers()
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-	if paid_orders([name]):
-		frappe.throw(_("This order is already marked paid"))
+	received = payments_received([name]).get(name) or 0.0
+	total = flt(frappe.get_cached_value("Sales Order", name, "grand_total"))
+	if total > 0 and received >= total - 0.005:
+		frappe.throw(_("This order is already paid in full"))
 	invoice_name = billed_invoice_for_order(name)
 	if not invoice_name and auto_billing_enabled():
 		invoice_name = create_sales_invoice_for_order(name)
@@ -287,6 +354,68 @@ def mark_paid(name: str, mode_of_payment: str | None = None) -> dict:
 
 	auto_send(name)
 	return get_order(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_advance_received(
+	name: str,
+	amount: float | None = None,
+	mode_of_payment: str | None = None,
+	reference_no: str | None = None,
+) -> dict:
+	"""Record the advance the customer transferred so the order can ship.
+
+	Manual bank/wallet flow: the shopper pays the account listed in Shop
+	Settings, the merchant records it here, auto-fulfillment fires like a
+	paid order, and the courier collects the remaining balance on delivery.
+	"""
+	only_managers()
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	order = frappe.get_doc("Sales Order", name)
+	if order.docstatus != 1:
+		frappe.throw(_("Only submitted orders can receive payments"))
+	total = flt(order.grand_total)
+	received = payments_received([name]).get(name) or 0.0
+	due = total - received
+	if due <= 0.005:
+		frappe.throw(_("This order is already paid in full"))
+	advance_due = max(flt(order.custom_advance_amount or 0) - received, 0.0)
+	target = flt(amount) if amount else (advance_due or due)
+	if target <= 0:
+		frappe.throw(_("Payment amount must be greater than zero"))
+	if target > due + 0.005:
+		frappe.throw(
+			_("Amount {0} exceeds the outstanding balance {1}").format(
+				pricing.format_amount(target), pricing.format_amount(due)
+			)
+		)
+	target = min(target, due)
+	invoice_name = billed_invoice_for_order(name)
+	if not invoice_name and auto_billing_enabled():
+		invoice_name = create_sales_invoice_for_order(name)
+	entry = get_payment_entry("Sales Invoice" if invoice_name else "Sales Order", invoice_name or name)
+	entry.paid_amount = target
+	entry.received_amount = target
+	if entry.references:
+		entry.references[0].allocated_amount = target
+	if mode_of_payment:
+		entry.mode_of_payment = mode_of_payment
+	entry.reference_no = reference_no or name
+	entry.reference_date = frappe.utils.nowdate()
+	entry.flags.ignore_permissions = True
+	entry.insert(ignore_permissions=True)
+	entry.submit()
+	from shop.fulfillment.service import auto_send
+
+	auto_send(name)
+	return get_order(name)
+
+
+@frappe.whitelist()
+def payment_modes() -> list[str]:
+	only_managers()
+	return frappe.get_all("Mode of Payment", pluck="name", order_by="name")
 
 
 @frappe.whitelist(methods=["POST"])

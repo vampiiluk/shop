@@ -5,7 +5,7 @@ from frappe.utils import add_days, nowdate
 from shop.storefront import cart, checkout
 
 BUYER = {"email": "coupon-buyer@example.com", "full_name": "Coupon Buyer"}
-ADDRESS = {"address_line1": "3 Offer Lane", "city": "Bengaluru", "country": "India"}
+ADDRESS = {"address_line1": "3 Offer Lane", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
 
 
 class TestCoupons(IntegrationTestCase):
@@ -13,6 +13,15 @@ class TestCoupons(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		# The store may charge flat shipping; these coupon totals assume free delivery.
+		self._shipping_rate = frappe.db.get_single_value("Shop Settings", "flat_shipping_rate")
+		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", 0)
+		frappe.clear_cache(doctype="Shop Settings")
+		self.addCleanup(self._restore_shipping_rate)
+
+	def _restore_shipping_rate(self):
+		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", self._shipping_rate)
+		frappe.clear_cache(doctype="Shop Settings")
 
 	def test_apply_and_checkout_discount(self):
 		cart.add_item("SHOP-DEMO-011")
@@ -78,6 +87,15 @@ class TestCouponLifecycle(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		# The store may charge flat shipping; these coupon totals assume free delivery.
+		self._shipping_rate = frappe.db.get_single_value("Shop Settings", "flat_shipping_rate")
+		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", 0)
+		frappe.clear_cache(doctype="Shop Settings")
+		self.addCleanup(self._restore_shipping_rate)
+
+	def _restore_shipping_rate(self):
+		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", self._shipping_rate)
+		frappe.clear_cache(doctype="Shop Settings")
 
 	def test_coupon_held_in_a_cart_can_still_be_deleted(self):
 		from shop.api import discounts

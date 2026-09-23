@@ -13,6 +13,9 @@
 						AI Risk Score
 					</Button>
 					<Button :link="`/app/sales-order/${doc.name}`">Open in Desk</Button>
+					<Button v-if="canMarkAdvance" variant="solid" @click="openAdvance">
+						Mark advance received
+					</Button>
 					<Button v-if="canMarkPaid" @click="confirmAction('markPaid')">Mark paid</Button>
 					<Button v-if="canRecordOutcome" @click="showOutcome = true">Record delivery</Button>
 					<Button v-if="canFulfill" variant="solid" @click="confirmAction('fulfill')">
@@ -74,6 +77,7 @@
 					<FulfillmentPanel
 						:order="doc.name"
 						:docstatus="doc.docstatus"
+						:collect-balance="collectBalance"
 						@changed="order.reload()"
 					/>
 
@@ -97,6 +101,29 @@
 					</div>
 
 					<FingerprintPanel :order="doc.name" />
+
+					<div class="rounded-lg border border-outline-gray-1 p-4">
+						<h2 class="text-base font-medium text-ink-gray-8">Payment</h2>
+						<dl class="mt-3 space-y-1.5 text-sm">
+							<div class="flex justify-between gap-3">
+								<dt class="text-ink-gray-5">Method</dt>
+								<dd class="text-ink-gray-8">{{ paymentMethodLabel }}</dd>
+							</div>
+							<div v-if="doc.payment_method === 'advance'" class="flex justify-between gap-3">
+								<dt class="text-ink-gray-5">Advance due</dt>
+								<dd class="text-ink-gray-8">{{ doc.formatted_advance_amount }}</dd>
+							</div>
+							<div class="flex justify-between gap-3">
+								<dt class="text-ink-gray-5">Received</dt>
+								<dd class="text-ink-gray-8">{{ doc.formatted_payment_received }}</dd>
+							</div>
+							<div class="flex justify-between gap-3">
+								<dt class="font-medium text-ink-gray-7">Outstanding</dt>
+								<dd class="font-medium text-ink-gray-9">{{ doc.formatted_payment_balance }}</dd>
+							</div>
+						</dl>
+						<p v-if="paymentHint" class="mt-2 text-p-sm text-ink-gray-5">{{ paymentHint }}</p>
+					</div>
 
 					<ReturnsPanel :order="doc.name" />
 
@@ -129,12 +156,38 @@
 				<p class="text-p-base text-ink-gray-7">{{ pending?.message }}</p>
 			</template>
 		</Dialog>
+
+		<Dialog v-model="showAdvance" :options="advanceDialogOptions">
+			<template #body-content>
+				<div class="space-y-4">
+					<p class="text-p-base text-ink-gray-7">
+						Record the advance transferred to your account. The order ships as soon as it is
+						recorded, and the courier then collects the remaining balance on delivery.
+					</p>
+					<FormControl v-model="advanceForm.amount" type="text" label="Amount received" />
+					<FormControl
+						v-model="advanceForm.mode"
+						type="select"
+						label="Mode of payment"
+						:options="modeOptions"
+					/>
+					<FormControl
+						v-model="advanceForm.reference"
+						type="text"
+						label="Transaction reference"
+					/>
+					<p class="text-p-sm text-ink-gray-5">
+						Leave the reference blank if you have none, e.g. a bank transfer ID.
+					</p>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Dialog, Spinner, call, createResource, toast } from 'frappe-ui'
+import { Dialog, FormControl, Spinner, call, createResource, toast } from 'frappe-ui'
 
 import FulfillmentPanel from '@/components/FulfillmentPanel.vue'
 import ReturnsPanel from '@/components/ReturnsPanel.vue'
@@ -157,6 +210,31 @@ const order = createResource({
 const doc = computed(() => order.data)
 
 const canMarkPaid = computed(() => doc.value.docstatus === 1 && doc.value.payment_status !== 'Paid')
+const canMarkAdvance = computed(
+	() =>
+		doc.value.docstatus === 1 &&
+		doc.value.payment_method === 'advance' &&
+		doc.value.payment_balance > 0 &&
+		doc.value.payment_received < doc.value.advance_amount,
+)
+const paymentMethodLabel = computed(() => {
+	const labels: Record<string, string> = {
+		cod: 'Cash on delivery',
+		gateway: 'Online payment',
+		advance: 'Advance payment',
+	}
+	return labels[doc.value.payment_method] || doc.value.payment_method
+})
+const collectBalance = computed(() =>
+	doc.value.courier_balance > 0 ? doc.value.formatted_courier_balance : '',
+)
+const paymentHint = computed(() => {
+	const d = doc.value
+	if (d.payment_method !== 'advance' || d.payment_balance <= 0) return ''
+	return d.payment_received < d.advance_amount
+		? 'Record the advance as soon as it arrives — the order ships once it is received.'
+		: 'The courier collects the outstanding balance from the customer on delivery.'
+})
 const canFulfill = computed(
 	() =>
 		doc.value.docstatus === 1 &&
@@ -226,6 +304,54 @@ async function runPending() {
 		toast.error(pending.value.failure)
 	} finally {
 		showConfirm.value = false
+	}
+}
+
+const showAdvance = ref(false)
+const advanceForm = ref({ amount: '', mode: '', reference: '' })
+const modes = createResource({ url: 'shop.api.orders.payment_modes', auto: true })
+const modeOptions = computed(() => [
+	{ label: 'Not specified', value: '' },
+	...((modes.data as string[]) || []).map((mode) => ({ label: mode, value: mode })),
+])
+const advanceDialogOptions = computed(() => ({
+	title: 'Mark advance received',
+	actions: [
+		{
+			label: 'Record advance',
+			theme: 'blue',
+			variant: 'solid',
+			onClick: submitAdvance,
+		},
+	],
+}))
+
+function openAdvance() {
+	const remaining = Number(
+		(doc.value.advance_amount - doc.value.payment_received).toFixed(2),
+	)
+	advanceForm.value = { amount: String(remaining > 0 ? remaining : ''), mode: '', reference: '' }
+	showAdvance.value = true
+}
+
+async function submitAdvance() {
+	const amount = parseFloat(String(advanceForm.value.amount).replace(/,/g, ''))
+	if (!amount || Number.isNaN(amount)) {
+		toast.error('Enter a valid amount')
+		return
+	}
+	try {
+		await call('shop.api.orders.mark_advance_received', {
+			name: props.name,
+			amount,
+			mode_of_payment: advanceForm.value.mode || undefined,
+			reference_no: advanceForm.value.reference || undefined,
+		})
+		toast.success('Advance received — order ships now')
+		showAdvance.value = false
+		order.reload()
+	} catch (error) {
+		toast.error('Could not record the advance')
 	}
 }
 </script>

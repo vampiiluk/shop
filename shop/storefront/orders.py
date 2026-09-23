@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 from shop.storefront import cart as cart_module
 from shop.storefront import pricing
@@ -23,16 +23,22 @@ def get_orders(start: int = 0, limit: int = 20) -> list[dict]:
 	orders = frappe.get_all(
 		"Sales Order",
 		filters={"customer": ["in", customers], "docstatus": 1},
-		fields=["name", "transaction_date", "status", "grand_total", "currency"],
+		fields=["name", "transaction_date", "status", "grand_total", "currency", "custom_payment_method"],
 		order_by="creation desc",
 		start=cint(start),
 		limit=min(cint(limit) or 20, 50),
 	)
+	from shop.api.orders import payment_status_label, payments_received
+
+	received_map = payments_received([order.name for order in orders])
 	for order in orders:
 		order.formatted_total = pricing.format_amount(order.grand_total)
 		order.display_status = STATUS_LABELS.get(order.status, order.status)
 		order.formatted_date = frappe.utils.formatdate(order.transaction_date, "d MMM yyyy")
 		order.url = f"/order-confirmation/{order.name}"
+		order.payment_status = payment_status_label(
+			order.custom_payment_method, received_map.get(order.name), order.grand_total
+		)
 	return orders
 
 
@@ -82,6 +88,8 @@ def order_summary(order) -> dict:
 		else None,
 		"grand_total": order.grand_total,
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
+		"payment_method": order.get("custom_payment_method") or "cod",
+		"advance_payment": advance_payment_info(order),
 		"taxes": [
 			{"description": tax.description, "amount": tax.tax_amount, "formatted_amount": pricing.format_amount(tax.tax_amount)}
 			for tax in order.taxes
@@ -102,13 +110,69 @@ def order_summary(order) -> dict:
 	}
 
 
+def advance_payment_info(order) -> dict | None:
+	"""Advance block for the confirmation page; None unless the customer chose advance."""
+	if (order.get("custom_payment_method") or "cod") != "advance":
+		return None
+	from shop.api.orders import payments_received
+
+	received = payments_received([order.name]).get(order.name) or 0.0
+	total = flt(order.grand_total)
+	advance = flt(order.custom_advance_amount or 0)
+	# What the courier still collects on delivery: everything past the prepayment
+	# milestone (the recorded advance, or the promised advance if not yet received).
+	courier = max(total - max(received, min(advance, total)), 0.0)
+	due_now = max(advance - received, 0.0)
+	settings = frappe.get_cached_doc("Shop Settings")
+	instructions = (settings.advance_payment_instructions or "").strip() or None
+	if received <= 0:
+		line = _(
+			"Advance due: {0} — pay to the account below and your order ships. The courier collects {1} on delivery."
+		).format(pricing.format_amount(due_now), pricing.format_amount(courier))
+	else:
+		line = _("Advance received: {0} · the courier collects {1} on delivery.").format(
+			pricing.format_amount(received), pricing.format_amount(courier)
+		)
+	return {
+		"line": line,
+		"instructions": instructions,
+		"advance_amount": advance,
+		"formatted_advance_amount": pricing.format_amount(advance),
+		"due": due_now,
+		"formatted_due": pricing.format_amount(due_now),
+		"received": received,
+		"formatted_received": pricing.format_amount(received),
+		"balance": courier,
+		"formatted_balance": pricing.format_amount(courier),
+	}
+
+
+def payments_received_for(order) -> tuple:
+	from shop.api.orders import payments_received
+
+	received = payments_received([order.name]).get(order.name) or 0.0
+	return flt(received), flt(order.grand_total)
+
+
 def order_progress(order, shipment: dict | None) -> list[dict]:
 	if order.docstatus == 2:
 		return [{"label": _("Cancelled"), "done": "true"}]
-	paid = bool(order.advance_paid) or has_payment(order.name)
+	received, total = payments_received_for(order)
+	fully_paid = total > 0 and received >= total - 0.005
 	shipped = bool(shipment and shipment.get("shipped_on")) or (order.per_delivered or 0) >= 100
 	delivered = bool(shipment and shipment.get("status") == "Delivered")
-	payment_label = _("Paid") if paid or expects_online_payment(order.name) else _("Payment on delivery")
+	if received > 0 and not fully_paid:
+		# Advance orders: the prepayment milestone is done, the courier takes the balance.
+		payment_label = _("Advance paid")
+		paid = True
+	else:
+		paid = fully_paid or bool(order.get("advance_paid")) or has_payment(order.name)
+		if not paid and (order.get("custom_payment_method") or "") == "advance":
+			payment_label = _("Advance pending")
+		else:
+			payment_label = (
+				_("Paid") if paid or expects_online_payment(order.name) else _("Payment on delivery")
+			)
 	stages = [
 		(_("Order placed"), True),
 		(payment_label, paid),

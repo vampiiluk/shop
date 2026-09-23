@@ -9,17 +9,48 @@ from shop.storefront import cart as cart_module
 from shop.storefront import pricing, stock
 
 
+def advance_amount_for(total, settings) -> float:
+	"""Advance due on an order total: percent of the total or a flat amount, clamped to it."""
+	total = flt(total)
+	if total <= 0:
+		return 0.0
+	if (settings.advance_payment_mode or "Percent") == "Flat":
+		amount = flt(settings.advance_payment_flat)
+	else:
+		amount = total * flt(settings.advance_payment_percent or 0) / 100
+	return max(0.0, min(amount, total))
+
+
 @frappe.whitelist(allow_guest=True)
 def get_checkout_summary() -> dict:
 	cart = cart_module.resolve_cart()
 	settings = frappe.get_cached_doc("Shop Settings")
+	payload = cart_module.cart_payload(cart)
 	methods = []
 	if settings.enable_cod:
 		methods.append({"method": "cod", "label": _("Cash on Delivery")})
 	if settings.payment_gateway_account:
 		methods.append({"method": "gateway", "label": _("Pay Online")})
+	if settings.enable_advance_payment and flt(payload.get("total")) > 0:
+		advance = advance_amount_for(payload["total"], settings)
+		balance = max(flt(payload["total"]) - advance, 0.0)
+		formatted_advance = pricing.format_amount(advance)
+		if balance > 0:
+			label = _("Advance Payment — {0} now · {1} on delivery").format(
+				formatted_advance, pricing.format_amount(balance)
+			)
+		else:
+			label = _("Advance Payment — pay {0} in full now").format(formatted_advance)
+		methods.append(
+			{
+				"method": "advance",
+				"label": label,
+				"advance_amount": advance,
+				"balance_amount": balance,
+			}
+		)
 	return {
-		"cart": cart_module.cart_payload(cart),
+		"cart": payload,
 		"payment_methods": methods,
 		"currency": settings.currency,
 		"prefill": checkout_prefill(),
@@ -179,7 +210,21 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		if device_fingerprint:
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
-		sales_order = create_sales_order(cart, party, shipping_address, device_fingerprint, customer, fingerprint_provider)
+		advance_amount = (
+			advance_amount_for(cart_module.cart_payload(cart)["total"], settings)
+			if payment_method == "advance"
+			else 0.0
+		)
+		sales_order = create_sales_order(
+			cart,
+			party,
+			shipping_address,
+			device_fingerprint,
+			customer,
+			fingerprint_provider,
+			payment_method=payment_method,
+			advance_amount=advance_amount,
+		)
 		# Store client IP for fraud intel
 		if client_ip:
 			frappe.db.set_value("Sales Order", sales_order.name, "custom_client_ip", client_ip)
@@ -211,7 +256,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 				ip_address=client_ip,
 			)
 		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
-			if settings and not settings.payment_gateway_account and payment_method == "cod":
+			if settings and not settings.payment_gateway_account and payment_method in ("cod", "advance"):
 				# no way to take payment yet: allow the order, keep the flag visible
 				if fraud:
 					fraud.signals["advance_deferred"] = True
@@ -288,6 +333,8 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str):
 		frappe.throw(_("Cash on Delivery is not available"))
 	if payment_method == "gateway" and not settings.payment_gateway_account:
 		frappe.throw(_("Online payment is not available"))
+	if payment_method == "advance" and not settings.enable_advance_payment:
+		frappe.throw(_("Advance payment is not available"))
 	validate_email_address(customer.get("email"), throw=True)
 	if not customer.get("full_name"):
 		frappe.throw(_("Name is required"))
@@ -437,7 +484,16 @@ def find_address(party: str, address: dict) -> str | None:
 	)
 
 
-def create_sales_order(cart, party: str, shipping_address, device_fingerprint: str = "", customer_data: dict = None, fingerprint_provider: str = ""):
+def create_sales_order(
+	cart,
+	party: str,
+	shipping_address,
+	device_fingerprint: str = "",
+	customer_data: dict = None,
+	fingerprint_provider: str = "",
+	payment_method: str = "cod",
+	advance_amount: float = 0.0,
+):
 	settings = frappe.get_cached_doc("Shop Settings")
 	cart_module.refresh_rates(cart)
 	coupon, discount = cart_module.applied_discount(
@@ -459,6 +515,8 @@ def create_sales_order(cart, party: str, shipping_address, device_fingerprint: s
 			"shipping_address_name": shipping_address.name,
 			"custom_device_fingerprint": device_fingerprint or None,
 			"custom_fingerprint_provider": fingerprint_provider or None,
+			"custom_payment_method": payment_method or "cod",
+			"custom_advance_amount": flt(advance_amount) if payment_method == "advance" else 0,
 			"contact_email": (customer_data or {}).get("email"),
 			"contact_phone": (customer_data or {}).get("phone"),
 			"contact_mobile": (customer_data or {}).get("phone"),

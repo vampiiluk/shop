@@ -3,13 +3,14 @@ from frappe.tests import IntegrationTestCase
 
 from shop.storefront import cart, checkout, orders
 
-BUYER = {"email": "jane@example.com", "full_name": "Jane Doe", "phone": "9999999999"}
+BUYER = {"email": "jane@example.com", "full_name": "Jane Doe", "phone": "9999966666"}
 ADDRESS = {
 	"address_line1": "12 Lake View Road",
 	"city": "Bengaluru",
 	"state": "Karnataka",
 	"country": "India",
 	"pincode": "560001",
+	"landmark": "Gate 7",
 }
 
 
@@ -18,6 +19,16 @@ class TestCheckout(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		# The live site's fraud tuning (velocity/blacklist) blocks repeat test
+		# buyers; these tests cover checkout mechanics, not fraud scoring.
+		previous = frappe.db.get_single_value("Shop Settings", "enable_fraud_check")
+		frappe.db.set_single_value("Shop Settings", "enable_fraud_check", 0)
+		frappe.get_cached_doc("Shop Settings")
+		self.addCleanup(self._restore_fraud_check, previous)
+
+	def _restore_fraud_check(self, previous):
+		frappe.db.set_single_value("Shop Settings", "enable_fraud_check", previous)
+		frappe.get_cached_doc("Shop Settings")
 
 	def test_place_order_cod(self):
 		cart.add_item("SHOP-DEMO-003", qty=2)

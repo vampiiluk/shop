@@ -137,16 +137,49 @@ export async function drawerTotal(page: Page): Promise<number> {
 }
 
 export async function fillCheckout(page: Page, buyer: Buyer) {
-	await page.fill('[name="email"]', buyer.email);
-	await page.fill('[name="full_name"]', buyer.full_name);
-	await page.fill('[name="phone"]', buyer.phone);
-	await page.fill('[name="address_line1"]', buyer.address_line1);
-	await page.fill('[name="city"]', buyer.city);
-	await page.fill('[name="state"]', buyer.state);
-	await page.fill('[name="pincode"]', buyer.pincode);
+	await setField(page, "email", buyer.email);
+	await setField(page, "full_name", buyer.full_name);
+	await setField(page, "phone", buyer.phone);
+	await setField(page, "address_line1", buyer.address_line1);
+	await setField(page, "landmark", "Gate 7");
+	// The address selects cascade: country → province → city, with child
+	// options disabled until the parent has been chosen.
+	await setField(page, "country", "India");
+	await setField(page, "state", buyer.state);
+	await setField(page, "city", buyer.city);
+	await setField(page, "pincode", buyer.pincode);
 }
 
-export async function submitCheckout(page: Page, method: "cod" | "gateway" = "cod") {
+/** Text inputs get filled; cascading selects pick an enabled option once loaded. */
+async function setField(page: Page, name: string, value: string) {
+	const field = page.locator(`[name="${name}"]`);
+	if ((await field.count()) === 0) return;
+	if ((await field.evaluate((el) => el.tagName)) !== "SELECT") {
+		await field.fill(value);
+		return;
+	}
+	await expect
+		.poll(
+			async () => {
+				const values: string[] = await field.evaluate((el) =>
+					Array.from(el.querySelectorAll("option"))
+						.filter((option) => !option.disabled && option.value)
+						.map((option) => option.value),
+				);
+				if (!values.length) return "no-enabled-options";
+				try {
+					await field.selectOption(values.includes(value) ? value : values[0]);
+					return "selected";
+				} catch {
+					return "select-failed";
+				}
+			},
+			{ timeout: 10_000 },
+		)
+		.toBe("selected");
+}
+
+export async function submitCheckout(page: Page, method: "cod" | "gateway" | "advance" = "cod") {
 	await page.locator(`input[name="payment_method"][value="${method}"]`).check();
 	await page.locator('[data-shop="checkout-form"] [type="submit"]').click();
 }

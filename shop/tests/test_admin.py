@@ -6,7 +6,7 @@ from shop.storefront import cart as storefront_cart
 from shop.storefront import checkout
 
 BUYER = {"email": "admin-test-buyer@example.com", "full_name": "Admin Test Buyer"}
-ADDRESS = {"address_line1": "11 Admin Way", "city": "Bengaluru", "country": "India"}
+ADDRESS = {"address_line1": "11 Admin Way", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
 
 
 class TestAdminApi(IntegrationTestCase):

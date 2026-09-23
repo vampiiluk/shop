@@ -2766,16 +2766,10 @@ def input_block(refs, name, label, input_type="text", required=False, half=False
 
 def select_block(refs, name, data_key, label_text, required=False, half=False, prefill_key=None):
 	"""Build a <select> whose <option>s are populated by a repeater from data_key."""
-	placeholder = block(
-		"option",
-		text=label_text,
-		attrs={"value": "", "disabled": "disabled"},
-		styles={"display": "none"},
-	)
 	option = block(
 		"option",
 		text="",
-		dynamicValues=[dv("item", "innerHTML"), dv("item", "value", "attribute")],
+		dynamicValues=[dv("name", "innerHTML"), dv("name", "value", "attribute")],
 	)
 	attrs = {"name": name, "aria-label": label_text}
 	if required:
@@ -2799,7 +2793,9 @@ def select_block(refs, name, data_key, label_text, required=False, half=False, p
 		attrs=attrs,
 		name=f"Select · {name}",
 	)
-	sel["children"] = [placeholder, option]
+	# The repeater treats children[0] as the per-item template, so a static
+	# placeholder option here would be repeated instead of the value option.
+	# Required selects get their placeholder from initAddressDatalists instead.
 	if prefill_key:
 		sel["dynamicValues"] = [dv(prefill_key, "value", "attribute")]
 	return sel
@@ -3189,6 +3185,29 @@ def confirmation_blocks(refs):
 			),
 		],
 	)
+	advance_tile = block(
+		"div",
+		name="Advance Tile",
+		styles=dict(tile_styles),
+		visibilityCondition={"key": "order.advance_payment", "comesFrom": "dataScript"},
+		children=[
+			tile_title("Advance payment"),
+			block(
+				"p",
+				text="",
+				styles=dict(tile_body_styles),
+				dynamicValues=[dv("order.advance_payment.line", "innerHTML")],
+				visibilityCondition={"key": "order.advance_payment.line", "comesFrom": "dataScript"},
+			),
+			block(
+				"p",
+				text="",
+				styles=dict(tile_body_styles),
+				dynamicValues=[dv("order.advance_payment.instructions", "innerHTML")],
+				visibilityCondition={"key": "order.advance_payment.instructions", "comesFrom": "dataScript"},
+			),
+		],
+	)
 	progress_stage = block(
 		"div",
 		name="Progress Stage",
@@ -3353,6 +3372,7 @@ def confirmation_blocks(refs):
 						visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
 					),
 					delivery_tile,
+					advance_tile,
 					info_tile("Order confirmation", "A receipt for this order has been sent to your email address."),
 				],
 			),

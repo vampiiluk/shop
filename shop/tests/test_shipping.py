@@ -4,7 +4,7 @@ from frappe.tests import IntegrationTestCase
 from shop.storefront import cart, checkout, orders
 
 BUYER = {"email": "shipping-buyer@example.com", "full_name": "Shipping Buyer"}
-ADDRESS = {"address_line1": "8 Freight Road", "city": "Bengaluru", "country": "India"}
+ADDRESS = {"address_line1": "8 Freight Road", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
 
 
 class TestShipping(IntegrationTestCase):

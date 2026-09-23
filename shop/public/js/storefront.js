@@ -762,6 +762,26 @@
 			countryInput.setAttribute("readonly", "readonly");
 		}
 
+		// Theme select blocks render their <option>s from a Builder repeater, which
+		// cannot emit a static placeholder. Add one here so required selects (city)
+		// start unselected and still show their field label, then skip the custom
+		// panel wiring below — native selects manage their own dropdown.
+		[stateInput, cityInput, countryInput].forEach((select) => {
+			if (!select || select.tagName !== "SELECT") return;
+			const previous = select.value;
+			const first = select.options[0];
+			if (!(first && !first.value && first.disabled)) {
+				const placeholder = document.createElement("option");
+				placeholder.value = "";
+				placeholder.disabled = true;
+				placeholder.textContent = select.getAttribute("aria-label") || "Select";
+				select.insertBefore(placeholder, select.firstChild);
+			}
+			if (select.required) select.options[0].selected = true;
+			else if (previous) select.value = previous;
+		});
+		if (stateInput && stateInput.tagName === "SELECT") return;
+
 		// Province: searchable dropdown from DB
 		const provinceSel = createShopSelect(stateInput, allProvinces, {
 			onChange(prov) {

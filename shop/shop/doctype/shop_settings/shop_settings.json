@@ -32,6 +32,11 @@
   "payment_gateway_account",
   "auto_bill_on_payment",
   "tax_template",
+  "enable_advance_payment",
+  "advance_payment_mode",
+  "advance_payment_percent",
+  "advance_payment_flat",
+  "advance_payment_instructions",
   "coupons_section",
   "custom_sync_coupons_to_pos",
   "custom_sync_pos_coupons_to_site",
@@ -222,6 +227,45 @@
    "fieldtype": "Link",
    "label": "Tax Template",
    "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "default": "0",
+   "description": "Offer a partial prepayment at checkout: the customer transfers a fixed percent or flat amount to your account, the order ships once you record it, and the courier collects the balance on delivery.",
+   "fieldname": "enable_advance_payment",
+   "fieldtype": "Check",
+   "label": "Enable Advance Payment"
+  },
+  {
+   "default": "Percent",
+   "depends_on": "eval:doc.enable_advance_payment",
+   "description": "Compute the advance as a percent of the order total or as a flat amount.",
+   "fieldname": "advance_payment_mode",
+   "fieldtype": "Select",
+   "label": "Advance Basis",
+   "options": "Percent\nFlat"
+  },
+  {
+   "default": "20",
+   "depends_on": "eval:doc.enable_advance_payment && doc.advance_payment_mode=='Percent'",
+   "fieldname": "advance_payment_percent",
+   "fieldtype": "Int",
+   "label": "Advance Percent",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_advance_payment && doc.advance_payment_mode=='Flat'",
+   "fieldname": "advance_payment_flat",
+   "fieldtype": "Currency",
+   "label": "Advance Flat Amount",
+   "non_negative": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_advance_payment",
+   "description": "Your bank / wallet account details. Shown to the customer on the order confirmation page until the advance is received.",
+   "fieldname": "advance_payment_instructions",
+   "fieldtype": "Small Text",
+   "label": "Advance Payment Instructions",
+   "rows": 3
   },
   {
    "collapsible": 1,

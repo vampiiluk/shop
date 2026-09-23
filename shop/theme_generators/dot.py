@@ -2388,16 +2388,10 @@ def input_block(refs, name, label_text, input_type="text", required=False, half=
 
 def select_block(refs, name, data_key, label_text, required=False, half=False, prefill_key=None):
 	"""Build a <select> whose <option>s are populated by a repeater from data_key."""
-	placeholder = block(
-		"option",
-		text=label_text,
-		attrs={"value": "", "disabled": "disabled"},
-		styles={"display": "none"},
-	)
 	option = block(
 		"option",
 		text="",
-		dynamicValues=[dv("item", "innerHTML"), dv("item", "value", "attribute")],
+		dynamicValues=[dv("name", "innerHTML"), dv("name", "value", "attribute")],
 	)
 	attrs = {"name": name, "aria-label": label_text}
 	if required:
@@ -2410,8 +2404,9 @@ def select_block(refs, name, data_key, label_text, required=False, half=False, p
 		attrs=attrs,
 		name=f"Select · {name}",
 	)
-	# Prepend the disabled placeholder option as the first child.
-	sel["children"] = [placeholder, option]
+	# The repeater treats children[0] as the per-item template, so a static
+	# placeholder option here would be repeated instead of the value option.
+	# Required selects get their placeholder from initAddressDatalists instead.
 	if prefill_key:
 		sel["dynamicValues"] = [dv(prefill_key, "value", "attribute")]
 	return sel
@@ -2800,6 +2795,24 @@ def confirmation_blocks(refs):
 		name="Delivery Tile",
 		visibilityCondition={"key": "order.shipment", "comesFrom": "dataScript"},
 	)
+	advance_tile = inset(
+		refs,
+		[
+			block("p", text="Advance payment", styles=mono(size="10px", color=refs["ink"], spacing="0.14em")),
+			tile_body(
+				"",
+				dynamicValues=[dv("order.advance_payment.line", "innerHTML")],
+				visibilityCondition={"key": "order.advance_payment.line", "comesFrom": "dataScript"},
+			),
+			tile_body(
+				"",
+				dynamicValues=[dv("order.advance_payment.instructions", "innerHTML")],
+				visibilityCondition={"key": "order.advance_payment.instructions", "comesFrom": "dataScript"},
+			),
+		],
+		name="Advance Tile",
+		visibilityCondition={"key": "order.advance_payment", "comesFrom": "dataScript"},
+	)
 	order_panel = panel(
 		refs,
 		[
@@ -2855,6 +2868,7 @@ def confirmation_blocks(refs):
 						visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
 					),
 					delivery_tile,
+					advance_tile,
 					info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
 				],
 			),
