@@ -18,87 +18,87 @@
     "paddingTop": "94px",
     "width": "100%"
    },
-   "blockId": "26006246b1",
+   "blockId": "7910a817d4",
    "blockName": "Root",
    "children": [
     {
-     "blockId": "d65173afde",
+     "blockId": "02cb924b47",
      "children": [
       {
-       "blockId": "1ed78c4986",
+       "blockId": "fcc1445349",
        "children": [
         {
-         "blockId": "ede14cfb86",
+         "blockId": "2dba9fc3e4",
          "children": [
           {
-           "blockId": "93f94a7212",
+           "blockId": "86ebe341bc",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "68b80c83dd"
+           "referenceBlockId": "5a5f8b19f5"
           },
           {
-           "blockId": "05458e4439",
+           "blockId": "d40ee4ec34",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "ba07cf4744"
+           "referenceBlockId": "53c708ea0b"
           }
          ],
          "isChildOfComponent": "dot-navbar",
-         "referenceBlockId": "b4df1534c2"
+         "referenceBlockId": "d4017d915e"
         },
         {
-         "blockId": "84569f9314",
+         "blockId": "4ce5d37e9d",
          "children": [
           {
-           "blockId": "6c0967c8c8",
+           "blockId": "2be2636fe9",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "75423dfa61"
+           "referenceBlockId": "0702ca6400"
           },
           {
-           "blockId": "6825a245e6",
+           "blockId": "debef0bfa7",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "96c9ae8625"
+           "referenceBlockId": "5c9c71c277"
           },
           {
-           "blockId": "e54f3d4e9b",
+           "blockId": "2e87e34417",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "6286e151ca"
+           "referenceBlockId": "98ed996ec4"
           },
           {
-           "blockId": "189c557f39",
+           "blockId": "7775633a3b",
            "children": [],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "edf2af50db"
+           "referenceBlockId": "200aca59a8"
           },
           {
-           "blockId": "ba8943bff7",
+           "blockId": "daca454406",
            "children": [
             {
-             "blockId": "98da8ce1a2",
+             "blockId": "de700aee06",
              "children": [],
              "isChildOfComponent": "dot-navbar",
-             "referenceBlockId": "b3551c7990"
+             "referenceBlockId": "7710bcfb8b"
             },
             {
-             "blockId": "b892941a08",
+             "blockId": "5459137e6d",
              "children": [],
              "isChildOfComponent": "dot-navbar",
-             "referenceBlockId": "ecd9302f44"
+             "referenceBlockId": "ed3bc487b0"
             }
            ],
            "isChildOfComponent": "dot-navbar",
-           "referenceBlockId": "a88693b790"
+           "referenceBlockId": "7e2ff39395"
           }
          ],
          "isChildOfComponent": "dot-navbar",
-         "referenceBlockId": "b1b4500674"
+         "referenceBlockId": "c3ae1cc49d"
         }
        ],
        "isChildOfComponent": "dot-navbar",
-       "referenceBlockId": "3d212cf2d9"
+       "referenceBlockId": "7af3639505"
       }
      ],
      "extendedFromComponent": "dot-navbar"
@@ -114,7 +114,7 @@
       "padding": "0 20px",
       "width": "100%"
      },
-     "blockId": "57e2d5d6e9",
+     "blockId": "64c980c0ca",
      "blockName": "Stack",
      "children": [
       {
@@ -128,7 +128,7 @@
         "padding": "26px 4px 6px",
         "width": "100%"
        },
-       "blockId": "811568f5c4",
+       "blockId": "80c31f9121",
        "blockName": "Page Header",
        "children": [
         {
@@ -141,7 +141,7 @@
           "minWidth": "0px",
           "width": "100%"
          },
-         "blockId": "7c34be5760",
+         "blockId": "e39f60a169",
          "children": [
           {
            "attributes": {},
@@ -155,7 +155,7 @@
             "textTransform": "uppercase",
             "width": "fit-content"
            },
-           "blockId": "b855d47e7a",
+           "blockId": "787e994683",
            "children": [],
            "classes": [],
            "customAttributes": {},
@@ -176,7 +176,7 @@
             "lineHeight": "1.1",
             "width": "fit-content"
            },
-           "blockId": "0d4cf6fa16",
+           "blockId": "2284524990",
            "children": [],
            "classes": [],
            "customAttributes": {},
@@ -223,7 +223,7 @@
         "padding": "12px 16px",
         "width": "100%"
        },
-       "blockId": "0d715bf9e2",
+       "blockId": "7690caa578",
        "blockName": "Error",
        "children": [],
        "classes": [],
@@ -246,7 +246,7 @@
         "padding": "60px 40px",
         "width": "100%"
        },
-       "blockId": "57493f304b",
+       "blockId": "6d6cc4ef12",
        "blockName": "Empty Checkout",
        "children": [
         {
@@ -261,7 +261,7 @@
           "textTransform": "uppercase",
           "width": "fit-content"
          },
-         "blockId": "3fbad8834a",
+         "blockId": "5034c97fa5",
          "children": [],
          "classes": [],
          "customAttributes": {},
@@ -291,7 +291,7 @@
           "textTransform": "uppercase",
           "width": "fit-content"
          },
-         "blockId": "542eac0419",
+         "blockId": "09b5c122a8",
          "children": [],
          "classes": [],
          "customAttributes": {},
@@ -323,7 +323,7 @@
         "gridTemplateColumns": "minmax(0, 3fr) minmax(0, 2fr)",
         "width": "100%"
        },
-       "blockId": "1a30af6a03",
+       "blockId": "049d40e4f7",
        "children": [
         {
          "attributes": {},
@@ -337,7 +337,7 @@
           "padding": "40px",
           "width": "100%"
          },
-         "blockId": "e8e74f6259",
+         "blockId": "ccf178e294",
          "blockName": "Section · Checkout Form",
          "children": [
           {
@@ -350,7 +350,7 @@
             "gridTemplateColumns": "repeat(2, minmax(0, 1fr))",
             "width": "100%"
            },
-           "blockId": "e629805e61",
+           "blockId": "ee6b315cd2",
            "blockName": "Checkout Form",
            "children": [
             {
@@ -366,7 +366,7 @@
               "textTransform": "uppercase",
               "width": "fit-content"
              },
-             "blockId": "4dd266e849",
+             "blockId": "3aba066ec8",
              "children": [],
              "classes": [],
              "customAttributes": {},
@@ -394,7 +394,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "20695465b4",
+             "blockId": "bd965126a6",
              "blockName": "Input · email",
              "children": [],
              "classes": [],
@@ -425,7 +425,7 @@
               "textTransform": "uppercase",
               "width": "fit-content"
              },
-             "blockId": "a4541767cc",
+             "blockId": "d5274719c3",
              "children": [],
              "classes": [],
              "customAttributes": {},
@@ -441,7 +441,7 @@
               "gridColumn": "span 2",
               "width": "100%"
              },
-             "blockId": "65ce84bf25",
+             "blockId": "b6fd7bcac7",
              "blockName": "Saved Addresses",
              "children": [
               {
@@ -460,12 +460,12 @@
                 "padding": "12px 14px",
                 "width": "100%"
                },
-               "blockId": "aec0270093",
+               "blockId": "036c6ebe35",
                "children": [
                 {
                  "attributes": {},
                  "baseStyles": {},
-                 "blockId": "776bc4b604",
+                 "blockId": "8771767993",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -530,7 +530,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "50137cc946",
+             "blockId": "ec7fe23134",
              "blockName": "Input · full_name",
              "children": [],
              "classes": [],
@@ -565,7 +565,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "1030d65819",
+             "blockId": "2f5dcdc237",
              "blockName": "Input · phone",
              "children": [],
              "classes": [],
@@ -601,7 +601,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "7e3aead1a6",
+             "blockId": "3a945d5738",
              "blockName": "Input · address_line1",
              "children": [],
              "classes": [],
@@ -636,7 +636,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "6225d6c9d3",
+             "blockId": "12d6ce0288",
              "blockName": "Input · address_line2",
              "children": [],
              "classes": [],
@@ -671,7 +671,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "26b8391251",
+             "blockId": "9e0ff16b57",
              "blockName": "Input · landmark",
              "children": [],
              "classes": [],
@@ -706,13 +706,13 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "97319ac4d9",
+             "blockId": "0a4087d6fc",
              "blockName": "Select · city",
              "children": [
               {
                "attributes": {},
                "baseStyles": {},
-               "blockId": "8b419d56b9",
+               "blockId": "388a1a6a39",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -772,13 +772,13 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "7626c41321",
+             "blockId": "7afac260ef",
              "blockName": "Select · state",
              "children": [
               {
                "attributes": {},
                "baseStyles": {},
-               "blockId": "ceda1fcb9e",
+               "blockId": "902adff7d0",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -839,7 +839,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "c09ce4866b",
+             "blockId": "b738756ae2",
              "blockName": "Input · pincode",
              "children": [],
              "classes": [],
@@ -873,13 +873,13 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "9bd6e7fee0",
+             "blockId": "0932e67342",
              "blockName": "Select · country",
              "children": [
               {
                "attributes": {},
                "baseStyles": {},
-               "blockId": "cd2a4686a8",
+               "blockId": "e00e9ab722",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -936,7 +936,7 @@
               "textTransform": "uppercase",
               "width": "fit-content"
              },
-             "blockId": "8bd7e5fcb9",
+             "blockId": "651b02bf9f",
              "children": [],
              "classes": [],
              "customAttributes": {},
@@ -954,7 +954,7 @@
               "gridColumn": "span 2",
               "width": "100%"
              },
-             "blockId": "a8358db024",
+             "blockId": "e6d913c462",
              "blockName": "Payment Methods",
              "children": [
               {
@@ -971,7 +971,7 @@
                 "padding": "12px 18px",
                 "width": "100%"
                },
-               "blockId": "9a752427e4",
+               "blockId": "37ef80d4cb",
                "blockName": "Payment Method",
                "children": [
                 {
@@ -984,7 +984,7 @@
                   "height": "14px",
                   "width": "14px"
                  },
-                 "blockId": "117d56189a",
+                 "blockId": "75322bb2df",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -1012,7 +1012,7 @@
                   "textTransform": "uppercase",
                   "width": "fit-content"
                  },
-                 "blockId": "ee6a3ee3ea",
+                 "blockId": "e51f0c3610",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -1061,7 +1061,7 @@
               "lineHeight": "1.5",
               "width": "100%"
              },
-             "blockId": "df5e38fd7f",
+             "blockId": "e353aa152a",
              "children": [],
              "classes": [],
              "customAttributes": {},
@@ -1084,7 +1084,7 @@
               "padding": "12px 14px",
               "width": "100%"
              },
-             "blockId": "da7dd9c22d",
+             "blockId": "5ea88f8c9c",
              "blockName": "Advance Instructions",
              "children": [
               {
@@ -1097,7 +1097,7 @@
                 "whiteSpace": "pre-line",
                 "width": "100%"
                },
-               "blockId": "cf08c0784e",
+               "blockId": "198f3878d3",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1136,7 +1136,7 @@
               "gridColumn": "span 2",
               "width": "100%"
              },
-             "blockId": "db664ec71b",
+             "blockId": "6ba487901a",
              "blockName": "Pickup Locations",
              "children": [
               {
@@ -1151,7 +1151,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "086c54955d",
+               "blockId": "41d987af8a",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1168,7 +1168,7 @@
                 "gap": "10px",
                 "width": "100%"
                },
-               "blockId": "ee042534c3",
+               "blockId": "02e6a2cf98",
                "blockName": "Pickup Location Rows",
                "children": [
                 {
@@ -1184,7 +1184,7 @@
                   "padding": "12px 14px",
                   "width": "100%"
                  },
-                 "blockId": "d49148eaca",
+                 "blockId": "a21f478246",
                  "children": [
                   {
                    "attributes": {
@@ -1197,7 +1197,7 @@
                     "marginTop": "3px",
                     "width": "14px"
                    },
-                   "blockId": "0b517b4cab",
+                   "blockId": "f56bb3ed93",
                    "children": [],
                    "classes": [],
                    "customAttributes": {},
@@ -1221,7 +1221,7 @@
                     "gap": "6px",
                     "width": "100%"
                    },
-                   "blockId": "a341e311bb",
+                   "blockId": "a0e4293250",
                    "children": [
                     {
                      "attributes": {},
@@ -1235,7 +1235,7 @@
                       "textTransform": "uppercase",
                       "width": "fit-content"
                      },
-                     "blockId": "bab1b1fd20",
+                     "blockId": "aa46f8b266",
                      "children": [],
                      "classes": [],
                      "customAttributes": {},
@@ -1262,7 +1262,7 @@
                       "whiteSpace": "pre-line",
                       "width": "100%"
                      },
-                     "blockId": "647ad81512",
+                     "blockId": "03cc24ee6b",
                      "children": [],
                      "classes": [],
                      "customAttributes": {},
@@ -1294,7 +1294,7 @@
                       "position": "relative",
                       "width": "100%"
                      },
-                     "blockId": "7fad720f11",
+                     "blockId": "1fa853bce2",
                      "children": [
                       {
                        "attributes": {
@@ -1310,7 +1310,7 @@
                         "pointerEvents": "none",
                         "width": "100%"
                        },
-                       "blockId": "10751ccf0e",
+                       "blockId": "1a08e3f38f",
                        "children": [],
                        "classes": [],
                        "customAttributes": {},
@@ -1337,7 +1337,7 @@
                         "top": "8px",
                         "zIndex": "1"
                        },
-                       "blockId": "0a480a1ffd",
+                       "blockId": "969b021eb1",
                        "children": [
                         {
                          "attributes": {
@@ -1365,7 +1365,7 @@
                           "padding": "0",
                           "width": "26px"
                          },
-                         "blockId": "36c1e0ba97",
+                         "blockId": "487f9e3cad",
                          "children": [],
                          "classes": [],
                          "customAttributes": {},
@@ -1400,7 +1400,7 @@
                           "padding": "0",
                           "width": "26px"
                          },
-                         "blockId": "b8a355b84d",
+                         "blockId": "17dc2c8763",
                          "children": [],
                          "classes": [],
                          "customAttributes": {},
@@ -1450,7 +1450,7 @@
                       "textTransform": "uppercase",
                       "width": "100%"
                      },
-                     "blockId": "158108485b",
+                     "blockId": "8b9bddb99b",
                      "children": [],
                      "classes": [],
                      "customAttributes": {},
@@ -1479,7 +1479,7 @@
                       "gap": "8px",
                       "width": "100%"
                      },
-                     "blockId": "2806b737be",
+                     "blockId": "13fd616a04",
                      "children": [
                       {
                        "attributes": {
@@ -1506,7 +1506,7 @@
                         "textTransform": "uppercase",
                         "width": "fit-content"
                        },
-                       "blockId": "3469773c87",
+                       "blockId": "79d9e0cc26",
                        "children": [],
                        "classes": [],
                        "customAttributes": {},
@@ -1555,7 +1555,7 @@
                         "textTransform": "uppercase",
                         "width": "fit-content"
                        },
-                       "blockId": "0bb065fe98",
+                       "blockId": "8865fd01ed",
                        "children": [],
                        "classes": [],
                        "customAttributes": {},
@@ -1621,7 +1621,7 @@
                 "lineHeight": "1.5",
                 "width": "100%"
                },
-               "blockId": "7f27b7d933",
+               "blockId": "89f6a046e6",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1672,7 +1672,7 @@
               "textTransform": "uppercase",
               "width": "100%"
              },
-             "blockId": "ab1d13f6b1",
+             "blockId": "1c82f3421b",
              "children": [],
              "classes": [],
              "customAttributes": {},
@@ -1712,7 +1712,7 @@
           "padding": "40px",
           "width": "100%"
          },
-         "blockId": "7e23e31c70",
+         "blockId": "a64a83d6cc",
          "blockName": "Summary",
          "children": [
           {
@@ -1727,7 +1727,7 @@
             "textTransform": "uppercase",
             "width": "fit-content"
            },
-           "blockId": "68cab3c743",
+           "blockId": "3db7bda1e5",
            "children": [],
            "classes": [],
            "customAttributes": {},
@@ -1744,7 +1744,7 @@
             "gap": "14px",
             "width": "100%"
            },
-           "blockId": "fc586e0eda",
+           "blockId": "3199d8db4d",
            "blockName": "Summary Items",
            "children": [
             {
@@ -1756,7 +1756,7 @@
               "gap": "12px",
               "width": "100%"
              },
-             "blockId": "f651277fe7",
+             "blockId": "9c67ae3201",
              "blockName": "Summary Row",
              "children": [
               {
@@ -1773,7 +1773,7 @@
                 "objectFit": "cover",
                 "width": "42px"
                },
-               "blockId": "219edbb701",
+               "blockId": "ed307fe57f",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1803,7 +1803,7 @@
                 "flexGrow": "1",
                 "gap": "3px"
                },
-               "blockId": "28b0b64fa8",
+               "blockId": "093265b7b5",
                "children": [
                 {
                  "attributes": {},
@@ -1813,7 +1813,7 @@
                   "height": "fit-content",
                   "width": "fit-content"
                  },
-                 "blockId": "7cf072e28e",
+                 "blockId": "7425541ddc",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -1842,7 +1842,7 @@
                   "textTransform": "uppercase",
                   "width": "fit-content"
                  },
-                 "blockId": "bebbafa969",
+                 "blockId": "156b2172b5",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -1877,7 +1877,7 @@
                 "letterSpacing": "0.02em",
                 "width": "fit-content"
                },
-               "blockId": "6904b95723",
+               "blockId": "0282eb3ee8",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1925,7 +1925,7 @@
             "paddingTop": "16px",
             "width": "100%"
            },
-           "blockId": "74db0e0175",
+           "blockId": "b786ed3c81",
            "blockName": "Coupon",
            "children": [
             {
@@ -1938,7 +1938,7 @@
               "gap": "8px",
               "width": "100%"
              },
-             "blockId": "d75c428aaf",
+             "blockId": "744eb8e93b",
              "blockName": "Coupon Form",
              "children": [
               {
@@ -1960,7 +1960,7 @@
                 "padding": "12px 14px",
                 "width": "100%"
                },
-               "blockId": "7123412dce",
+               "blockId": "0180305643",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -1989,7 +1989,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "08922dc7f2",
+               "blockId": "5190396512",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2014,7 +2014,7 @@
               "gap": "10px",
               "width": "100%"
              },
-             "blockId": "d6b6cc9b22",
+             "blockId": "6cb2caa935",
              "blockName": "Coupon Applied",
              "children": [
               {
@@ -2032,7 +2032,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "0cbe80b178",
+               "blockId": "5af7631161",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2057,7 +2057,7 @@
                 "flexGrow": "1",
                 "justifyContent": "flex-end"
                },
-               "blockId": "207f34e136",
+               "blockId": "cfd18f0c42",
                "children": [
                 {
                  "attributes": {},
@@ -2067,7 +2067,7 @@
                   "flexDirection": "row",
                   "width": "fit-content"
                  },
-                 "blockId": "3c34997548",
+                 "blockId": "1a0b73c4a3",
                  "children": [
                   {
                    "attributes": {},
@@ -2081,7 +2081,7 @@
                     "whiteSpace": "pre",
                     "width": "fit-content"
                    },
-                   "blockId": "cd126d648f",
+                   "blockId": "7c067f449d",
                    "children": [],
                    "classes": [],
                    "customAttributes": {},
@@ -2103,7 +2103,7 @@
                     "whiteSpace": "pre",
                     "width": "fit-content"
                    },
-                   "blockId": "e2952cfe6e",
+                   "blockId": "b382d005fb",
                    "children": [],
                    "classes": [],
                    "customAttributes": {},
@@ -2152,7 +2152,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "7f9eaa91f7",
+               "blockId": "387fd874ff",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2193,7 +2193,7 @@
             "paddingTop": "16px",
             "width": "100%"
            },
-           "blockId": "32efbd6c87",
+           "blockId": "f1b726e4e6",
            "children": [
             {
              "attributes": {},
@@ -2203,7 +2203,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "e6a4c06e86",
+             "blockId": "d5815b3587",
              "children": [
               {
                "attributes": {},
@@ -2217,7 +2217,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "03a614b802",
+               "blockId": "03f58bf43f",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2237,7 +2237,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "2cb7117a53",
+               "blockId": "f66ee050b4",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2269,7 +2269,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "ef5eddc9e3",
+             "blockId": "2a36f8136d",
              "blockName": "Discount Row",
              "children": [
               {
@@ -2284,7 +2284,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "fc6703ddce",
+               "blockId": "3b597820fc",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2301,7 +2301,7 @@
                 "flexDirection": "row",
                 "width": "fit-content"
                },
-               "blockId": "16f74f015b",
+               "blockId": "2fc88260b3",
                "children": [
                 {
                  "attributes": {},
@@ -2315,7 +2315,7 @@
                   "whiteSpace": "pre",
                   "width": "fit-content"
                  },
-                 "blockId": "2158804014",
+                 "blockId": "29d530a17f",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -2337,7 +2337,7 @@
                   "whiteSpace": "pre",
                   "width": "fit-content"
                  },
-                 "blockId": "66495b17e3",
+                 "blockId": "191ca29029",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -2380,7 +2380,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "3f8701c6ef",
+             "blockId": "361f76b0b1",
              "children": [
               {
                "attributes": {},
@@ -2394,7 +2394,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "2db735e420",
+               "blockId": "80a2d82617",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2414,7 +2414,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "9756b6288f",
+               "blockId": "3c12c8e742",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2446,7 +2446,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "b1e956b64f",
+             "blockId": "ac89186fae",
              "children": [
               {
                "attributes": {},
@@ -2460,7 +2460,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "5055cb5bae",
+               "blockId": "bb5802241c",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2480,7 +2480,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "a133e62d98",
+               "blockId": "a40805070d",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2525,7 +2525,7 @@
             "paddingTop": "16px",
             "width": "100%"
            },
-           "blockId": "35164db187",
+           "blockId": "f733843cd7",
            "children": [
             {
              "attributes": {},
@@ -2535,7 +2535,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "6d42817d73",
+             "blockId": "32573099fe",
              "children": [
               {
                "attributes": {},
@@ -2549,7 +2549,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "a7c8a40ee5",
+               "blockId": "3ff0ce3074",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2569,7 +2569,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "95629759e6",
+               "blockId": "978ddaca50",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2601,7 +2601,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "cbf1ecff97",
+             "blockId": "ce5d300ebe",
              "blockName": "Discount Row",
              "children": [
               {
@@ -2616,7 +2616,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "cdb0885601",
+               "blockId": "947bc4408a",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2633,7 +2633,7 @@
                 "flexDirection": "row",
                 "width": "fit-content"
                },
-               "blockId": "4b6fbe1979",
+               "blockId": "6c33923a48",
                "children": [
                 {
                  "attributes": {},
@@ -2647,7 +2647,7 @@
                   "whiteSpace": "pre",
                   "width": "fit-content"
                  },
-                 "blockId": "3b9aa01657",
+                 "blockId": "b54dfaa52e",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -2669,7 +2669,7 @@
                   "whiteSpace": "pre",
                   "width": "fit-content"
                  },
-                 "blockId": "96ddab9e01",
+                 "blockId": "0a318ba738",
                  "children": [],
                  "classes": [],
                  "customAttributes": {},
@@ -2712,7 +2712,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "f30bda62c9",
+             "blockId": "cfb1ee4a42",
              "children": [
               {
                "attributes": {},
@@ -2726,7 +2726,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "35ccb181db",
+               "blockId": "f1f8626d40",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2746,7 +2746,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "f52593032c",
+               "blockId": "72b165d925",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2778,7 +2778,7 @@
               "justifyContent": "space-between",
               "width": "100%"
              },
-             "blockId": "50a4be062e",
+             "blockId": "9a06576c2f",
              "children": [
               {
                "attributes": {},
@@ -2792,7 +2792,7 @@
                 "textTransform": "uppercase",
                 "width": "fit-content"
                },
-               "blockId": "5bbb71c44a",
+               "blockId": "99380864b5",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2812,7 +2812,7 @@
                 "letterSpacing": "0.04em",
                 "width": "fit-content"
                },
-               "blockId": "8cece88a50",
+               "blockId": "8add1a99d0",
                "children": [],
                "classes": [],
                "customAttributes": {},
@@ -2860,7 +2860,7 @@
             "textTransform": "uppercase",
             "width": "100%"
            },
-           "blockId": "944e40c1ed",
+           "blockId": "1a9052a0fe",
            "children": [],
            "classes": [],
            "customAttributes": {},
@@ -2905,262 +2905,262 @@
      "tabletStyles": {}
     },
     {
-     "blockId": "78ef19134f",
+     "blockId": "3b7440770e",
      "children": [
       {
-       "blockId": "3a75fe6630",
+       "blockId": "c918f40f8e",
        "children": [
         {
-         "blockId": "218a2d3d6e",
+         "blockId": "76eec29a29",
          "children": [
           {
-           "blockId": "ea026406db",
+           "blockId": "ea1e583024",
            "children": [
             {
-             "blockId": "fa8fec0ee9",
+             "blockId": "9ab74700e6",
              "children": [
               {
-               "blockId": "a644dea82f",
+               "blockId": "c44e19fb29",
                "children": [
                 {
-                 "blockId": "30291c86ad",
+                 "blockId": "d6149c16f1",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "81738bbdb7"
+                 "referenceBlockId": "5332f9de74"
                 },
                 {
-                 "blockId": "4d9befb8b3",
+                 "blockId": "5491c7634c",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "0340a5fd66"
+                 "referenceBlockId": "48d5f0edec"
                 }
                ],
                "isChildOfComponent": "dot-footer",
-               "referenceBlockId": "6d299783da"
+               "referenceBlockId": "d02935f171"
               },
               {
-               "blockId": "82ed08f893",
+               "blockId": "402d66bf55",
                "children": [],
                "isChildOfComponent": "dot-footer",
-               "referenceBlockId": "d73131786c"
+               "referenceBlockId": "3a4c536ea8"
               }
              ],
              "isChildOfComponent": "dot-footer",
-             "referenceBlockId": "dcf7224493"
+             "referenceBlockId": "f371e1e953"
             },
             {
-             "blockId": "7ddfea92df",
+             "blockId": "193280502c",
              "children": [
               {
-               "blockId": "68224f4627",
+               "blockId": "96093fa80e",
                "children": [
                 {
-                 "blockId": "c0d52ebf15",
+                 "blockId": "5ee260e824",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "ab674a96b7"
+                 "referenceBlockId": "05c45a3843"
                 },
                 {
-                 "blockId": "0acbc9e4e2",
+                 "blockId": "4c33169aab",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "9bdf68cbd6"
+                 "referenceBlockId": "27cb7950d5"
                 },
                 {
-                 "blockId": "2201d00a1e",
+                 "blockId": "9adab345c9",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "ac02fb8ab4"
+                 "referenceBlockId": "d711f3f7c4"
                 }
                ],
                "isChildOfComponent": "dot-footer",
-               "referenceBlockId": "24dfe60b56"
+               "referenceBlockId": "4d420f1ab8"
               },
               {
-               "blockId": "3b91a3dac4",
+               "blockId": "fb85e2a805",
                "children": [
                 {
-                 "blockId": "122a78e161",
+                 "blockId": "cb35f81271",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "52f5d3fca0"
+                 "referenceBlockId": "562b2f30fa"
                 },
                 {
-                 "blockId": "b6bef443d3",
+                 "blockId": "5caf8c6cd8",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "a19b626228"
+                 "referenceBlockId": "f9811bb6c5"
                 },
                 {
-                 "blockId": "0b83702c9d",
+                 "blockId": "f748005d97",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "66f71c952a"
+                 "referenceBlockId": "affba0198e"
                 }
                ],
                "isChildOfComponent": "dot-footer",
-               "referenceBlockId": "8a33e33cc3"
+               "referenceBlockId": "0ca24f170e"
               },
               {
-               "blockId": "b8e20512fc",
+               "blockId": "dc14b992d0",
                "children": [
                 {
-                 "blockId": "0a7239f4d4",
+                 "blockId": "082c3af782",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "918841d895"
+                 "referenceBlockId": "f8845a0d22"
                 },
                 {
-                 "blockId": "126375e783",
+                 "blockId": "08759ae87d",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "fce7db8a40"
+                 "referenceBlockId": "951bb22412"
                 },
                 {
-                 "blockId": "33bf4dd7ad",
+                 "blockId": "1d22189a55",
                  "children": [],
                  "isChildOfComponent": "dot-footer",
-                 "referenceBlockId": "bbfd697149"
+                 "referenceBlockId": "438188c2bb"
                 }
                ],
                "isChildOfComponent": "dot-footer",
-               "referenceBlockId": "b23ba1e97c"
+               "referenceBlockId": "df8fc8a4d1"
               }
              ],
              "isChildOfComponent": "dot-footer",
-             "referenceBlockId": "249aede82a"
+             "referenceBlockId": "9c46842d9c"
             }
            ],
            "isChildOfComponent": "dot-footer",
-           "referenceBlockId": "2425fe4cc2"
+           "referenceBlockId": "275d0201b8"
           },
           {
-           "blockId": "1796e0a961",
+           "blockId": "6f08a36aca",
            "children": [
             {
-             "blockId": "351a84432f",
+             "blockId": "ae99bc4865",
              "children": [],
              "isChildOfComponent": "dot-footer",
-             "referenceBlockId": "5376b400d3"
+             "referenceBlockId": "46470a0171"
             },
             {
-             "blockId": "65e235c86e",
+             "blockId": "41d7234da0",
              "children": [],
              "isChildOfComponent": "dot-footer",
-             "referenceBlockId": "81ae77d57a"
+             "referenceBlockId": "2a36f79039"
             },
             {
-             "blockId": "08d1cd4e04",
+             "blockId": "607660568c",
              "children": [],
              "isChildOfComponent": "dot-footer",
-             "referenceBlockId": "09180c7718"
+             "referenceBlockId": "eb9d906119"
             }
            ],
            "isChildOfComponent": "dot-footer",
-           "referenceBlockId": "0075923c41"
+           "referenceBlockId": "e1ee09c0de"
           }
          ],
          "isChildOfComponent": "dot-footer",
-         "referenceBlockId": "8713e46185"
+         "referenceBlockId": "6a47340bb3"
         }
        ],
        "isChildOfComponent": "dot-footer",
-       "referenceBlockId": "b1ea7e54d6"
+       "referenceBlockId": "dc7db4367c"
       }
      ],
      "extendedFromComponent": "dot-footer"
     },
     {
-     "blockId": "0e11f78081",
+     "blockId": "f4552dd1d7",
      "children": [
       {
-       "blockId": "d7f53eedf2",
+       "blockId": "e4603eeb62",
        "children": [],
        "isChildOfComponent": "dot-cart-drawer",
-       "referenceBlockId": "db335c8fae"
+       "referenceBlockId": "d80b582fb3"
       },
       {
-       "blockId": "204f14f5f2",
+       "blockId": "82cfabab7f",
        "children": [
         {
-         "blockId": "ff5ac33bef",
+         "blockId": "b20af6a29d",
          "children": [
           {
-           "blockId": "304f5c030f",
+           "blockId": "1b5abf35eb",
            "children": [],
            "isChildOfComponent": "dot-cart-drawer",
-           "referenceBlockId": "36ac69e9c5"
+           "referenceBlockId": "82a7940f60"
           },
           {
-           "blockId": "75f7dcf418",
+           "blockId": "ab6af86cea",
            "children": [],
            "isChildOfComponent": "dot-cart-drawer",
-           "referenceBlockId": "dad1fb76a2"
+           "referenceBlockId": "0695f35759"
           }
          ],
          "isChildOfComponent": "dot-cart-drawer",
-         "referenceBlockId": "f0e05f26b0"
+         "referenceBlockId": "3836ea84d4"
         },
         {
-         "blockId": "db6b836aa5",
+         "blockId": "5433ee06eb",
          "children": [],
          "isChildOfComponent": "dot-cart-drawer",
-         "referenceBlockId": "e24f172132"
+         "referenceBlockId": "5e3801ef58"
         },
         {
-         "blockId": "436002b0f5",
+         "blockId": "af02c7d00f",
          "children": [
           {
-           "blockId": "d402d18f56",
+           "blockId": "8129e598b5",
            "children": [
             {
-             "blockId": "91e6d909c1",
+             "blockId": "0ce8ebc636",
              "children": [],
              "isChildOfComponent": "dot-cart-drawer",
-             "referenceBlockId": "0affc5cd66"
+             "referenceBlockId": "bd9c779be9"
             },
             {
-             "blockId": "bf5fe616af",
+             "blockId": "2c843be181",
              "children": [],
              "isChildOfComponent": "dot-cart-drawer",
-             "referenceBlockId": "fd4266d3df"
+             "referenceBlockId": "ad0134c041"
             }
            ],
            "isChildOfComponent": "dot-cart-drawer",
-           "referenceBlockId": "166705952a"
+           "referenceBlockId": "3a9c45972a"
           },
           {
-           "blockId": "5a0ac31559",
+           "blockId": "f0023c3ef2",
            "children": [],
            "isChildOfComponent": "dot-cart-drawer",
-           "referenceBlockId": "35e3971db0"
+           "referenceBlockId": "6c9823dbde"
           },
           {
-           "blockId": "546d8ebe76",
+           "blockId": "119f2402f0",
            "children": [
             {
-             "blockId": "2215620cdc",
+             "blockId": "a8cf13a29f",
              "children": [],
              "isChildOfComponent": "dot-cart-drawer",
-             "referenceBlockId": "0e8d7ac368"
+             "referenceBlockId": "092a0a18b5"
             },
             {
-             "blockId": "b147241c0c",
+             "blockId": "3b855cd9d7",
              "children": [],
              "isChildOfComponent": "dot-cart-drawer",
-             "referenceBlockId": "1504c9ba18"
+             "referenceBlockId": "88b2041709"
             }
            ],
            "isChildOfComponent": "dot-cart-drawer",
-           "referenceBlockId": "88d636a2b8"
+           "referenceBlockId": "15ab244615"
           }
          ],
          "isChildOfComponent": "dot-cart-drawer",
-         "referenceBlockId": "df03805f41"
+         "referenceBlockId": "ebe1b486e7"
         }
        ],
        "isChildOfComponent": "dot-cart-drawer",
-       "referenceBlockId": "c9accaf56e"
+       "referenceBlockId": "ec0224c410"
       }
      ],
      "extendedFromComponent": "dot-cart-drawer"
@@ -3192,7 +3192,7 @@
  "idx": 0,
  "is_standard": 0,
  "is_template": 1,
- "modified": "2026-09-25 00:48:35.826962",
+ "modified": "2026-09-25 03:36:49.163690",
  "modified_by": "Administrator",
  "name": "page-e0dc4899",
  "owner": "Administrator",

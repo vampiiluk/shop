@@ -30,12 +30,15 @@ def listing() -> dict:
 		price_min=price_min,
 		price_max=price_max,
 		in_stock=form.get("stock") == "in",
+		size=form.get("size"),
+		color=form.get("color"),
+		with_facets=True,
 	)
 	applied = applied_filters(form)
 	return {
 		"store": store_details(),
 		"collections": collections,
-		"filters": listing_filters(form, collections),
+		"filters": listing_filters(form, collections, facets=result["facets"]),
 		"filters_applied": "true" if applied else None,
 		"filter_count": str(len(applied)) if applied else None,
 		"search": form.get("search") or "",
@@ -47,7 +50,13 @@ def listing() -> dict:
 	}
 
 
-FILTER_PARAMS = ("collection", "price", "stock", "sort")
+FILTER_PARAMS = ("collection", "price", "stock", "sort", "size", "color")
+# Query parameters a filter link carries over; `collection` only applies to the
+# /products listing, since a collection page keeps its slug in the path.
+CARRY_PARAMS = ("collection", "search", "sort", "price", "stock", "size", "color")
+# Facet filters are scoped to the category they were offered in, so they reset
+# when the shopper moves to another collection.
+SCOPED_PARAMS = ("size", "color")
 
 
 def applied_filters(form) -> list[str]:
@@ -78,57 +87,126 @@ def parse_price_bucket(bucket: str | None):
 	return None, None
 
 
-def listing_filters(form, collections) -> list[dict]:
-	def option(label, param, value):
-		current = form.get(param)
-		active = (current or "") == (value or "")
-		return {"label": label, "url": filter_url(form, {param: value}), "active": "true" if active else "false"}
+def listing_filters(
+	form,
+	collections,
+	path: str = "/products",
+	current_collection: str | None = None,
+	facets: dict | None = None,
+) -> list[dict]:
+	"""Filter groups for the listing, rendered identically on /products and on
+	any /collection/<slug> page — ``path`` is what every chip links back to.
+
+	Size and Colour groups are built from ``facets`` (the values actually in
+	stock in this category) and simply are not built when there are none, while
+	Price, Availability and Sort are always there."""
+	from urllib.parse import urlencode
 
 	from frappe.utils import fmt_money
 
+	collection_in_view = current_collection if current_collection is not None else (form.get("collection") or None)
+
+	def option(label, param, value):
+		current = form.get(param)
+		active = (current or "") == (value or "")
+		return {
+			"label": label,
+			"url": filter_url(form, {param: value}, path),
+			"active": "true" if active else "false",
+		}
+
+	def collection_option(label, slug):
+		"""Collection links keep the shopper on the route they are browsing."""
+		active = collection_in_view == slug
+		if path != "/products":
+			url = "/products" if slug is None else f"/collection/{slug}"
+			keep = {key: form.get(key) for key in ("search", "sort", "price", "stock") if form.get(key)}
+			return {
+				"label": label,
+				"url": f"{url}?{urlencode(keep)}" if keep else url,
+				"active": "true" if active else "false",
+			}
+		changes = {"collection": slug}
+		if slug != collection_in_view:
+			changes.update({key: None for key in SCOPED_PARAMS})
+		return {
+			"label": label,
+			"url": filter_url(form, changes, path),
+			"active": "true" if active else "false",
+		}
+
 	currency = frappe.get_cached_doc("Shop Settings").currency
 	money = lambda amount: fmt_money(amount, currency=currency, precision=0)
-	return [
+	groups = [
 		{
 			"label": "Collection",
 			"options": [
-				option("All", "collection", None),
-				*[option(row.title, "collection", row.slug) for row in collections],
+				collection_option("All", None),
+				*[collection_option(row.title, row.slug) for row in collections],
 			],
-		},
-		{
-			"label": "Price",
-			"options": [
-				option("Any price", "price", None),
-				*[
-					option(label.format(money(low or high), money(high or low)), "price", key)
-					for key, label, (low, high) in PRICE_BUCKETS
-				],
-			],
-		},
-		{
-			"label": "Availability",
-			"options": [option("All", "stock", None), option("In stock", "stock", "in")],
-		},
-		{
-			"label": "Sort",
-			"options": [option(label, "sort", None if key == "ranking" else key) for key, label in SORT_OPTIONS],
 		},
 	]
+	for facet in ("size", "color"):
+		found = (facets or {}).get(facet)
+		attribute = found["attribute"] if found else facet.title()
+		values = list((found or {}).get("values") or [])
+		applied_value = form.get(facet)
+		if applied_value and applied_value not in values:
+			# A value the category does not stock — set by hand, or left over
+			# from another collection — still gets its chip, active, so what
+			# the shopper is filtering by stays visible and clearable.
+			values.append(applied_value)
+		if not values:
+			continue  # nothing of this kind in the category: no filter for it
+		groups.append(
+			{
+				"label": attribute,
+				"options": [
+					option(f"Any {attribute.lower()}", facet, None),
+					*[option(value, facet, value) for value in values],
+				],
+			}
+		)
+	groups.extend(
+		[
+			{
+				"label": "Price",
+				"options": [
+					option("Any price", "price", None),
+					*[
+						option(label.format(money(low or high), money(high or low)), "price", key)
+						for key, label, (low, high) in PRICE_BUCKETS
+					],
+				],
+			},
+			{
+				"label": "Availability",
+				"options": [option("All", "stock", None), option("In stock", "stock", "in")],
+			},
+			{
+				"label": "Sort",
+				"options": [option(label, "sort", None if key == "ranking" else key) for key, label in SORT_OPTIONS],
+			},
+		]
+	)
+	return groups
 
 
-def filter_url(form, changes: dict) -> str:
+def filter_url(form, changes: dict, path: str = "/products") -> str:
 	from urllib.parse import urlencode
 
 	params = {
-		key: form.get(key) for key in ("collection", "search", "sort", "price", "stock") if form.get(key)
+		key: form.get(key)
+		for key in CARRY_PARAMS
+		if (key != "collection" or path == "/products") and form.get(key)
 	}
 	for key, value in changes.items():
 		if value:
 			params[key] = value
 		else:
 			params.pop(key, None)
-	return "/products" + (f"?{urlencode(params)}" if params else "")
+	query = urlencode(params)
+	return f"{path}?{query}" if query else path
 
 
 @frappe.whitelist(allow_guest=True)
@@ -168,7 +246,8 @@ def related_products(detail: dict) -> list:
 
 @frappe.whitelist(allow_guest=True)
 def collection_page() -> dict:
-	slug = frappe.form_dict.slug
+	form = frappe.form_dict
+	slug = form.slug
 	collection = frappe.db.get_value(
 		"Shop Collection",
 		{"slug": slug, "published": 1},
@@ -177,10 +256,45 @@ def collection_page() -> dict:
 	)
 	if not collection:
 		frappe.throw(frappe._("Collection not found"), frappe.DoesNotExistError)
+	page = max(cint(form.get("page")) or 1, 1)
+	price_min, price_max = parse_price_bucket(form.get("price"))
+	collections = catalog.get_collections()
+	path = f"/collection/{slug}"
+	result = catalog.get_products(
+		collection=slug,
+		search=form.get("search"),
+		sort=form.get("sort") or "ranking",
+		start=(page - 1) * PAGE_SIZE,
+		limit=PAGE_SIZE,
+		price_min=price_min,
+		price_max=price_max,
+		in_stock=form.get("stock") == "in",
+		size=form.get("size"),
+		color=form.get("color"),
+		with_facets=True,
+	)
+	applied = applied_filters(form)
 	return {
 		"store": store_details(),
 		"collection": collection,
-		**catalog.get_products(collection=slug, limit=PAGE_SIZE),
+		# Filters like the All products page, but every chip links back to
+		# /collection/<slug> and the Size/Colour groups only exist when this
+		# category actually has those variants.
+		"filters": listing_filters(
+			form,
+			collections,
+			path=path,
+			current_collection=slug,
+			facets=result["facets"],
+		),
+		"filters_applied": "true" if applied else None,
+		"filter_count": str(len(applied)) if applied else None,
+		"clear_url": path,
+		"search": form.get("search") or "",
+		"no_results": None if result["products"] else "true",
+		"page": page,
+		"has_more": page * PAGE_SIZE < result["total"],
+		**result,
 	}
 
 

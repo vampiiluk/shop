@@ -1757,15 +1757,93 @@ def collection_blocks(refs):
 		},
 		dynamicValues=[dv("collection.description", "innerHTML")],
 	)
+	heading = block(
+		"div",
+		styles={
+			"display": "flex",
+			"flexDirection": "column",
+			"flexGrow": "1",
+			"gap": "12px",
+			"minWidth": "0px",
+			"width": "100%",
+		},
+		children=[label(refs, "( Collection )"), title, description],
+	)
 	header = block(
 		"div",
 		name="Page Header",
-		styles={"display": "flex", "flexDirection": "column", "gap": "12px", "padding": "26px 4px 6px", "width": "100%"},
-		mobile={"padding": "16px 4px 2px"},
-		children=[label(refs, "( Collection )"), title, description],
+		styles={
+			"alignItems": "flex-end",
+			"display": "flex",
+			"flexDirection": "row",
+			"gap": "24px",
+			"justifyContent": "space-between",
+			"padding": "26px 4px 6px",
+			"width": "100%",
+		},
+		mobile={"alignItems": "stretch", "flexDirection": "column", "gap": "14px", "padding": "16px 4px 2px"},
+		children=[heading, filter_toggle(refs)],
 	)
-	grid = panel(refs, [product_grid(refs, "products", "collection")], name="Section · Collection Grid")
-	return shell(refs, [component_ref("dot-navbar"), stack([header, grid]), component_ref("dot-footer")])
+	clear_link = block(
+		"a",
+		text="Clear all filters",
+		attrs={"href": "#"},
+		dynamicValues=[dv("clear_url", "href", "attribute")],
+		styles={**mono(size="10px", color=refs["muted"], spacing="0.14em"), "textDecoration": "underline"},
+	)
+	clear_all = block(
+		"div",
+		name="Clear Filters",
+		visibilityCondition={"key": "filters_applied", "comesFrom": "dataScript"},
+		styles={
+			"borderTopColor": refs["line"],
+			"borderTopStyle": "solid",
+			"borderTopWidth": "1px",
+			"display": "flex",
+			"marginTop": "4px",
+			"paddingTop": "12px",
+			"width": "100%",
+		},
+		children=[clear_link],
+	)
+	controls = panel(
+		refs,
+		[component_ref("dot-filter-bar"), clear_all],
+		styles={"padding": "18px 28px"},
+		mobile={"padding": "16px 14px"},
+		name="Section · Controls",
+	)
+	controls["attributes"].update({"data-shop": "filter-panel", "data-open": "false", "id": "filters"})
+	empty = block(
+		"div",
+		name="No Results",
+		visibilityCondition={"key": "no_results", "comesFrom": "dataScript"},
+		styles={
+			"alignItems": "center",
+			"display": "flex",
+			"flexDirection": "column",
+			"gap": "12px",
+			"padding": "40px 0",
+			"width": "100%",
+		},
+		children=[
+			block("p", text="Nothing matches those filters", styles=mono(size="12px", color=refs["ink"], spacing="0.1em")),
+			block(
+				"a",
+				text="Clear all",
+				attrs={"href": "#"},
+				dynamicValues=[dv("clear_url", "href", "attribute")],
+				styles={**mono(size="10px", color=refs["muted"], spacing="0.14em"), "textDecoration": "underline"},
+			),
+		],
+	)
+	grid = panel(
+		refs, [product_grid(refs, "products", "collection"), empty], name="Section · Collection Grid"
+	)
+	return shell(
+		refs,
+		[component_ref("dot-navbar"), stack([header, controls, grid]), component_ref("dot-footer")],
+	)
 
 
 def inset(refs, children, styles=None, **extra):

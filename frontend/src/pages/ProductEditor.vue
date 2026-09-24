@@ -147,21 +147,8 @@
 						</p>
 					</template>
 					<p v-else class="text-sm text-ink-gray-6">
-						Not in the Meta catalogue yet — save the product, then press
-						<span class="font-medium">Sync to Meta now</span> below.
-					</p>
-					<Button
-						variant="solid"
-						class="mt-1 w-full"
-						:loading="syncingMeta"
-						@click="syncMeta"
-					>
-						<template #prefix><LucideRefreshCw class="size-4" /></template>
-						Sync to Meta now
-					</Button>
-					<p class="text-xs text-ink-gray-5">
-						Pushes this product, its condition and its variants to WhatsApp &amp;
-						Facebook. Save changes first.
+						Not in the Meta catalogue yet — save the product, then run
+						<span class="font-medium">Sync to Meta</span> from the products list.
 					</p>
 				</CatalogSection>
 
@@ -217,7 +204,6 @@ import { computed, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Autocomplete, Button, FormControl, Switch, TextEditor, call, dialog, toast } from 'frappe-ui'
 
-import LucideRefreshCw from '~icons/lucide/refresh-cw'
 import LucideTrash2 from '~icons/lucide/trash-2'
 
 import CatalogImageListInput from '@/components/CatalogImageListInput.vue'
@@ -256,7 +242,6 @@ const isCreate = computed(() => !isEdit.value && !isLink.value)
 const loading = ref(true)
 const loadError = ref(false)
 const saving = ref(false)
-const syncingMeta = ref(false)
 const leaving = ref(false)
 const baseline = ref('')
 const detail = ref<ProductDetail | null>(null)
@@ -521,29 +506,6 @@ function confirmDelete() {
 			router.push('/products')
 		},
 	})
-}
-
-async function syncMeta() {
-	if (!props.name) return
-	if (dirty.value) {
-		toast.error('Save your changes first, then sync to Meta')
-		return
-	}
-	syncingMeta.value = true
-	try {
-		const result = (await call('shop.api.products.sync_product', {
-			name: props.name,
-		})) as { success?: boolean; status?: string }
-		if (result.success) toast.success(result.status || 'Synced to Meta')
-		else toast.error(result.status || 'Meta sync failed')
-		// Refresh the Meta id / Commerce Manager link shown above.
-		detail.value = await call('shop.api.products.get_product', { name: props.name })
-	} catch (error) {
-		const messages = (error as { messages?: string[] }).messages
-		toast.error(messages?.[0] || 'Could not sync this product to Meta')
-	} finally {
-		syncingMeta.value = false
-	}
 }
 
 onBeforeRouteLeave(() => {

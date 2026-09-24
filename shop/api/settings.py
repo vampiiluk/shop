@@ -363,8 +363,20 @@ def download_gms(version: str | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def sync_meta_catalog() -> dict:
-	"""Run a full Meta catalogue sync now: push, prune and relink."""
+def sync_meta_catalog(run_id: str | None = None) -> dict:
+	"""Run a full Meta catalogue sync now: push, prune and relink.
+
+	``run_id`` tags the progress written while this runs, so the popup can
+	poll ``get_meta_sync_progress`` with the same token and ignore anything
+	from an earlier run."""
 	only_managers()
 	from shop.integrations.meta_catalog import sync_all
-	return sync_all()
+	return sync_all(run_id=run_id)
+
+
+@frappe.whitelist()
+def get_meta_sync_progress(run_id: str | None = None) -> dict:
+	"""Live step status of the Meta sync this browser started, for the popup."""
+	only_managers()
+	from shop.integrations.meta_catalog import progress_snapshot
+	return progress_snapshot(run_id)

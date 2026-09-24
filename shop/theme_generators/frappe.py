@@ -2537,20 +2537,52 @@ def product_blocks(refs):
 def collection_blocks(refs):
 	title = heading(refs, "Collection", size="30px", mobile_size="24px")
 	title["dynamicValues"] = [dv("collection.title", "innerHTML")]
+	description = block(
+		"p",
+		text="",
+		visibilityCondition={"key": "collection.description", "comesFrom": "dataScript"},
+		styles={"color": refs["muted"], "fontSize": "14px", "height": "fit-content", "lineHeight": "1.6", "maxWidth": "560px", "width": "100%"},
+		dynamicValues=[dv("collection.description", "innerHTML")],
+	)
+	# The same filter bar the All products page uses: Sort/Availability/Price
+	# always, Size/Colour only when this category has those variants.
 	header = named_section("Section · Collection Header", 
 		[
 			title,
+			description,
+			component_ref("shop-filter-bar"),
+		],
+		styles={"gap": "16px", "padding": "52px 40px 8px"},
+	)
+	empty = block(
+		"div",
+		name="No Results",
+		visibilityCondition={"key": "no_results", "comesFrom": "dataScript"},
+		styles={
+			"alignItems": "center",
+			"display": "flex",
+			"flexDirection": "column",
+			"gap": "10px",
+			"padding": "48px 0 16px",
+			"textAlign": "center",
+			"width": "100%",
+		},
+		children=[
 			block(
 				"p",
-				text="",
-				visibilityCondition={"key": "collection.description", "comesFrom": "dataScript"},
-				styles={"color": refs["muted"], "fontSize": "14px", "height": "fit-content", "lineHeight": "1.6", "maxWidth": "560px", "width": "100%"},
-				dynamicValues=[dv("collection.description", "innerHTML")],
+				text="No products match your filters.",
+				styles={"fontSize": "15px", "fontWeight": "500", "height": "fit-content", "width": "fit-content"},
+			),
+			block(
+				"a",
+				text="Clear all filters",
+				attrs={"href": "#"},
+				dynamicValues=[dv("clear_url", "href", "attribute")],
+				styles={"color": refs["ink"], "fontSize": "13px", "height": "fit-content", "textDecoration": "underline", "width": "fit-content"},
 			),
 		],
-		styles={"gap": "8px", "padding": "52px 40px 8px"},
 	)
-	grid = named_section("Section · Collection Grid", [product_grid(refs, "products", "collection", columns=3)], styles={"padding": "28px 40px 88px"})
+	grid = named_section("Section · Collection Grid", [product_grid(refs, "products", "collection", columns=3), empty], styles={"padding": "28px 40px 88px"})
 	return shell(refs, [component_ref("shop-navbar"), header, grid, component_ref("shop-footer")])
 
 

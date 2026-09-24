@@ -133,19 +133,6 @@ def commerce_manager_url(meta_product_id: str | None) -> str | None:
 
 
 @frappe.whitelist(methods=["POST"])
-def sync_product(name: str) -> dict:
-	"""Push one product to the Meta catalogue now (the editor's Sync button).
-
-	Runs the same push/prune/relink pass the hourly job runs, scoped to this
-	product: its own items plus anything stale in its variant group.
-	"""
-	only_managers()
-	from shop.integrations.meta_catalog import push_products
-
-	return push_products([name])
-
-
-@frappe.whitelist(methods=["POST"])
 def save_product(payload: dict) -> dict:
 	only_managers()
 	doc = (

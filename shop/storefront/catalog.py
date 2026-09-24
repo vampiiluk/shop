@@ -14,6 +14,10 @@ SORT_ORDERS = {
 	"price_desc": None,
 }
 
+# Variant attributes the listing can filter on, keyed by the query parameter.
+FACET_ATTRIBUTES = {"size": "size", "color": "color", "colour": "color"}
+FACET_ORDER = ("size", "color")
+
 
 @frappe.whitelist(allow_guest=True)
 def get_products(
@@ -25,6 +29,9 @@ def get_products(
 	price_min: float | None = None,
 	price_max: float | None = None,
 	in_stock: bool = False,
+	size: str | None = None,
+	color: str | None = None,
+	with_facets: bool = False,
 ) -> dict:
 	filters = {"published": 1}
 	if collection:
@@ -46,14 +53,102 @@ def get_products(
 		limit=MAX_CATALOG_SIZE,
 	)
 	decorate(products)
+	# Facets describe the category itself — the sizes and colours it stocks —
+	# so they are computed from the searched collection before the price and
+	# stock filters narrow it: capping the price must not make the Size group
+	# disappear while a size filter is still on. They are likewise computed
+	# before the size/colour filters apply, so a shopper who picked Large
+	# still sees the other sizes to switch to.
+	attributes: dict = {}
+	facet_names: dict = {}
+	if size or color or with_facets:
+		attributes, facet_names = product_attributes(products)
+	facets = facet_options(products, attributes, facet_names) if with_facets else None
 	products = apply_post_filters(products, price_min, price_max, in_stock)
+	if size:
+		products = [p for p in products if matches_facet(attributes, p, "size", size)]
+	if color:
+		products = [p for p in products if matches_facet(attributes, p, "color", color)]
 	if sort in ("price_asc", "price_desc"):
 		products.sort(key=lambda p: p.price if p.price is not None else float("inf"))
 		if sort == "price_desc":
 			products.reverse()
 	start = cint(start)
 	limit = min(cint(limit) or 24, MAX_PAGE_SIZE)
-	return {"products": products[start : start + limit], "total": len(products)}
+	result = {"products": products[start : start + limit], "total": len(products)}
+	if with_facets:
+		result["facets"] = facets
+	return result
+
+
+def product_attributes(products: list) -> tuple[dict, dict]:
+	"""Facet values per product, taken from its enabled variants.
+
+	Returns ``({product name: {facet: [values]}}, {facet: attribute name})``.
+	A product without variants has no entry, so filtering by size naturally
+	leaves simple products out — there is no size to match, which is what a
+	shopper asking for "Large" means. The attribute's own name is kept so the
+	filter bar can label the group the way the product page does (Colour)."""
+	templates = [p.item for p in products if p.has_variants]
+	if not templates:
+		return {}, {}
+	children = frappe.get_all(
+		"Item",
+		filters={"variant_of": ["in", templates], "disabled": 0},
+		fields=["name", "variant_of"],
+	)
+	if not children:
+		return {}, {}
+	rows = frappe.get_all(
+		"Item Variant Attribute",
+		filters={"parent": ["in", [child.name for child in children]]},
+		fields=["parent", "attribute", "attribute_value"],
+	)
+	owner = {child.name: child.variant_of for child in children}
+	template_product = {p.item: p.name for p in products if p.has_variants}
+	used: dict[tuple[str, str], set] = {}
+	names: dict[str, str] = {}
+	for row in rows:
+		facet = FACET_ATTRIBUTES.get((row.attribute or "").strip().lower())
+		value = (row.attribute_value or "").strip()
+		if not facet or not value:
+			continue
+		product = template_product.get(owner.get(row.parent))
+		if not product:
+			continue
+		names.setdefault(facet, row.attribute)
+		used.setdefault((product, facet), set()).add(value)
+	attributes = {}
+	for (product, facet), values in used.items():
+		attributes.setdefault(product, {})[facet] = sorted(values, key=str.casefold)
+	return attributes, names
+
+
+def facet_options(products: list, attributes: dict, names: dict) -> dict:
+	"""``{facet: {"attribute", "values"}}`` for the products in scope.
+
+	Facets with no options are left out entirely, which is how a category
+	without variants ends up with no Size or Colour filter at all."""
+	from shop.storefront.product import ordered_values
+
+	facets = {}
+	for facet in FACET_ORDER:
+		values: set = set()
+		for product in products:
+			values.update(attributes.get(product.name, {}).get(facet) or [])
+		if not values:
+			continue
+		attribute = names.get(facet, facet.title())
+		ordered = [value for value in ordered_values(attribute) if value in values]
+		ordered += sorted(values - set(ordered), key=str.casefold)
+		facets[facet] = {"attribute": attribute, "values": ordered}
+	return facets
+
+
+def matches_facet(attributes: dict, product, facet: str, wanted: str) -> bool:
+	return wanted.casefold() in {
+		value.casefold() for value in attributes.get(product.name, {}).get(facet) or []
+	}
 
 
 def apply_post_filters(products, price_min, price_max, in_stock):

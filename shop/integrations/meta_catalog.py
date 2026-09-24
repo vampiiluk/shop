@@ -99,6 +99,100 @@ def _paused() -> bool:
 	)
 
 
+PROGRESS_KEY = "shop_meta_sync_progress"
+SYNC_STEPS = (
+	("read", "Reading products"),
+	("push", "Sending items to Meta"),
+	("list", "Listing current catalogue"),
+	("prune", "Removing outdated items"),
+	("link", "Updating product ids"),
+)
+
+
+class SyncProgress:
+	"""Live step status for the admin's sync popup, written to Redis.
+
+	The sync request is synchronous and can run for half a minute (Meta needs
+	seconds just to flip a batch to ``finished``), so the popup polls
+	``get_meta_sync_progress`` while it waits and renders these steps instead
+	of a spinner that sits still. ``run_id`` comes from the client: a poll from
+	a sync that has not written anything yet — or a leftover payload from an
+	earlier run — comes back as the plain pending skeleton, so a stale step
+	list can never be shown as this run's progress. A progress hiccup must
+	never fail the sync itself, so every write is best-effort."""
+
+	def __init__(self, run_id: str | None = None):
+		self.run_id = run_id or ""
+		self.steps = [
+			{"key": key, "label": label, "state": "pending", "detail": ""}
+			for key, label in SYNC_STEPS
+		]
+		self.done = False
+		self.result: dict | None = None
+		self.error: str | None = None
+		self._save()
+
+	def set(self, key: str, state: str | None = None, detail=None) -> None:
+		for step in self.steps:
+			if step["key"] == key:
+				if state:
+					step["state"] = state
+				if detail is not None:
+					step["detail"] = str(detail)[:200]
+		self._save()
+
+	def finish(self, result: dict | None = None, error: str | None = None) -> None:
+		if error:
+			self.error = str(error)[:500]
+			for step in self.steps:
+				# the step that was running when it blew up is the culprit
+				if step["state"] == "active":
+					step["state"] = "error"
+		else:
+			for step in self.steps:
+				if step["state"] != "done":
+					step["state"] = "done"
+			self.result = result
+		self.done = True
+		self._save()
+
+	def snapshot(self) -> dict:
+		return {
+			"run_id": self.run_id,
+			"steps": self.steps,
+			"done": self.done,
+			"result": self.result,
+			"error": self.error,
+		}
+
+	def _save(self) -> None:
+		try:
+			frappe.cache().set_value(PROGRESS_KEY, self.snapshot())
+		except Exception:
+			pass
+
+
+def progress_snapshot(run_id: str | None = None) -> dict:
+	"""Latest progress for the caller's run, or a pending skeleton."""
+	skeleton = {
+		"run_id": run_id or "",
+		"steps": [
+			{"key": key, "label": label, "state": "pending", "detail": ""}
+			for key, label in SYNC_STEPS
+		],
+		"done": False,
+		"result": None,
+		"error": None,
+	}
+	try:
+		payload = frappe.cache().get_value(PROGRESS_KEY)
+	except Exception:
+		payload = None
+	if not isinstance(payload, dict) or (run_id and payload.get("run_id") != run_id):
+		return skeleton
+	return payload
+
+
 def _graph(method: str, url: str, payload: dict | None = None) -> dict:
 	"""One Graph API call; raises MetaAPIError with Meta's own message."""
 	data = json.dumps(payload).encode() if payload is not None else None
@@ -146,10 +240,17 @@ def _issue_text(item) -> str:
 	return str(item)
 
 
-def _await_batch(cfg: dict, handle: str, errors: list[str], warnings: list[str]) -> None:
+def _await_batch(
+	cfg: dict,
+	handle: str,
+	errors: list[str],
+	warnings: list[str],
+	progress: SyncProgress | None = None,
+	key: str | None = None,
+) -> None:
 	"""Poll a batch until it finishes, collecting per-item errors/warnings."""
 	query = urllib.parse.urlencode({"handle": handle, "access_token": cfg["token"]})
-	for _ in range(STATUS_ATTEMPTS):
+	for attempt in range(1, STATUS_ATTEMPTS + 1):
 		result = _graph(
 			"GET", f"{GRAPH_BASE}/{cfg['catalog_id']}/check_batch_request_status?{query}"
 		)
@@ -158,21 +259,39 @@ def _await_batch(cfg: dict, handle: str, errors: list[str], warnings: list[str])
 			errors.extend(_issue_text(item) for item in row.get("errors") or [])
 			warnings.extend(_issue_text(item) for item in row.get("warnings") or [])
 			return
+		if progress and key:
+			# written before the sleep so a poll during the wait sees it move
+			progress.set(key, "active", f"Meta is processing the batch ({attempt}/{STATUS_ATTEMPTS})")
 		time.sleep(STATUS_INTERVAL)
 	warnings.append("Meta batch still processing after waiting; check Commerce Manager")
 
 
-def _run_requests(cfg: dict, requests: list[dict], errors: list[str], warnings: list[str]) -> int:
+def _run_requests(
+	cfg: dict,
+	requests: list[dict],
+	errors: list[str],
+	warnings: list[str],
+	progress: SyncProgress | None = None,
+	key: str | None = None,
+) -> int:
 	"""Chunk requests into batches, send them, wait for each; returns sent count."""
 	sent = 0
+	batches = (len(requests) + BATCH_LIMIT - 1) // BATCH_LIMIT
 	for start in range(0, len(requests), BATCH_LIMIT):
 		chunk = requests[start : start + BATCH_LIMIT]
+		if progress and key:
+			batch = start // BATCH_LIMIT + 1
+			progress.set(
+				key,
+				"active",
+				f"Sending batch {batch} of {batches} ({len(chunk)} items)",
+			)
 		handles = _post_batch(cfg, chunk)
 		sent += len(chunk)
 		if not handles:
 			warnings.append("Meta returned no status handle for a batch")
 		for handle in handles:
-			_await_batch(cfg, handle, errors, warnings)
+			_await_batch(cfg, handle, errors, warnings, progress=progress, key=key)
 	return sent
 
 
@@ -415,10 +534,14 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 	return items
 
 
-def _push_rows(rows: list, cfg: dict, settings, ctx: dict) -> tuple[int, int, list[str], list[str]]:
+def _push_rows(
+	rows: list, cfg: dict, settings, ctx: dict, progress: SyncProgress | None = None
+) -> tuple[int, int, list[str], list[str]]:
 	"""UPDATE (upsert) every item; returns (products, items, errors, warnings)."""
 	if not rows:
 		return 0, 0, [], []
+	if progress:
+		progress.set("push", "active", f"Preparing {len(rows)} products")
 	requests = [
 		{"method": "UPDATE", "data": item}
 		for row in rows
@@ -426,7 +549,7 @@ def _push_rows(rows: list, cfg: dict, settings, ctx: dict) -> tuple[int, int, li
 	]
 	errors: list[str] = []
 	warnings: list[str] = []
-	sent = _run_requests(cfg, requests, errors, warnings)
+	sent = _run_requests(cfg, requests, errors, warnings, progress=progress, key="push")
 	return len(rows), sent, errors, warnings
 
 
@@ -566,7 +689,13 @@ def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, kee
 	return sorted(stale)
 
 
-def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
+def _sync(
+	rows: list,
+	cfg: dict,
+	settings,
+	prune: bool = False,
+	progress: SyncProgress | None = None,
+) -> dict:
 	"""Push rows, drop what no longer belongs, refresh Meta ids.
 
 	Prune, group cleanup and relink all work off one catalogue listing (see
@@ -578,35 +707,73 @@ def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
 
 	ctx = _context(rows) if rows else {}
 	pushed_products, pushed_items, push_errors, push_warnings = _push_rows(
-		rows, cfg, settings, ctx
+		rows, cfg, settings, ctx, progress=progress
 	)
 	errors.extend(push_errors)
 	warnings.extend(push_warnings)
+	if progress:
+		progress.set(
+			"push",
+			"done",
+			f"Sent {pushed_items} item{'s' if pushed_items != 1 else ''}"
+			if pushed_items
+			else "Nothing to send",
+		)
 
 	deleted = 0
 	linked = 0
 	catalog: dict[str, dict] | None = None
 	if rows or prune:
+		if progress:
+			progress.set("list", "active", "Reading the catalogue from Meta")
 		try:
 			catalog = _fetch_catalog(cfg)
 		except MetaAPIError as exc:
 			warnings.append(f"could not list catalogue items: {exc}")
+		if progress:
+			progress.set(
+				"list",
+				"done" if catalog is not None else "error",
+				f"{len(catalog)} items listed" if catalog is not None else "Could not list the catalogue",
+			)
 
 	if catalog is not None:
 		stale = _stale_ids(rows, catalog, ctx, prune, keep_legacy=bool(push_errors))
+		if progress:
+			progress.set("prune", "active", f"{len(stale)} outdated item{'s' if len(stale) != 1 else ''}")
 		if stale:
 			deleted, prune_errors, prune_warnings = _run_requests(
 				cfg,
 				[{"method": "DELETE", "data": {"id": rid}} for rid in stale],
 				[],
 				[],
+				progress=progress,
+				key="prune",
 			)
 			errors.extend(prune_errors)
 			warnings.extend(prune_warnings)
 			if not prune_errors:
 				for rid in stale:
 					catalog.pop(rid, None)
+		if progress:
+			progress.set(
+				"prune",
+				"done",
+				f"Removed {deleted} item{'s' if deleted != 1 else ''}" if deleted else "Nothing to remove",
+			)
+		if progress:
+			progress.set("link", "active")
 		linked = _link_ids(catalog)
+		if progress:
+			progress.set(
+				"link",
+				"done",
+				f"{linked} product id{'s' if linked != 1 else ''} updated" if linked else "Product ids already current",
+			)
+	elif progress:
+		# the listing failed: prune and relink have nothing to work from
+		progress.set("prune", "done", "Skipped — catalogue unavailable")
+		progress.set("link", "done", "Skipped — catalogue unavailable")
 
 	status = _status_text(
 		pushed_products, deleted, linked, errors, warnings, items=pushed_items
@@ -629,12 +796,35 @@ def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
 	}
 
 
-def sync_all() -> dict:
-	"""Full catalogue sync: push published products, prune, relink ids."""
+def sync_all(run_id: str | None = None) -> dict:
+	"""Full catalogue sync: push published products, prune, relink ids.
+
+	``run_id`` is the browser's polling token: with it, every step is written
+	to the progress cache for the popup; without it (scheduled and background
+	syncs) nothing is written, so a background run can never clobber the steps
+	of a manual sync in flight."""
 	cfg = config()
 	if not cfg:
 		frappe.throw(_("Set the Meta Catalog ID and API key in Shop Settings first."))
-	return _sync(_rows(), cfg, frappe.get_doc("Shop Settings"), prune=True)
+	progress = SyncProgress(run_id) if run_id else None
+	try:
+		rows = _rows()
+		if progress:
+			progress.set(
+				"read",
+				"done",
+				f"{len(rows)} published product{'s' if len(rows) != 1 else ''}",
+			)
+		result = _sync(
+			rows, cfg, frappe.get_doc("Shop Settings"), prune=True, progress=progress
+		)
+	except Exception as exc:
+		if progress:
+			progress.finish(error=str(exc))
+		raise
+	if progress:
+		progress.finish(result)
+	return result
 
 
 def push_products(names: list[str]) -> dict:
