@@ -1773,19 +1773,116 @@ def buy_button_styles(refs, outline=False):
 
 def directions_button(refs, key):
 	"""Block link styled like the buy button; opens directions to a pickup
-	location. ``key`` is the dataScript path to the directions URL."""
+	location. ``key`` is the dataScript path to the directions URL.
+
+	Builder's reset.css forces ``.__text_block__ a { color: var(--link-color);
+	text-decoration: underline; background-color: transparent }`` on every
+	anchor inside a text block, and that selector (0,1,1) beats this block's
+	own class (0,1,0) — clobbering the pill's look. Declaring the three
+	properties ``!important`` wins outright; ``sanitize_style_value`` passes
+	``!important`` through untouched."""
 	return block(
 		"a",
 		text="Get directions",
 		attrs={"target": "_blank", "rel": "noopener"},
 		styles={
 			**buy_button_styles(refs),
+			"backgroundColor": f"{refs['ink']} !important",
+			"color": f"{refs['paper']} !important",
 			"display": "block",
 			"flexGrow": "0",
-			"textDecoration": "none",
+			"textDecoration": "none !important",
 		},
 		dynamicValues=[dv(key, "href", "attribute")],
 		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+	)
+
+
+def map_frame(refs, key, height="170px", margin="2px"):
+	"""View-only map embed with our own zoom controls.
+
+	The iframe ignores pointer events, so gestures inside it can never pan
+	away from the pin (nor launch the maps app). The buttons rewrite the
+	embed URL symmetrically around the pin — OSM's bbox is rebuilt centred
+	on the marker, Google's ``z=`` moves with a fixed ``q=`` centre — so the
+	location is exactly centred at every zoom level. ``key`` is the
+	dataScript path to the map URL (bare on checkout, nested on confirmation)."""
+	zoom_styles = {
+		"alignItems": "center",
+		"backgroundColor": refs["paper"],
+		"borderColor": refs["line"],
+		"borderRadius": "4px",
+		"borderStyle": "solid",
+		"borderWidth": "1px",
+		"color": refs["ink"],
+		"cursor": "pointer",
+		"display": "flex",
+		"fontSize": "13px",
+		"fontWeight": "600",
+		"height": "26px",
+		"justifyContent": "center",
+		"lineHeight": "1",
+		"padding": "0",
+		"width": "26px",
+	}
+
+	def zoom_button(symbol, direction, label):
+		# type=button: the checkout map renders inside the form. Interactive
+		# content inside a label doesn't toggle that label's radio either, so
+		# zooming never changes the selected location.
+		return block(
+			"button",
+			text=symbol,
+			attrs={"aria-label": label, "data-shop": "map-zoom", "data-delta": str(direction), "type": "button"},
+			styles=dict(zoom_styles),
+		)
+
+	return block(
+		"div",
+		attrs={"data-shop": "map-frame"},
+		styles={
+			"borderRadius": "4px",
+			"height": height,
+			"marginTop": margin,
+			"position": "relative",
+			"width": "100%",
+		},
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+		children=[
+			block(
+				"iframe",
+				attrs={
+					"loading": "lazy",
+					"referrerpolicy": "no-referrer-when-downgrade",
+					"title": "Pickup location map",
+				},
+				styles={
+					"border": "0",
+					"borderRadius": "4px",
+					"display": "block",
+					"height": "100%",
+					"pointerEvents": "none",
+					"width": "100%",
+				},
+				dynamicValues=[dv(key, "src", "attribute")],
+			),
+			block(
+				"div",
+				styles={
+					"display": "flex",
+					"flexDirection": "column",
+					"gap": "4px",
+					"position": "absolute",
+					"right": "8px",
+					"top": "8px",
+					"zIndex": "1",
+				},
+				children=[
+					zoom_button("+", 1, "Zoom in"),
+					zoom_button("-", -1, "Zoom out"),
+				],
+			),
+		],
 	)
 
 
@@ -2971,6 +3068,7 @@ def checkout_blocks(refs):
 				name="Pickup Locations",
 				attrs={"data-shop": "pickup-panel"},
 				visibilityCondition={"key": "pickup_locations", "comesFrom": "dataScript"},
+				dynamicValues=[dv("default_pickup_location", "data-default", "attribute")],
 				styles={
 					"display": "none",
 					"flexDirection": "column",
@@ -3036,13 +3134,7 @@ def checkout_blocks(refs):
 											dynamicValues=[dv("address", "innerHTML")],
 											visibilityCondition={"key": "address", "comesFrom": "dataScript"},
 										),
-										block(
-											"iframe",
-											attrs={"loading": "lazy", "referrerpolicy": "no-referrer-when-downgrade", "title": "Pickup location map"},
-											styles={"border": "0", "borderRadius": "4px", "height": "170px", "marginTop": "2px", "width": "100%"},
-											dynamicValues=[dv("map_url", "src", "attribute")],
-											visibilityCondition={"key": "map_url", "comesFrom": "dataScript"},
-										),
+										map_frame(refs, "map_url"),
 											directions_button(refs, "directions_url"),
 										block(
 											"p",
@@ -3426,13 +3518,7 @@ def confirmation_blocks(refs):
 				dynamicValues=[dv("order.pickup_location.address", "innerHTML")],
 				visibilityCondition={"key": "order.pickup_location.address", "comesFrom": "dataScript"},
 			),
-			block(
-				"iframe",
-				attrs={"loading": "lazy", "referrerpolicy": "no-referrer-when-downgrade", "title": "Pickup location map"},
-				styles={"border": "0", "borderRadius": "4px", "height": "150px", "marginTop": "4px", "width": "100%"},
-				dynamicValues=[dv("order.pickup_location.map_url", "src", "attribute")],
-				visibilityCondition={"key": "order.pickup_location.map_url", "comesFrom": "dataScript"},
-			),
+			map_frame(refs, "order.pickup_location.map_url", height="150px", margin="4px"),
 			directions_button(refs, "order.pickup_location.directions_url"),
 			block(
 				"p",

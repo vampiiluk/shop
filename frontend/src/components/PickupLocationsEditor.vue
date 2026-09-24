@@ -53,6 +53,13 @@
 							<span v-if="loc.google_maps_link" class="font-mono text-xs" :title="loc.google_maps_link">
 								{{ loc.google_maps_link }}
 							</span>
+							<span
+								v-else-if="loc.latitude && loc.longitude"
+								class="font-mono text-xs"
+								:title="`${loc.latitude}, ${loc.longitude}`"
+							>
+								{{ loc.latitude }}, {{ loc.longitude }}
+							</span>
 							<span v-else class="text-ink-gray-4">—</span>
 						</td>
 						<td class="px-4 py-3 text-ink-gray-5">{{ loc.phone || '—' }}</td>
@@ -126,17 +133,56 @@
 						/>
 					</div>
 					<div>
-						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Google Maps link</label>
+						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Map location</label>
+						<div class="mb-2 flex rounded-lg border border-outline-gray-1 p-0.5">
+							<button
+								type="button"
+								class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium"
+								:class="editForm.mode === 'link' ? 'bg-ink-gray-8 text-white' : 'text-ink-gray-6'"
+								@click="editForm.mode = 'link'"
+							>
+								Google Maps link
+							</button>
+							<button
+								type="button"
+								class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium"
+								:class="editForm.mode === 'coords' ? 'bg-ink-gray-8 text-white' : 'text-ink-gray-6'"
+								@click="editForm.mode = 'coords'"
+							>
+								Latitude / longitude
+							</button>
+						</div>
 						<input
+							v-if="editForm.mode === 'link'"
 							v-model="editForm.google_maps_link"
 							type="text"
 							class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
 							placeholder="https://www.google.com/maps/place/.../@29.1044,70.3298,17z"
 						/>
+						<div v-else class="grid grid-cols-2 gap-2">
+							<input
+								v-model="editForm.latitude"
+								type="text"
+								inputmode="decimal"
+								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+								placeholder="Latitude, e.g. 28.437106"
+							/>
+							<input
+								v-model="editForm.longitude"
+								type="text"
+								inputmode="decimal"
+								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+								placeholder="Longitude, e.g. 70.280557"
+							/>
+						</div>
 					</div>
-					<p class="text-p-sm text-ink-gray-5">
+					<p v-if="editForm.mode === 'link'" class="text-p-sm text-ink-gray-5">
 						In Google Maps, long-press the store pin (or use Share → Copy link) and paste the
 						link here. The map embed and directions button are built from it.
+					</p>
+					<p v-else class="text-p-sm text-ink-gray-5">
+						Latitude between -90 and 90, longitude between -180 and 180. The map pin sits
+						exactly on these coordinates.
 					</p>
 					<div>
 						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Phone (optional)</label>
@@ -152,7 +198,7 @@
 					<Button variant="subtle" @click="showDialog = false">Cancel</Button>
 					<Button
 						variant="solid"
-						:disabled="!editForm.location_name.trim() || !editForm.address.trim() || !editForm.google_maps_link.trim()"
+						:disabled="!editForm.location_name.trim() || !editForm.address.trim() || !mapLocationValid"
 						@click="saveEdit"
 					>
 						{{ editingIdx >= 0 ? 'Save Changes' : 'Add Location' }}
@@ -164,7 +210,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Button, createResource, toast } from 'frappe-ui'
 import LucidePlus from '~icons/lucide/plus'
 import LucidePencil from '~icons/lucide/pencil'
@@ -177,6 +223,8 @@ interface PickupLocation {
 	location_name: string
 	address: string
 	google_maps_link: string
+	latitude?: string
+	longitude?: string
 	phone: string
 }
 
@@ -203,12 +251,41 @@ const editForm = ref({
 	location_name: '',
 	address: '',
 	google_maps_link: '',
+	latitude: '',
+	longitude: '',
 	phone: '',
+	mode: 'link' as 'link' | 'coords',
+})
+
+/** Link mode needs a link; coordinate mode needs both numbers within range. */
+const mapLocationValid = computed(() => {
+	if (editForm.value.mode === 'link') return !!editForm.value.google_maps_link.trim()
+	const lat = editForm.value.latitude.trim()
+	const lng = editForm.value.longitude.trim()
+	if (!lat || !lng) return false
+	const latNum = Number(lat)
+	const lngNum = Number(lng)
+	return (
+		Number.isFinite(latNum) &&
+		Number.isFinite(lngNum) &&
+		latNum >= -90 &&
+		latNum <= 90 &&
+		lngNum >= -180 &&
+		lngNum <= 180
+	)
 })
 
 function addLocation() {
 	editingIdx.value = -1
-	editForm.value = { location_name: '', address: '', google_maps_link: '', phone: '' }
+	editForm.value = {
+		location_name: '',
+		address: '',
+		google_maps_link: '',
+		latitude: '',
+		longitude: '',
+		phone: '',
+		mode: 'link',
+	}
 	showDialog.value = true
 }
 
@@ -219,7 +296,11 @@ function editLocation(idx: number) {
 		location_name: loc.location_name,
 		address: loc.address,
 		google_maps_link: loc.google_maps_link,
+		latitude: loc.latitude || '',
+		longitude: loc.longitude || '',
 		phone: loc.phone,
+		// A stored link reopens in link mode; otherwise show the coordinates.
+		mode: loc.google_maps_link ? 'link' : loc.latitude && loc.longitude ? 'coords' : 'link',
 	}
 	showDialog.value = true
 }
@@ -231,11 +312,16 @@ function removeLocation(idx: number) {
 }
 
 function saveEdit() {
+	const linkMode = editForm.value.mode === 'link'
 	const entry = {
 		location_name: editForm.value.location_name.trim(),
 		address: editForm.value.address.trim(),
-		google_maps_link: editForm.value.google_maps_link.trim(),
 		phone: editForm.value.phone.trim(),
+		// Only the active mode travels: link mode clears the coordinates and
+		// coordinate mode clears the link, so a bad link still throws server-side.
+		google_maps_link: linkMode ? editForm.value.google_maps_link.trim() : '',
+		latitude: linkMode ? '' : editForm.value.latitude.trim(),
+		longitude: linkMode ? '' : editForm.value.longitude.trim(),
 	}
 	if (editingIdx.value >= 0) {
 		locations.value[editingIdx.value] = entry

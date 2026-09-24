@@ -25,14 +25,19 @@ function mapSrcSelector(locations: PickupLocation[]): string {
 		: 'iframe[src*="openstreetmap.org"]';
 }
 
-async function configuredLocations(page: {
+async function checkoutSummary(page: {
 	request: import("@playwright/test").APIRequestContext;
-}): Promise<PickupLocation[]> {
+}): Promise<{ pickup_locations?: PickupLocation[]; default_pickup_location?: string | null }> {
 	const summary = await page.request.get(
 		"/api/method/shop.storefront.checkout.get_checkout_summary",
 	);
-	const message = (await summary.json()).message;
-	return (message.pickup_locations || []) as PickupLocation[];
+	return (await summary.json()).message;
+}
+
+async function configuredLocations(
+	page: { request: import("@playwright/test").APIRequestContext },
+): Promise<PickupLocation[]> {
+	return ((await checkoutSummary(page)).pickup_locations || []) as PickupLocation[];
 }
 
 test.describe("store pickup", () => {
@@ -43,7 +48,9 @@ test.describe("store pickup", () => {
 
 		// Gate on the store's own settings: the summary exposes pickup_locations
 		// only when pickup is switched on with at least one location.
-		const locations = await configuredLocations(page);
+		const summary = await checkoutSummary(page);
+		const locations = (summary.pickup_locations || []) as PickupLocation[];
+		const defaultName = (summary.default_pickup_location || "").trim();
 		test.skip(!locations.length, "pickup is not configured in Shop Settings");
 
 		await page.goto("/checkout");
@@ -67,8 +74,26 @@ test.describe("store pickup", () => {
 		await expect(pickupTotals).toBeVisible();
 		await expect(pickupTotals).toContainText("Free");
 
-		// Submitting without a location stays on checkout with an explanation.
+		// When Settings names a default location its radio comes pre-checked;
+		// with no default configured nothing is chosen for the shopper.
+		const checked = panel.locator('input[name="pickup_location"]:checked');
+		if (defaultName) {
+			await expect(checked).toHaveCount(1);
+			expect(await checked.inputValue()).toBe(defaultName);
+		} else {
+			await expect(checked).toHaveCount(0);
+		}
+
+		// Submitting without a location stays on checkout with an explanation —
+		// clear the pre-checked default first so nothing is chosen.
 		await fillCheckout(page, BUYER);
+		await page.evaluate(() => {
+			document
+				.querySelectorAll<HTMLInputElement>(
+					'[data-shop="pickup-panel"] input[name="pickup_location"]',
+				)
+				.forEach((radio) => (radio.checked = false));
+		});
 		await page.locator('[data-shop="checkout-form"] [type="submit"]').click();
 		await expect(page.locator("body")).toContainText(
 			/choose where you would like to pick up/i,
@@ -120,6 +145,14 @@ test.describe("store pickup", () => {
 		const dirLinks = panel.locator('a[href*="google.com/maps/dir/"]');
 		await expect(dirLinks).toHaveCount(locations.length);
 		await expect(dirLinks.first()).toContainText("Get directions");
+		// The pill keeps its own look: Builder's text-block reset.css would
+		// otherwise underline it and strip its background.
+		const dirStyle = await dirLinks.first().evaluate((el) => {
+			const cs = getComputedStyle(el);
+			return { decoration: cs.textDecorationLine, background: cs.backgroundColor };
+		});
+		expect(dirStyle.decoration).not.toContain("underline");
+		expect(dirStyle.background).not.toBe("rgba(0, 0, 0, 0)");
 		await expect(
 			panel.locator('a[aria-label="Open this location in your maps app"]'),
 		).toHaveCount(0);
@@ -132,6 +165,23 @@ test.describe("store pickup", () => {
 		await popup.waitForLoadState();
 		expect(popup.url()).toContain("google.com/maps/dir");
 		await popup.close();
+
+		// Zoom controls rewrite the embed URL symmetrically around the pin:
+		// the view changes while the centre (marker / q) never moves.
+		const mapFrame = panel.locator('[data-shop="map-frame"]').first();
+		const zoomFrame = mapFrame.locator('iframe[title="Pickup location map"]');
+		const centreOf = (src: string) => {
+			const url = new URL(src);
+			return url.searchParams.get("marker") ?? url.searchParams.get("q");
+		};
+		const srcBefore = (await zoomFrame.getAttribute("src")) || "";
+		await mapFrame.locator('[data-shop="map-zoom"][data-delta="1"]').click();
+		await expect.poll(() => zoomFrame.getAttribute("src")).not.toBe(srcBefore);
+		const srcZoomedIn = (await zoomFrame.getAttribute("src")) || "";
+		expect(centreOf(srcZoomedIn)).toBe(centreOf(srcBefore));
+		await mapFrame.locator('[data-shop="map-zoom"][data-delta="-1"]').click();
+		await expect.poll(() => zoomFrame.getAttribute("src")).not.toBe(srcZoomedIn);
+		expect(centreOf((await zoomFrame.getAttribute("src")) || "")).toBe(centreOf(srcBefore));
 
 		// Clicking the embed itself opens nothing — it is a plain map now.
 		let popups = 0;

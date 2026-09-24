@@ -61,6 +61,9 @@ def get_checkout_summary() -> dict:
 		"addresses": saved_addresses(),
 		"has_addresses": "true" if saved_addresses_exist() else None,
 		"pickup_locations": pickup_locations or None,
+		# Location auto-checked when Store Pickup is chosen (data-default on
+		# the panel); '' means "let the customer pick one".
+		"default_pickup_location": (settings.get("default_pickup_location") or "").strip(),
 		# Totals shown while pickup is selected: no courier, so no shipping fee.
 		"pickup_view": {
 			"formatted_shipping": _("Free"),

@@ -619,6 +619,19 @@
 		sync();
 	}
 
+	// Settings > Payments can name a default pickup location: check it the
+	// first time Store Pickup opens and never fight an explicit choice. An
+	// empty data-default means nothing is pre-checked, so the server-side
+	// "choose where you would like to pick up" validation still runs.
+	function preselectPickupLocation(panel) {
+		const radios = [...panel.querySelectorAll('input[name="pickup_location"]')];
+		if (!radios.length || radios.some((radio) => radio.checked)) return;
+		const wanted = (panel.getAttribute("data-default") || "").trim().toLowerCase();
+		if (!wanted) return;
+		const match = radios.find((radio) => (radio.value || "").trim().toLowerCase() === wanted);
+		if (match) match.checked = true;
+	}
+
 	function syncPaymentUI() {
 		const chosen = document.querySelector('input[name="payment_method"]:checked');
 		const submit = document.querySelector('[data-shop="checkout-form"] [type="submit"]');
@@ -632,6 +645,7 @@
 		const pickup = chosen?.value === "pickup";
 		const pickupPanel = document.querySelector('[data-shop="pickup-panel"]');
 		if (pickupPanel) pickupPanel.style.display = pickup ? "flex" : "none";
+		if (pickup && pickupPanel) preselectPickupLocation(pickupPanel);
 		document
 			.querySelectorAll('[data-shop="delivery-totals"], [data-shop="delivery-grand"]')
 			.forEach((row) => {
@@ -967,6 +981,64 @@
 		appleMapsDirectionsLinks();
 	}
 
+	// The map embed is view-only (pointer-events: none), so zooming is ours:
+	// rewrite the embed URL symmetrically around the pin — OSM's bbox rescaled
+	// about the marker, Google's z stepped with q untouched — which keeps the
+	// location exactly centred at every zoom level.
+	function zoomMapFrame(frame, direction) {
+		let url;
+		try {
+			url = new URL(frame.getAttribute("src") || "", window.location.href);
+		} catch (error) {
+			return;
+		}
+		if (url.hostname.endsWith("openstreetmap.org")) {
+			const bbox = (url.searchParams.get("bbox") || "").split(",").map(Number);
+			if (bbox.length !== 4 || bbox.some((value) => Number.isNaN(value))) return;
+			const marker = (url.searchParams.get("marker") || "").split(",").map(Number);
+			const hasMarker = marker.length === 2 && marker.every((value) => !Number.isNaN(value));
+			const centerLat = hasMarker ? marker[0] : (bbox[1] + bbox[3]) / 2;
+			const centerLng = hasMarker ? marker[1] : (bbox[0] + bbox[2]) / 2;
+			// Symmetric half-extents around the pin, scaled 0.5 in / 2 out,
+			// clamped so the box never leaves the world or collapses to zero.
+			let halfW = ((bbox[2] - bbox[0]) / 2) * (direction > 0 ? 0.5 : 2);
+			let halfH = ((bbox[3] - bbox[1]) / 2) * (direction > 0 ? 0.5 : 2);
+			halfW = Math.min(Math.max(halfW, 1e-7), Math.max(1e-7, 180 - Math.abs(centerLng)));
+			halfH = Math.min(Math.max(halfH, 1e-7), Math.max(1e-7, 90 - Math.abs(centerLat)));
+			url.searchParams.set(
+				"bbox",
+				[centerLng - halfW, centerLat - halfH, centerLng + halfW, centerLat + halfH].join(","),
+			);
+			// The marker param stays untouched — it is the rebuilt box's centre.
+		} else if (/(^|\.)google\./.test(url.hostname)) {
+			let zoom = parseInt(url.searchParams.get("z") || "16", 10);
+			if (Number.isNaN(zoom)) zoom = 16;
+			url.searchParams.set("z", String(Math.min(20, Math.max(1, zoom + (direction > 0 ? 1 : -1)))));
+			// The q param stays untouched — Google re-centres every zoom on it.
+		} else {
+			return;
+		}
+		frame.setAttribute("src", url.toString());
+	}
+
+	function initMapZoom() {
+		// Delegated: the theme may re-render the pickup panel at any time.
+		document.addEventListener("click", (event) => {
+			const button =
+				event.target instanceof Element
+					? event.target.closest('[data-shop="map-zoom"]')
+					: null;
+			if (!button) return;
+			const direction = Number(button.getAttribute("data-delta")) || 0;
+			if (!direction) return;
+			const wrapper = button.closest('[data-shop="map-frame"]');
+			const frame = wrapper && wrapper.querySelector("iframe");
+			if (!frame) return;
+			event.preventDefault(); // type=button never submits, this just guards default.
+			zoomMapFrame(frame, direction);
+		});
+	}
+
 	document.addEventListener("DOMContentLoaded", () => {
 		initGallery();
 		initVariantPicker();
@@ -974,6 +1046,7 @@
 		initReviewForm();
 		preselectPayment();
 		syncPaymentUI();
+		initMapZoom();
 		initBuyBar();
 		initFilters();
 		initAddressDatalists();

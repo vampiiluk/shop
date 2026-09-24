@@ -83,6 +83,15 @@
 				<PickupLocationsEditor v-if="payments.enable_pickup" v-model="pickupLocations" />
 				<FormControl
 					v-if="payments.enable_pickup"
+					v-model="payments.default_pickup_location"
+					type="select"
+					label="Default pickup location"
+					description="Pre-selected automatically when a customer chooses Store Pickup. Set to none to make shoppers pick one."
+					:options="defaultPickupOptions"
+					class="max-w-sm"
+				/>
+				<FormControl
+					v-if="payments.enable_pickup"
 					v-model="payments.map_embed_provider"
 					type="select"
 					label="Map provider"
@@ -577,6 +586,7 @@ const payments = reactive({
 	enable_cod: true,
 	cod_allowed_cities: '',
 	enable_pickup: false,
+	default_pickup_location: '',
 	map_embed_provider: 'OpenStreetMap',
 	payment_gateway_account: '',
 	auto_bill_on_payment: false,
@@ -627,9 +637,15 @@ const pickupLocations = ref<
 		location_name: string
 		address: string
 		google_maps_link: string
+		latitude: string
+		longitude: string
 		phone: string
 	}>
 >([])
+const defaultPickupOptions = computed(() => [
+	{ label: 'None — customer chooses', value: '' },
+	...pickupLocations.value.map((loc) => ({ label: loc.location_name, value: loc.location_name })),
+])
 const fingerprint = reactive({
 	fingerprint_provider: 'thumbmarkjs',
 	fingerprint_public_key: '',
@@ -668,6 +684,7 @@ function hydrate(doc: Record<string, any>) {
 		enable_cod: !!doc.enable_cod,
 		cod_allowed_cities: doc.cod_allowed_cities || '',
 		enable_pickup: !!doc.enable_pickup,
+		default_pickup_location: doc.default_pickup_location || '',
 		map_embed_provider: doc.map_embed_provider || 'OpenStreetMap',
 		payment_gateway_account: doc.payment_gateway_account || '',
 		auto_bill_on_payment: !!doc.auto_bill_on_payment,
@@ -728,6 +745,8 @@ function hydrate(doc: Record<string, any>) {
 		location_name: row.location_name,
 		address: row.address || '',
 		google_maps_link: row.google_maps_link || '',
+		latitude: row.latitude || '',
+		longitude: row.longitude || '',
 		phone: row.phone || '',
 	}))
 	Object.assign(fingerprint, {

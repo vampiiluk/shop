@@ -241,6 +241,62 @@ class TestPickup(IntegrationTestCase):
 		# The throw happens before anything is persisted, so no broken row lands.
 		self.assertEqual(settings_api.get_settings()["pickup_locations"], before)
 
+	def test_save_with_coordinates_only(self):
+		"""The editor's coordinate mode: no link, lat/lng validated and stored."""
+		saved = settings_api.save_pickup_locations(
+			[
+				{
+					"location_name": "Coordinate Store",
+					"address": "Bypass Road",
+					"google_maps_link": "",
+					"latitude": "28.437106",
+					"longitude": "70.280557",
+				}
+			]
+		)
+		row = saved["pickup_locations"][0]
+		self.assertEqual(row["latitude"], "28.437106")
+		self.assertEqual(row["longitude"], "70.280557")
+		self.assertFalse(row["google_maps_link"])
+		# The map and the directions button are built from those coordinates.
+		settings_api.save_settings({"enable_pickup": 1})
+		summary_rows = checkout.get_checkout_summary()["pickup_locations"] or []
+		self.assertEqual(len(summary_rows), 1)
+		self.assertIn("28.437106", summary_rows[0]["map_url"])
+		self.assertIn("28.437106", summary_rows[0]["directions_url"])
+
+	def test_save_needs_a_link_or_valid_coordinates(self):
+		before = settings_api.get_settings()["pickup_locations"]
+		# Neither a link nor coordinates: refused, with the link guidance.
+		with self.assertRaises(frappe.ValidationError) as caught:
+			settings_api.save_pickup_locations(
+				[{"location_name": "Branch", "address": "2 Mall Road, Lahore"}]
+			)
+		self.assertIn("Google Maps link", str(caught.exception))
+		self.assertEqual(settings_api.get_settings()["pickup_locations"], before)
+		# Out-of-range coordinates are refused rather than mapped off-world.
+		with self.assertRaises(frappe.ValidationError):
+			settings_api.save_pickup_locations(
+				[
+					{
+						"location_name": "Branch",
+						"address": "2 Mall Road, Lahore",
+						"latitude": "91",
+						"longitude": "73.0822",
+					}
+				]
+			)
+		self.assertEqual(settings_api.get_settings()["pickup_locations"], before)
+
+	def test_default_pickup_location_round_trip(self):
+		updated = settings_api.save_settings({"default_pickup_location": "Branch"})
+		self.assertEqual(updated["default_pickup_location"], "Branch")
+		# Checkout exposes it so the theme can pre-check the matching radio.
+		self.assertEqual(checkout.get_checkout_summary()["default_pickup_location"], "Branch")
+		updated = settings_api.save_settings({"default_pickup_location": ""})
+		self.assertEqual(updated["default_pickup_location"] or "", "")
+		self.assertEqual(checkout.get_checkout_summary()["default_pickup_location"] or "", "")
+
 	def test_short_link_is_resolved_once_at_save_time(self):
 		from unittest.mock import MagicMock, patch
 

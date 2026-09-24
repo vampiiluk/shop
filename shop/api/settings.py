@@ -60,6 +60,7 @@ EDITABLE = (
 	"advance_payment_instructions",
 	"cod_allowed_cities",
 	"enable_pickup",
+	"default_pickup_location",
 	"map_embed_provider",
 	"allow_out_of_stock",
 	"prices_include_tax",
@@ -267,13 +268,19 @@ def save_provinces(provinces: list) -> dict:
 @frappe.whitelist(methods=["POST"])
 def save_pickup_locations(locations: list) -> dict:
 	"""Save the pickup location table.
-	Each entry: {location_name, address, google_maps_link, phone}.
+	Each entry: {location_name, address, google_maps_link, latitude, longitude, phone}.
 
-	The Google Maps link is required — its coordinates drive the map embed
-	and the directions button. Short Google links are resolved once, at
-	save time, so checkout never fetches anything."""
+	A location is placed either by a Google Maps link whose coordinates we
+	parse (first choice) or by latitude/longitude entered directly in the
+	editor's coordinate mode. Short Google links are resolved once, at save
+	time, so checkout never fetches anything."""
 	only_managers()
-	from shop.storefront.pickup import is_short_gmaps_link, parse_gmaps_link, resolve_short_gmaps_link
+	from shop.storefront.pickup import (
+		_valid_coords,
+		is_short_gmaps_link,
+		parse_gmaps_link,
+		resolve_short_gmaps_link,
+	)
 
 	settings = frappe.get_doc("Shop Settings")
 	settings.pickup_locations = []
@@ -293,12 +300,24 @@ def save_pickup_locations(locations: list) -> dict:
 				coordinates = parse_gmaps_link(resolved)
 				if coordinates:
 					link = resolved
+		latitude = str(entry.get("latitude") or "").strip()
+		longitude = str(entry.get("longitude") or "").strip()
+		if not coordinates and _valid_coords(latitude, longitude):
+			# Coordinate mode: the editor sends no link, just the numbers.
+			coordinates = (latitude, longitude)
 		if not coordinates:
+			if latitude or longitude:
+				frappe.throw(
+					_(
+						"Latitude / longitude for {0} must be numbers within -90..90 and -180..180."
+					).format(name)
+				)
 			frappe.throw(
 				_(
 					"We couldn't find coordinates in the Google Maps link for {0}. "
 					"Copy the full link from Google Maps — it should contain the pin's "
-					"coordinates, e.g. @29.1044,70.3298."
+					"coordinates, e.g. @29.1044,70.3298 — or enter latitude and "
+					"longitude instead."
 				).format(name)
 			)
 		settings.append(

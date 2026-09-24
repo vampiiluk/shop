@@ -31,6 +31,7 @@
   "cod_allowed_cities",
   "enable_pickup",
   "pickup_locations",
+  "default_pickup_location",
   "map_embed_provider",
   "column_break_payments",
   "payment_gateway_account",
@@ -230,6 +231,13 @@
    "fieldtype": "Table",
    "label": "Pickup Locations",
    "options": "Shop Pickup Location"
+  },
+  {
+   "depends_on": "eval:doc.enable_pickup",
+   "description": "Checked automatically when a customer chooses Store Pickup at checkout. Leave empty to make shoppers pick one.",
+   "fieldname": "default_pickup_location",
+   "fieldtype": "Data",
+   "label": "Default Pickup Location"
   },
   {
    "default": "OpenStreetMap",
