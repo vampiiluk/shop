@@ -54,6 +54,28 @@ class TestAdvancePayment(IntegrationTestCase):
 		)
 		frappe.get_cached_doc("Shop Settings")
 
+	def test_settings_api_round_trip(self):
+		"""The admin panel persists advance fields through save_settings."""
+		from shop.api import settings as settings_api
+
+		updated = settings_api.save_settings(
+			{
+				"enable_advance_payment": 1,
+				"advance_payment_mode": "Flat",
+				"advance_payment_flat": 250,
+				"advance_payment_percent": 35,
+				"advance_payment_instructions": "Test account 0000",
+			}
+		)
+		self.assertEqual(updated["enable_advance_payment"], 1)
+		self.assertEqual(updated["advance_payment_mode"], "Flat")
+		self.assertEqual(flt(updated["advance_payment_flat"]), 250.0)
+		self.assertEqual(updated["advance_payment_percent"], 35)
+		self.assertEqual(updated["advance_payment_instructions"], "Test account 0000")
+		# Unknown basis values fall back to Percent instead of persisting.
+		reverted = settings_api.save_settings({"advance_payment_mode": "Bogus"})
+		self.assertEqual(reverted["advance_payment_mode"], "Percent")
+
 	def methods(self):
 		summary = checkout.get_checkout_summary()
 		return summary, {row["method"]: row for row in summary["payment_methods"]}

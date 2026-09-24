@@ -7,6 +7,7 @@ from shop.api import only_managers
 CHECK_FIELDS = frozenset((
 	"enable_cod",
 	"auto_bill_on_payment",
+	"enable_advance_payment",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"auto_send_to_fulfillment",
@@ -20,6 +21,7 @@ CHECK_FIELDS = frozenset((
 
 INT_FIELDS = frozenset((
 	"low_stock_threshold",
+	"advance_payment_percent",
 	"fraud_advance_threshold",
 	"fraud_velocity_max",
 	"fraud_risky_hour_start",
@@ -35,6 +37,7 @@ INT_FIELDS = frozenset((
 CURRENCY_FIELDS = frozenset((
 	"flat_shipping_rate",
 	"free_shipping_above",
+	"advance_payment_flat",
 ))
 
 PASSWORD_FIELDS = frozenset((
@@ -49,6 +52,11 @@ EDITABLE = (
 	"enable_cod",
 	"payment_gateway_account",
 	"auto_bill_on_payment",
+	"enable_advance_payment",
+	"advance_payment_mode",
+	"advance_payment_percent",
+	"advance_payment_flat",
+	"advance_payment_instructions",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"tax_template",
@@ -208,6 +216,8 @@ def save_settings(payload: dict) -> dict:
 		elif field == "queue_schedule":
 			if value not in ("Every 10 Minutes", "Every 20 Minutes", "Hourly"):
 				value = "Every 20 Minutes"
+		elif field == "advance_payment_mode":
+			value = value if value in ("Percent", "Flat") else "Percent"
 		elif field == "fraud_signal_weights":
 			from shop.integrations.signal_weights import validate_weights_json
 

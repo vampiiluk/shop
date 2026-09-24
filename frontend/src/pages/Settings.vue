@@ -53,6 +53,47 @@
 					Open payment gateway settings in Desk
 					<LucideExternalLink class="size-3.5" />
 				</a>
+				<Switch
+					v-model="payments.enable_advance_payment"
+					label="Advance payment"
+					description="Take part of the order up front (percent or flat amount); the courier collects the balance on delivery."
+				/>
+				<template v-if="payments.enable_advance_payment">
+					<FormControl
+						v-model="payments.advance_payment_mode"
+						type="select"
+						label="Advance basis"
+						:options="[
+							{ label: 'Percent of order total', value: 'Percent' },
+							{ label: 'Flat amount', value: 'Flat' },
+						]"
+						class="max-w-sm"
+					/>
+					<FormControl
+						v-if="payments.advance_payment_mode !== 'Flat'"
+						v-model.number="payments.advance_payment_percent"
+						type="number"
+						label="Advance percent"
+						description="Share of the order total due up front (1-100)."
+						class="max-w-sm"
+					/>
+					<FormControl
+						v-if="payments.advance_payment_mode === 'Flat'"
+						v-model.number="payments.advance_payment_flat"
+						type="number"
+						:label="`Advance flat amount (${data.currency})`"
+						description="Fixed amount due up front."
+						class="max-w-sm"
+					/>
+					<FormControl
+						v-model="payments.advance_payment_instructions"
+						type="textarea"
+						:rows="3"
+						label="Advance payment instructions"
+						description="Bank or wallet details shown next to the advance due on the order confirmation page."
+						class="max-w-md"
+					/>
+				</template>
 				<template #footer>
 					<Button
 						variant="solid"
@@ -471,7 +512,16 @@ import StorefrontThemes from '@/components/StorefrontThemes.vue'
 const saving = ref('')
 
 const store = reactive({ store_name: '', store_logo: '' })
-const payments = reactive({ enable_cod: true, payment_gateway_account: '', auto_bill_on_payment: false })
+const payments = reactive({
+	enable_cod: true,
+	payment_gateway_account: '',
+	auto_bill_on_payment: false,
+	enable_advance_payment: false,
+	advance_payment_mode: 'Percent',
+	advance_payment_percent: 20,
+	advance_payment_flat: 0,
+	advance_payment_instructions: '',
+})
 const shipping = reactive({ flat_shipping_rate: 0, free_shipping_above: 0, shipping_account: '' })
 const fulfillment = reactive({ fulfillment_provider: 'manual', auto_send_to_fulfillment: false })
 const catalog = reactive({
@@ -545,6 +595,11 @@ function hydrate(doc: Record<string, any>) {
 		enable_cod: !!doc.enable_cod,
 		payment_gateway_account: doc.payment_gateway_account || '',
 		auto_bill_on_payment: !!doc.auto_bill_on_payment,
+		enable_advance_payment: !!doc.enable_advance_payment,
+		advance_payment_mode: doc.advance_payment_mode === 'Flat' ? 'Flat' : 'Percent',
+		advance_payment_percent: doc.advance_payment_percent ?? 20,
+		advance_payment_flat: doc.advance_payment_flat ?? 0,
+		advance_payment_instructions: doc.advance_payment_instructions || '',
 	})
 	Object.assign(shipping, {
 		flat_shipping_rate: doc.flat_shipping_rate || 0,
