@@ -5,6 +5,7 @@ from shop.api import fulfillment as fulfillment_api
 from shop.api import returns as returns_api
 from shop.fulfillment import service
 from shop.storefront import cart, checkout, returns
+from shop.tests import force_cod_enabled
 
 BUYER = {"email": "returns-buyer@example.com", "full_name": "Returns Buyer"}
 ADDRESS = {
@@ -22,6 +23,7 @@ class TestReturns(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 
 	def shipped_order(self):
 		cart.add_item("SHOP-DEMO-003")

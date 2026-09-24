@@ -33,13 +33,54 @@
 					label="Cash on Delivery"
 					description="Let customers pay in cash when their order arrives."
 				/>
-				<FormControl
-					v-if="payments.enable_cod"
-					v-model="payments.cod_allowed_cities"
-					label="COD allowed cities"
-					description="Comma-separated cities where cash on delivery is offered. Leave empty to allow it everywhere."
-					class="max-w-sm"
+				<div v-if="payments.enable_cod" class="max-w-xl space-y-2">
+					<label class="text-sm text-ink-gray-6">COD allowed cities</label>
+					<div v-if="codCityOptions.length" class="flex flex-wrap gap-1.5">
+						<button
+							v-for="city in codCityOptions"
+							:key="city"
+							type="button"
+							class="rounded-full border px-2.5 py-1 text-xs transition-colors"
+							:class="
+								codCitySet.has(city.toLowerCase())
+									? 'border-ink-gray-8 bg-ink-gray-1 text-ink-gray-8'
+									: 'border-ink-gray-4 text-ink-gray-6 hover:border-ink-gray-6'
+							"
+							@click="toggleCodCity(city)"
+						>
+							{{ city }}
+						</button>
+					</div>
+					<FormControl
+						v-else
+						v-model="payments.cod_allowed_cities"
+						label="COD allowed cities"
+						description="Add cities in Provinces & Cities to choose them here. Leave empty to allow every city."
+						class="max-w-sm"
+					/>
+					<p class="text-xs text-ink-gray-5">
+						<template v-if="!codCitySet.size">
+							No city selected — cash on delivery is offered everywhere.
+						</template>
+						<template v-else>
+							{{ codCitySet.size }} selected — cash on delivery only in these cities.
+						</template>
+						<button
+							v-if="codCitySet.size"
+							type="button"
+							class="ml-1 underline"
+							@click="payments.cod_allowed_cities = ''"
+						>
+							Allow everywhere
+						</button>
+					</p>
+				</div>
+				<Switch
+					v-model="payments.enable_pickup"
+					label="Store pickup"
+					description="Customers collect and pay at the store like cash on delivery; shipping is waived for pickup orders."
 				/>
+				<PickupLocationsEditor v-if="payments.enable_pickup" v-model="pickupLocations" />
 				<Switch
 					v-model="payments.auto_bill_on_payment"
 					label="Auto-create Sales Invoices"
@@ -513,6 +554,7 @@ import LucideExternalLink from '~icons/lucide/external-link'
 import CatalogImageInput from '@/components/CatalogImageInput.vue'
 import CatalogListState from '@/components/CatalogListState.vue'
 import CatalogSection from '@/components/CatalogSection.vue'
+import PickupLocationsEditor from '@/components/PickupLocationsEditor.vue'
 import ProvinceCityEditor from '@/components/ProvinceCityEditor.vue'
 import StorefrontThemes from '@/components/StorefrontThemes.vue'
 
@@ -522,6 +564,7 @@ const store = reactive({ store_name: '', store_logo: '' })
 const payments = reactive({
 	enable_cod: true,
 	cod_allowed_cities: '',
+	enable_pickup: false,
 	payment_gateway_account: '',
 	auto_bill_on_payment: false,
 	enable_advance_payment: false,
@@ -565,6 +608,16 @@ const address_cfg = reactive({
 	geocode_cache_ttl: 30,
 })
 const provinces = ref<Array<{ name?: string; province_name: string; cities: string }>>([])
+const pickupLocations = ref<
+	Array<{
+		name?: string
+		location_name: string
+		address: string
+		latitude: string
+		longitude: string
+		phone: string
+	}>
+>([])
 const fingerprint = reactive({
 	fingerprint_provider: 'thumbmarkjs',
 	fingerprint_public_key: '',
@@ -602,6 +655,7 @@ function hydrate(doc: Record<string, any>) {
 	Object.assign(payments, {
 		enable_cod: !!doc.enable_cod,
 		cod_allowed_cities: doc.cod_allowed_cities || '',
+		enable_pickup: !!doc.enable_pickup,
 		payment_gateway_account: doc.payment_gateway_account || '',
 		auto_bill_on_payment: !!doc.auto_bill_on_payment,
 		enable_advance_payment: !!doc.enable_advance_payment,
@@ -656,6 +710,14 @@ function hydrate(doc: Record<string, any>) {
 		province_name: p.province_name,
 		cities: p.cities || '',
 	}))
+	pickupLocations.value = (doc.pickup_locations || []).map((row: Record<string, any>) => ({
+		name: row.name,
+		location_name: row.location_name,
+		address: row.address || '',
+		latitude: row.latitude || '',
+		longitude: row.longitude || '',
+		phone: row.phone || '',
+	}))
 	Object.assign(fingerprint, {
 		fingerprint_provider: doc.fingerprint_provider || 'thumbmarkjs',
 		fingerprint_public_key: doc.fingerprint_public_key || '',
@@ -666,6 +728,44 @@ function hydrate(doc: Record<string, any>) {
 		ip_intel_enabled: !!doc.ip_intel_enabled,
 		abuseipdb_api_key: doc.abuseipdb_api_key || '',
 	})
+}
+
+// Cities offered in the COD picker: the Provinces & Cities table first,
+// then any selected city that has since been removed from the table so a
+// stale selection stays visible (and clearable) instead of silently lost.
+const codCityOptions = computed(() => {
+	const byLower = new Map<string, string>()
+	for (const row of provinces.value) {
+		for (const part of String(row.cities || '').split(',')) {
+			const city = part.trim()
+			if (city) byLower.set(city.toLowerCase(), city)
+		}
+	}
+	for (const part of String(payments.cod_allowed_cities || '').split(',')) {
+		const city = part.trim()
+		if (city && !byLower.has(city.toLowerCase())) byLower.set(city.toLowerCase(), city)
+	}
+	return [...byLower.values()]
+})
+
+const codCitySet = computed(
+	() =>
+		new Set(
+			String(payments.cod_allowed_cities || '')
+				.split(',')
+				.map((city) => city.trim().toLowerCase())
+				.filter(Boolean),
+		),
+)
+
+function toggleCodCity(city: string) {
+	const set = new Set(codCitySet.value)
+	const key = city.toLowerCase()
+	if (set.has(key)) set.delete(key)
+	else set.add(key)
+	payments.cod_allowed_cities = codCityOptions.value
+		.filter((option) => set.has(option.toLowerCase()))
+		.join(', ')
 }
 
 const gatewayOptions = computed(() => [

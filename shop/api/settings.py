@@ -6,6 +6,7 @@ from shop.api import only_managers
 
 CHECK_FIELDS = frozenset((
 	"enable_cod",
+	"enable_pickup",
 	"auto_bill_on_payment",
 	"enable_advance_payment",
 	"allow_out_of_stock",
@@ -58,6 +59,7 @@ EDITABLE = (
 	"advance_payment_flat",
 	"advance_payment_instructions",
 	"cod_allowed_cities",
+	"enable_pickup",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"tax_template",
@@ -149,6 +151,17 @@ def get_settings() -> dict:
 			"provinces": [
 				{"name": row.name, "province_name": row.province_name, "cities": row.cities or ""}
 				for row in (settings.province_table or [])
+			],
+			"pickup_locations": [
+				{
+					"name": row.name,
+					"location_name": row.location_name,
+					"address": row.address or "",
+					"latitude": row.latitude or "",
+					"longitude": row.longitude or "",
+					"phone": row.phone or "",
+				}
+				for row in (settings.get("pickup_locations") or [])
 			],
 		}
 	)
@@ -243,6 +256,32 @@ def save_provinces(provinces: list) -> dict:
 		if not prov_name:
 			continue
 		settings.append("province_table", {"province_name": prov_name, "cities": cities})
+	settings.save(ignore_permissions=True)
+	return get_settings()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_pickup_locations(locations: list) -> dict:
+	"""Save the pickup location table.
+	Each entry: {location_name, address, latitude, longitude, phone}."""
+	only_managers()
+	settings = frappe.get_doc("Shop Settings")
+	settings.pickup_locations = []
+	for entry in locations:
+		name = (entry.get("location_name") or "").strip()
+		address = (entry.get("address") or "").strip()
+		if not name or not address:
+			continue
+		settings.append(
+			"pickup_locations",
+			{
+				"location_name": name,
+				"address": address,
+				"latitude": (entry.get("latitude") or "").strip(),
+				"longitude": (entry.get("longitude") or "").strip(),
+				"phone": (entry.get("phone") or "").strip(),
+			},
+		)
 	settings.save(ignore_permissions=True)
 	return get_settings()
 

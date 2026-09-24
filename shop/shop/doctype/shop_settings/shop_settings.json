@@ -29,6 +29,8 @@
   "payments_section",
   "enable_cod",
   "cod_allowed_cities",
+  "enable_pickup",
+  "pickup_locations",
   "column_break_payments",
   "payment_gateway_account",
   "auto_bill_on_payment",
@@ -212,6 +214,21 @@
    "fieldname": "cod_allowed_cities",
    "fieldtype": "Small Text",
    "label": "COD Allowed Cities"
+  },
+  {
+   "default": "0",
+   "description": "Customers collect and pay at the store like cash on delivery. Shipping is waived for pickup orders.",
+   "fieldname": "enable_pickup",
+   "fieldtype": "Check",
+   "label": "Enable Store Pickup"
+  },
+  {
+   "depends_on": "eval:doc.enable_pickup",
+   "description": "Locations shown on checkout and the order confirmation page, with maps.",
+   "fieldname": "pickup_locations",
+   "fieldtype": "Table",
+   "label": "Pickup Locations",
+   "options": "Shop Pickup Location"
   },
   {
    "fieldname": "column_break_payments",

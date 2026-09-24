@@ -1,0 +1,274 @@
+<template>
+	<div>
+		<div class="mb-4 flex items-center justify-between">
+			<div>
+				<h3 class="text-base font-semibold text-ink-gray-9">Pickup Locations</h3>
+				<p class="mt-0.5 text-p-sm text-ink-gray-5">
+					Where customers collect their orders. Each location is shown with a map on checkout and the
+					confirmation page. Payment is taken when they pick the order up, like cash on delivery.
+				</p>
+			</div>
+			<Button variant="solid" size="sm" @click="addLocation">
+				<template #icon><LucidePlus class="size-4" /></template>
+				Add Location
+			</Button>
+		</div>
+
+		<div
+			v-if="!locations.length"
+			class="rounded-xl border border-dashed border-outline-gray-2 py-12 text-center"
+		>
+			<div class="mx-auto mb-2 flex size-10 items-center justify-center rounded-full bg-surface-gray-2">
+				<LucideMapPin class="size-5 text-ink-gray-5" />
+			</div>
+			<p class="text-sm font-medium text-ink-gray-7">No pickup locations yet</p>
+			<p class="mt-1 text-p-sm text-ink-gray-5">
+				Add your first store location so customers can collect orders from it.
+			</p>
+		</div>
+
+		<div v-else class="rounded-xl border border-outline-gray-1">
+			<table class="w-full text-left text-sm">
+				<thead class="border-b border-outline-gray-1 bg-surface-gray-2 text-p-sm text-ink-gray-6">
+					<tr>
+						<th class="px-4 py-2.5 font-medium">Location</th>
+						<th class="px-4 py-2.5 font-medium">Address</th>
+						<th class="px-4 py-2.5 font-medium">Coordinates</th>
+						<th class="px-4 py-2.5 font-medium">Phone</th>
+						<th class="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-outline-gray-1">
+					<tr
+						v-for="(loc, idx) in locations"
+						:key="idx"
+						class="group cursor-pointer transition-colors hover:bg-surface-gray-2"
+						@click="editLocation(idx)"
+					>
+						<td class="px-4 py-3 font-medium text-ink-gray-8">{{ loc.location_name }}</td>
+						<td class="max-w-xs truncate px-4 py-3 text-ink-gray-5">
+							{{ loc.address || 'No address' }}
+						</td>
+						<td class="px-4 py-3 text-ink-gray-5">
+							<span v-if="loc.latitude && loc.longitude" class="font-mono text-xs">
+								{{ loc.latitude }}, {{ loc.longitude }}
+							</span>
+							<span v-else class="text-ink-gray-4">—</span>
+						</td>
+						<td class="px-4 py-3 text-ink-gray-5">{{ loc.phone || '—' }}</td>
+						<td class="px-4 py-3 text-right">
+							<div class="flex items-center justify-end gap-1">
+								<Button
+									variant="subtle"
+									size="xs"
+									@click.stop="editLocation(idx)"
+									title="Edit location"
+								>
+									<template #icon><LucidePencil class="size-3.5" /></template>
+								</Button>
+								<Button
+									variant="subtle"
+									size="xs"
+									theme="red"
+									@click.stop="removeLocation(idx)"
+									title="Delete location"
+								>
+									<template #icon><LucideTrash2 class="size-3.5" /></template>
+								</Button>
+							</div>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<!-- Edit Modal -->
+		<div
+			v-if="showDialog"
+			class="fixed inset-0 z-50 flex items-center justify-center p-4"
+			@click.self="showDialog = false"
+		>
+			<div class="fixed inset-0 bg-black/50 backdrop-blur-sm" @click="showDialog = false"></div>
+			<div class="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+				<div class="flex items-center justify-between border-b border-outline-gray-1 px-6 py-4">
+					<div>
+						<h3 class="text-base font-semibold text-ink-gray-9">
+							{{ editingIdx === -1 ? 'Add Location' : editForm.location_name || 'Edit Location' }}
+						</h3>
+						<p class="mt-0.5 text-p-sm text-ink-gray-5">
+							Customers pick this location at checkout; the map shows it on the confirmation page.
+						</p>
+					</div>
+					<button
+						class="flex size-8 items-center justify-center rounded-lg text-ink-gray-5 transition-colors hover:bg-surface-gray-2 hover:text-ink-gray-8"
+						@click="showDialog = false"
+					>
+						<X class="size-4" />
+					</button>
+				</div>
+				<div class="space-y-4 px-6 py-5">
+					<div>
+						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Location name</label>
+						<input
+							v-model="editForm.location_name"
+							type="text"
+							class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+							placeholder="e.g. Main Store — Rahim Yar Khan"
+						/>
+					</div>
+					<div>
+						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Address</label>
+						<textarea
+							v-model="editForm.address"
+							rows="3"
+							class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+							placeholder="Street, area, city"
+						/>
+					</div>
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Latitude</label>
+							<input
+								v-model="editForm.latitude"
+								type="text"
+								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+								placeholder="29.1044"
+							/>
+						</div>
+						<div>
+							<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Longitude</label>
+							<input
+								v-model="editForm.longitude"
+								type="text"
+								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+								placeholder="70.3298"
+							/>
+						</div>
+					</div>
+					<p class="text-p-sm text-ink-gray-5">
+						Coordinates drive the map embed. Find them by long-pressing a point on Google Maps or
+						opening the location on openstreetmap.org.
+					</p>
+					<div>
+						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Phone (optional)</label>
+						<input
+							v-model="editForm.phone"
+							type="text"
+							class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+							placeholder="Contact number for the pickup desk"
+						/>
+					</div>
+				</div>
+				<div class="flex items-center justify-end gap-2 border-t border-outline-gray-1 px-6 py-4">
+					<Button variant="subtle" @click="showDialog = false">Cancel</Button>
+					<Button
+						variant="solid"
+						:disabled="!editForm.location_name.trim() || !editForm.address.trim()"
+						@click="saveEdit"
+					>
+						{{ editingIdx >= 0 ? 'Save Changes' : 'Add Location' }}
+					</Button>
+				</div>
+			</div>
+		</div>
+	</div>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import { Button, createResource, toast } from 'frappe-ui'
+import LucidePlus from '~icons/lucide/plus'
+import LucidePencil from '~icons/lucide/pencil'
+import LucideTrash2 from '~icons/lucide/trash-2'
+import LucideMapPin from '~icons/lucide/map-pin'
+import X from '~icons/lucide/x'
+
+interface PickupLocation {
+	name?: string
+	location_name: string
+	address: string
+	latitude: string
+	longitude: string
+	phone: string
+}
+
+const props = defineProps<{
+	modelValue: PickupLocation[]
+}>()
+
+const emit = defineEmits<{
+	'update:modelValue': [value: PickupLocation[]]
+}>()
+
+const locations = ref<PickupLocation[]>([...props.modelValue])
+
+watch(
+	() => props.modelValue,
+	(val) => {
+		locations.value = [...val]
+	},
+)
+
+const showDialog = ref(false)
+const editingIdx = ref(-1)
+const editForm = ref({
+	location_name: '',
+	address: '',
+	latitude: '',
+	longitude: '',
+	phone: '',
+})
+
+function addLocation() {
+	editingIdx.value = -1
+	editForm.value = { location_name: '', address: '', latitude: '', longitude: '', phone: '' }
+	showDialog.value = true
+}
+
+function editLocation(idx: number) {
+	editingIdx.value = idx
+	const loc = locations.value[idx]
+	editForm.value = {
+		location_name: loc.location_name,
+		address: loc.address,
+		latitude: loc.latitude,
+		longitude: loc.longitude,
+		phone: loc.phone,
+	}
+	showDialog.value = true
+}
+
+function removeLocation(idx: number) {
+	locations.value.splice(idx, 1)
+	emit('update:modelValue', [...locations.value])
+	saveLocations()
+}
+
+function saveEdit() {
+	const entry = {
+		location_name: editForm.value.location_name.trim(),
+		address: editForm.value.address.trim(),
+		latitude: editForm.value.latitude.trim(),
+		longitude: editForm.value.longitude.trim(),
+		phone: editForm.value.phone.trim(),
+	}
+	if (editingIdx.value >= 0) {
+		locations.value[editingIdx.value] = entry
+	} else {
+		locations.value.push(entry)
+	}
+	showDialog.value = false
+	emit('update:modelValue', [...locations.value])
+	saveLocations()
+}
+
+const saveMutation = createResource({
+	url: 'shop.api.settings.save_pickup_locations',
+	onSuccess: () => toast.success('Pickup locations saved'),
+	onError: () => toast.error('Failed to save pickup locations'),
+})
+
+function saveLocations() {
+	saveMutation.submit({ locations: locations.value })
+}
+</script>

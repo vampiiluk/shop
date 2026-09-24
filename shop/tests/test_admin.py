@@ -4,6 +4,7 @@ from frappe.tests import IntegrationTestCase
 from shop.api import analytics, carts, customers, discounts, inventory, orders, products, reviews, settings
 from shop.storefront import cart as storefront_cart
 from shop.storefront import checkout
+from shop.tests import force_cod_enabled
 
 BUYER = {"email": "admin-test-buyer@example.com", "full_name": "Admin Test Buyer"}
 ADDRESS = {"address_line1": "11 Admin Way", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
@@ -14,6 +15,7 @@ class TestAdminApi(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 
 	def place_order(self):
 		storefront_cart.add_item("SHOP-DEMO-003")

@@ -69,6 +69,7 @@ def order_summary(order) -> dict:
 	from shop.storefront import returns
 
 	shipment = shipment_summary(order.name)
+	method = order.get("custom_payment_method") or "cod"
 	return {
 		"returns": returns.summary(order.name),
 		"name": order.name,
@@ -77,7 +78,7 @@ def order_summary(order) -> dict:
 		"progress": order_progress(order, shipment),
 		"shipment": shipment,
 		"fulfillment_name": shipment.name if shipment else None,
-		"awaiting_shipment": None if shipment else "true",
+		"awaiting_shipment": None if shipment or method == "pickup" else "true",
 		"transaction_date": str(order.transaction_date),
 		"total": order.total,
 		"formatted_total": pricing.format_amount(order.total),
@@ -88,8 +89,9 @@ def order_summary(order) -> dict:
 		else None,
 		"grand_total": order.grand_total,
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
-		"payment_method": order.get("custom_payment_method") or "cod",
+		"payment_method": method,
 		"advance_payment": advance_payment_info(order),
+		"pickup_location": pickup_location_info(order),
 		"taxes": [
 			{"description": tax.description, "amount": tax.tax_amount, "formatted_amount": pricing.format_amount(tax.tax_amount)}
 			for tax in order.taxes
@@ -147,6 +149,29 @@ def advance_payment_info(order) -> dict | None:
 	}
 
 
+def pickup_location_info(order) -> dict | None:
+	"""Pickup block for the confirmation page; None unless the customer chose pickup."""
+	if (order.get("custom_payment_method") or "cod") != "pickup":
+		return None
+	from shop.storefront import pickup as pickup_module
+
+	stored = (order.get("custom_pickup_location") or "").strip()
+	for row in pickup_module.configured():
+		if row["name"].lower() == stored.lower():
+			return row
+	# The location was renamed or removed after this order: keep the name the
+	# customer picked so the tile still identifies the handover point.
+	return {
+		"name": stored or _("Store pickup"),
+		"address": "",
+		"latitude": "",
+		"longitude": "",
+		"phone": "",
+		"map_url": "",
+		"directions_url": "",
+	}
+
+
 def payments_received_for(order) -> tuple:
 	from shop.api.orders import payments_received
 
@@ -173,6 +198,15 @@ def order_progress(order, shipment: dict | None) -> list[dict]:
 			payment_label = (
 				_("Paid") if paid or expects_online_payment(order.name) else _("Payment on delivery")
 			)
+	if (order.get("custom_payment_method") or "") == "pickup":
+		# No courier: the customer pays and collects in person, like COD at handover.
+		stages = [
+			(_("Order placed"), True),
+			(_("Paid") if paid else _("Pay at pickup"), paid),
+			(_("Ready for pickup"), paid),
+			(_("Picked up"), paid),
+		]
+		return [{"label": label, "done": "true" if done else "false"} for label, done in stages]
 	stages = [
 		(_("Order placed"), True),
 		(payment_label, paid),

@@ -3,6 +3,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, nowdate
 
 from shop.storefront import cart, checkout
+from shop.tests import force_cod_enabled
 
 BUYER = {"email": "coupon-buyer@example.com", "full_name": "Coupon Buyer"}
 ADDRESS = {"address_line1": "3 Offer Lane", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
@@ -13,6 +14,7 @@ class TestCoupons(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 		# The store may charge flat shipping; these coupon totals assume free delivery.
 		self._shipping_rate = frappe.db.get_single_value("Shop Settings", "flat_shipping_rate")
 		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", 0)
@@ -87,6 +89,7 @@ class TestCouponLifecycle(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 		# The store may charge flat shipping; these coupon totals assume free delivery.
 		self._shipping_rate = frappe.db.get_single_value("Shop Settings", "flat_shipping_rate")
 		frappe.db.set_single_value("Shop Settings", "flat_shipping_rate", 0)

@@ -2,6 +2,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from shop.storefront import cart, checkout, orders
+from shop.tests import force_cod_enabled
 
 BUYER = {"email": "jane@example.com", "full_name": "Jane Doe", "phone": "9999966666"}
 ADDRESS = {
@@ -19,6 +20,7 @@ class TestCheckout(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 		# The live site's fraud tuning (velocity/blacklist) blocks repeat test
 		# buyers; these tests cover checkout mechanics, not fraud scoring.
 		previous = frappe.db.get_single_value("Shop Settings", "enable_fraud_check")

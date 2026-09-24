@@ -605,7 +605,7 @@ def fast_risk(
 	hit = None
 
 	# ---- missing fingerprint (instant check, no HTTP) ----
-	if payment_method == "cod" and not device_fingerprint:
+	if payment_method in ("cod", "pickup") and not device_fingerprint:
 		score += w["missing_fingerprint"]
 		signals["missing_fingerprint"] = True
 
@@ -679,15 +679,15 @@ def fast_risk(
 		score += w["city_rto_medium"]
 
 	# ---- time-of-day pattern ----
-	if payment_method == "cod" and in_risky_window(settings_doc):
+	if payment_method in ("cod", "pickup") and in_risky_window(settings_doc):
 		signals["risky_hour"] = True
 		score += w["risky_hour"]
 
 	score = min(score, 100)
 	# fast_risk can only Block on blacklist or velocity (instant DB checks)
-	if hit and (payment_method == "cod" or cint(settings_doc.fraud_blacklist_blocks_all)):
+	if hit and (payment_method in ("cod", "pickup") or cint(settings_doc.fraud_blacklist_blocks_all)):
 		verdict = "Block"
-	elif signals.get("velocity_block") and payment_method == "cod":
+	elif signals.get("velocity_block") and payment_method in ("cod", "pickup"):
 		verdict = "Block"
 	else:
 		verdict = "Pass"
@@ -1067,16 +1067,16 @@ def evaluate_risk(
 		score += w["city_rto_medium"]
 
 	# ---- 6. time-of-day pattern ----
-	if payment_method == "cod" and in_risky_window(settings_doc):
+	if payment_method in ("cod", "pickup") and in_risky_window(settings_doc):
 		signals["risky_hour"] = True
 		score += w["risky_hour"]
 
 	score = min(score, 100)
-	if hit and (payment_method == "cod" or cint(settings_doc.fraud_blacklist_blocks_all)):
+	if hit and (payment_method in ("cod", "pickup") or cint(settings_doc.fraud_blacklist_blocks_all)):
 		verdict = "Block"
-	elif signals.get("velocity_block") and payment_method == "cod":
+	elif signals.get("velocity_block") and payment_method in ("cod", "pickup"):
 		verdict = "Block"
-	elif score >= cint(settings_doc.fraud_advance_threshold) and payment_method == "cod":
+	elif score >= cint(settings_doc.fraud_advance_threshold) and payment_method in ("cod", "pickup"):
 		verdict = "Advance Required"
 	elif score >= 40:
 		verdict = "Flag"

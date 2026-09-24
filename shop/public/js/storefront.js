@@ -414,6 +414,12 @@
 			const input = form.querySelector(`[name="${name}"]`);
 			return (data.get(name) || (input ? input.value : "") || "").trim();
 		};
+		// Pickup hands the order over in person: a location must be chosen first.
+		const chosenMethod = form.querySelector('input[name="payment_method"]:checked');
+		if (chosenMethod && chosenMethod.value === "pickup" && !data.get("pickup_location")) {
+			showError("Choose where you would like to pick up your order");
+			return;
+		}
 		const submit = form.querySelector('[type="submit"]');
 		if (submit) submit.disabled = true;
 		try {
@@ -435,6 +441,7 @@
 					alt_phone: getVal("alt_phone") || getVal("custom_alt_phone"),
 				},
 				payment_method: getVal("payment_method") || "cod",
+				pickup_location: getVal("pickup_location"),
 				device_fingerprint: fp.visitorId,
 				fp_request_id: fp.requestId,
 				fingerprint_provider: fp.provider,
@@ -600,7 +607,8 @@
 			if (!eligible && codRadio.checked) {
 				const fallback =
 					form.querySelector('input[name="payment_method"][value="advance"]') ||
-					form.querySelector('input[name="payment_method"][value="gateway"]');
+					form.querySelector('input[name="payment_method"][value="gateway"]') ||
+					form.querySelector('input[name="payment_method"][value="pickup"]');
 				if (fallback) {
 					fallback.checked = true;
 					fallback.dispatchEvent(new Event("change", { bubbles: true }));
@@ -620,6 +628,20 @@
 		if (note) note.hidden = chosen?.value !== "gateway";
 		const advNote = document.querySelector('[data-shop="advance-instructions"]');
 		if (advNote) advNote.hidden = chosen?.value !== "advance";
+		// Pickup: show the location picker and swap in the no-shipping totals.
+		const pickup = chosen?.value === "pickup";
+		const pickupPanel = document.querySelector('[data-shop="pickup-panel"]');
+		if (pickupPanel) pickupPanel.style.display = pickup ? "flex" : "none";
+		document
+			.querySelectorAll('[data-shop="delivery-totals"], [data-shop="delivery-grand"]')
+			.forEach((row) => {
+				row.style.display = pickup ? "none" : "flex";
+			});
+		document
+			.querySelectorAll('[data-shop="pickup-totals"], [data-shop="pickup-grand"]')
+			.forEach((row) => {
+				row.style.display = pickup ? "flex" : "none";
+			});
 	}
 
 	function preselectPayment() {

@@ -2,6 +2,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from shop.storefront import cart, checkout, orders
+from shop.tests import force_cod_enabled
 
 BUYER = {"email": "shipping-buyer@example.com", "full_name": "Shipping Buyer"}
 ADDRESS = {"address_line1": "8 Freight Road", "city": "Bengaluru", "country": "India", "landmark": "Gate 7"}
@@ -12,6 +13,7 @@ class TestShipping(IntegrationTestCase):
 		frappe.db.delete("Shop Cart")
 		if hasattr(frappe.local, "request"):
 			del frappe.local.request
+		force_cod_enabled(self)
 		self.settings = frappe.get_doc("Shop Settings")
 		self.original = (
 			self.settings.flat_shipping_rate,

@@ -180,15 +180,39 @@ async function setField(page: Page, name: string, value: string) {
 		.toBe("selected");
 }
 
-export async function submitCheckout(page: Page, method: "cod" | "gateway" | "advance" = "cod") {
+export async function submitCheckout(
+	page: Page,
+	method: "cod" | "gateway" | "advance" | "pickup" = "cod",
+) {
 	await page.locator(`input[name="payment_method"][value="${method}"]`).check();
+	if (method === "pickup") {
+		// Pickup requires a collection point before the order can be placed.
+		await page
+			.locator('[data-shop="pickup-panel"] input[name="pickup_location"]')
+			.first()
+			.check();
+	}
 	await page.locator('[data-shop="checkout-form"] [type="submit"]').click();
 }
 
 export async function placeCodOrder(page: Page, buyer: Buyer): Promise<string> {
 	await page.goto("/checkout");
 	await fillCheckout(page, buyer);
-	await submitCheckout(page, "cod");
+	// Prefer COD, but the merchant may have switched it off: fall back to the
+	// first method that still lands on the confirmation page, so merchant
+	// flows stay testable against whatever configuration is live.
+	const summary = await page.request.get(
+		"/api/method/shop.storefront.checkout.get_checkout_summary",
+	);
+	const methods = ((await summary.json()).message.payment_methods as { method: string }[]).map(
+		(row) => row.method,
+	);
+	const method = methods.includes("cod")
+		? "cod"
+		: methods.includes("advance")
+			? "advance"
+			: methods[0];
+	await submitCheckout(page, method);
 	await page.waitForURL(/order-confirmation/);
 	return page.url().match(/order-confirmation\/([^?]+)/)?.[1] || "";
 }

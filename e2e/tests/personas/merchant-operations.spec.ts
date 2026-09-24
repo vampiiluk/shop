@@ -216,7 +216,9 @@ test.describe("Store owner running the admin panel day to day", () => {
 		try {
 			await api.setSettings({
 				store_name: settings?.store_name || "Frappe Shop",
-				enable_cod: 1,
+				// Put back whatever COD switch the store was running with —
+				// the merchant may deliberately have it turned off.
+				enable_cod: settings?.enable_cod ?? 1,
 				onboarding_complete: 1,
 				flat_shipping_rate: settings?.flat_shipping_rate || 0,
 				free_shipping_above: settings?.free_shipping_above || 0,
@@ -238,7 +240,7 @@ test.describe("Store owner running the admin panel day to day", () => {
 		}
 	});
 
-	test("a guest places a fresh COD order on the storefront", async () => {
+	test("a guest places a fresh order on the storefront", async () => {
 		await clearCart(shopperPage);
 		await addToCartViaPDP(shopperPage, ORDER_PRODUCT.slug);
 		orderId = await placeCodOrder(shopperPage, buyer);

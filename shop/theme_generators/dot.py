@@ -2615,6 +2615,102 @@ def checkout_blocks(refs):
 					),
 				],
 			),
+			block(
+				"div",
+				name="Pickup Locations",
+				attrs={"data-shop": "pickup-panel"},
+				visibilityCondition={"key": "pickup_locations", "comesFrom": "dataScript"},
+				styles={
+					"display": "none",
+					"flexDirection": "column",
+					"gap": "10px",
+					"gridColumn": "span 2",
+					"width": "100%",
+				},
+				children=[
+					block("p", text="Pickup location", styles=mono(size="10px", color=refs["muted"], spacing="0.16em")),
+					repeater(
+						"pickup_locations",
+						block(
+							"label",
+							styles={
+								"borderColor": refs["line"],
+								"borderRadius": "2px",
+								"borderStyle": "solid",
+								"borderWidth": "1px",
+								"cursor": "pointer",
+								"display": "flex",
+								"gap": "12px",
+								"padding": "12px 14px",
+								"width": "100%",
+							},
+							children=[
+								block(
+									"input",
+									attrs={"type": "radio", "name": "pickup_location"},
+									styles={"accentColor": refs["ink"], "height": "14px", "marginTop": "3px", "width": "14px"},
+									dynamicValues=[dv("name", "value", "attribute")],
+								),
+								block(
+									"div",
+									styles={"display": "flex", "flexDirection": "column", "gap": "6px", "width": "100%"},
+									children=[
+										block(
+											"p",
+											text="",
+											styles=mono(size="12px", color=refs["ink"], spacing="0.06em", weight="600"),
+											dynamicValues=[dv("name", "innerHTML")],
+										),
+										block(
+											"p",
+											text="",
+											styles={
+												"color": refs["muted"],
+												"fontSize": "12px",
+												"height": "fit-content",
+												"lineHeight": "1.5",
+												"whiteSpace": "pre-line",
+												"width": "100%",
+											},
+											dynamicValues=[dv("address", "innerHTML")],
+											visibilityCondition={"key": "address", "comesFrom": "dataScript"},
+										),
+										block(
+											"iframe",
+											attrs={"loading": "lazy", "referrerpolicy": "no-referrer-when-downgrade", "title": "Pickup location map"},
+											styles={"border": "0", "borderRadius": "4px", "height": "170px", "marginTop": "2px", "width": "100%"},
+											dynamicValues=[dv("map_url", "src", "attribute")],
+											visibilityCondition={"key": "map_url", "comesFrom": "dataScript"},
+										),
+										block(
+											"a",
+											text="Open in maps",
+											attrs={"target": "_blank", "rel": "noopener"},
+											styles={**mono(size="10px", color=refs["ink"], spacing="0.12em"), "textDecoration": "underline"},
+											dynamicValues=[dv("directions_url", "href", "attribute")],
+											visibilityCondition={"key": "directions_url", "comesFrom": "dataScript"},
+										),
+										block(
+											"p",
+											text="",
+											styles=mono(size="10px", color=refs["muted"], spacing="0.1em"),
+											dynamicValues=[dv("phone", "innerHTML")],
+											visibilityCondition={"key": "phone", "comesFrom": "dataScript"},
+										),
+									],
+								),
+							],
+						),
+						{"display": "flex", "flexDirection": "column", "gap": "10px", "width": "100%"},
+						name="Pickup Location Rows",
+					),
+					block(
+						"p",
+						text="Pay when you collect your order — no shipping fee.",
+						styles={"color": refs["muted"], "fontSize": "12px", "lineHeight": "1.5", "width": "100%"},
+					),
+				],
+			),
 			submit_button(refs, "Place order"),
 		],
 	)
@@ -2675,6 +2771,7 @@ def checkout_blocks(refs):
 			coupon_box(refs),
 			block(
 				"div",
+				attrs={"data-shop": "delivery-totals"},
 				styles={
 					"borderTopColor": refs["line"],
 					"borderTopStyle": "solid",
@@ -2690,6 +2787,27 @@ def checkout_blocks(refs):
 					discount_row(refs, "cart.formatted_discount", "cart.coupon.code"),
 					money_row(refs, "Shipping", bound_key="cart.formatted_shipping", static_value="Free"),
 					money_row(refs, "Total", bound_key="cart.formatted_total", strong=True),
+				],
+			),
+			block(
+				"div",
+				attrs={"data-shop": "pickup-totals"},
+				visibilityCondition={"key": "pickup_view", "comesFrom": "dataScript"},
+				styles={
+					"borderTopColor": refs["line"],
+					"borderTopStyle": "solid",
+					"borderTopWidth": "1px",
+					"display": "none",
+					"flexDirection": "column",
+					"gap": "10px",
+					"paddingTop": "16px",
+					"width": "100%",
+				},
+				children=[
+					money_row(refs, "Subtotal", bound_key="cart.formatted_subtotal"),
+					discount_row(refs, "cart.formatted_discount", "cart.coupon.code"),
+					money_row(refs, "Shipping", bound_key="pickup_view.formatted_shipping", static_value="Free"),
+					money_row(refs, "Total", bound_key="pickup_view.formatted_total", strong=True),
 				],
 			),
 			block(
@@ -2847,6 +2965,46 @@ def confirmation_blocks(refs):
 		name="Advance Tile",
 		visibilityCondition={"key": "order.advance_payment", "comesFrom": "dataScript"},
 	)
+	pickup_tile = inset(
+		refs,
+		[
+			block("p", text="Pickup", styles=mono(size="10px", color=refs["ink"], spacing="0.14em")),
+			block(
+				"p",
+				text="",
+				styles=mono(size="12px", color=refs["ink"], spacing="0.06em", weight="600"),
+				dynamicValues=[dv("order.pickup_location.name", "innerHTML")],
+				visibilityCondition={"key": "order.pickup_location.name", "comesFrom": "dataScript"},
+			),
+			tile_body(
+				"",
+				dynamicValues=[dv("order.pickup_location.address", "innerHTML")],
+				visibilityCondition={"key": "order.pickup_location.address", "comesFrom": "dataScript"},
+			),
+			block(
+				"iframe",
+				attrs={"loading": "lazy", "referrerpolicy": "no-referrer-when-downgrade", "title": "Pickup location map"},
+				styles={"border": "0", "borderRadius": "4px", "height": "150px", "marginTop": "4px", "width": "100%"},
+				dynamicValues=[dv("order.pickup_location.map_url", "src", "attribute")],
+				visibilityCondition={"key": "order.pickup_location.map_url", "comesFrom": "dataScript"},
+			),
+			block(
+				"a",
+				text="Open in maps",
+				attrs={"target": "_blank", "rel": "noopener"},
+				styles={**mono(size="10px", color=refs["ink"], spacing="0.12em"), "textDecoration": "underline"},
+				dynamicValues=[dv("order.pickup_location.directions_url", "href", "attribute")],
+				visibilityCondition={"key": "order.pickup_location.directions_url", "comesFrom": "dataScript"},
+			),
+			tile_body(
+				"",
+				dynamicValues=[dv("order.pickup_location.phone", "innerHTML")],
+				visibilityCondition={"key": "order.pickup_location.phone", "comesFrom": "dataScript"},
+			),
+		],
+		name="Pickup Tile",
+		visibilityCondition={"key": "order.pickup_location", "comesFrom": "dataScript"},
+	)
 	order_panel = panel(
 		refs,
 		[
@@ -2903,6 +3061,7 @@ def confirmation_blocks(refs):
 					),
 					delivery_tile,
 					advance_tile,
+					pickup_tile,
 					info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
 				],
 			),

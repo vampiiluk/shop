@@ -100,7 +100,7 @@ custom_fields = {
 			"fieldtype": "Data",
 			"hidden": 1,
 			"read_only": 1,
-			"description": "cod / gateway / advance, captured at checkout for fraud re-evaluation and payment status.",
+			"description": "cod / gateway / advance / pickup, captured at checkout for fraud re-evaluation and payment status.",
 		},
 		{
 			"fieldname": "custom_advance_amount",
@@ -108,6 +108,13 @@ custom_fields = {
 			"fieldtype": "Currency",
 			"read_only": 1,
 			"description": "Required upfront for advance payment orders; the courier collects the remaining balance on delivery.",
+		},
+		{
+			"fieldname": "custom_pickup_location",
+			"label": "Pickup Location",
+			"fieldtype": "Data",
+			"read_only": 1,
+			"description": "Store location chosen at checkout for pickup orders (payment collected at handover like COD).",
 		},
 		{
 			"fieldname": "custom_fp_event",

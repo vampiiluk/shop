@@ -6,6 +6,7 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import add_days, cint, flt, nowdate, validate_email_address
 
 from shop.storefront import cart as cart_module
+from shop.storefront import pickup as pickup_module
 from shop.storefront import pricing, stock
 
 
@@ -49,6 +50,9 @@ def get_checkout_summary() -> dict:
 				"balance_amount": balance,
 			}
 		)
+	pickup_locations = pickup_module.configured(settings)
+	if pickup_locations:
+		methods.append({"method": "pickup", "label": _("Store Pickup — pay when you collect")})
 	return {
 		"cart": payload,
 		"payment_methods": methods,
@@ -56,6 +60,14 @@ def get_checkout_summary() -> dict:
 		"prefill": checkout_prefill(),
 		"addresses": saved_addresses(),
 		"has_addresses": "true" if saved_addresses_exist() else None,
+		"pickup_locations": pickup_locations or None,
+		# Totals shown while pickup is selected: no courier, so no shipping fee.
+		"pickup_view": {
+			"formatted_shipping": _("Free"),
+			"formatted_total": pricing.format_amount(flt(payload.get("total")) - flt(payload.get("shipping"))),
+		}
+		if pickup_locations
+		else None,
 	}
 
 
@@ -192,9 +204,9 @@ def _get_client_ip() -> str:
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @rate_limit(limit=30, seconds=60)
-def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "", fp_signals: str = "") -> dict:
+def place_order(customer: dict, address: dict, payment_method: str = "cod", device_fingerprint: str = "", fp_request_id: str = "", fingerprint_provider: str = "", fp_signals: str = "", pickup_location: str = "") -> dict:
 	cart = cart_module.resolve_cart()
-	validate_order(cart, customer, address, payment_method)
+	validate_order(cart, customer, address, payment_method, pickup_location)
 	settings = frappe.get_cached_doc("Shop Settings")
 	client_ip = _get_client_ip()
 	from shop.integrations import fraud as fraud_module
@@ -204,6 +216,8 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		fraud = fraud_module.fast_risk(customer, address, payment_method, device_fingerprint or "")
 		if fraud.verdict == "Block":
 			fraud_module.log_fraud_event(None, customer, address, payment_method, device_fingerprint or "", fraud)
+			if payment_method == "pickup":
+				frappe.throw(_("This order could not be placed for store pickup. Please pay online or contact us."))
 			frappe.throw(_("This order could not be placed with Cash on Delivery. Please pay online or contact us."))
 	with elevated():
 		party = get_or_create_customer(customer)
@@ -224,6 +238,7 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 			fingerprint_provider,
 			payment_method=payment_method,
 			advance_amount=advance_amount,
+			pickup_location=pickup_location if payment_method == "pickup" else "",
 		)
 		# Store client IP for fraud intel
 		if client_ip:
@@ -256,7 +271,11 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 				ip_address=client_ip,
 			)
 		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
-			if settings and not settings.payment_gateway_account and payment_method in ("cod", "advance"):
+			if settings and not settings.payment_gateway_account and payment_method in (
+				"cod",
+				"pickup",
+				"advance",
+			):
 				# no way to take payment yet: allow the order, keep the flag visible
 				if fraud:
 					fraud.signals["advance_deferred"] = True
@@ -332,7 +351,7 @@ def cod_cities(settings=None) -> list[str]:
 	return [c.strip().lower() for c in raw.split(",") if c.strip()]
 
 
-def validate_order(cart, customer: dict, address: dict, payment_method: str):
+def validate_order(cart, customer: dict, address: dict, payment_method: str, pickup_location: str = ""):
 	if not cart or not cart.items:
 		frappe.throw(_("Your cart is empty"))
 	settings = frappe.get_cached_doc("Shop Settings")
@@ -351,10 +370,13 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str):
 		frappe.throw(_("Online payment is not available"))
 	if payment_method == "advance" and not settings.enable_advance_payment:
 		frappe.throw(_("Advance payment is not available"))
+	if payment_method == "pickup":
+		pickup_module.resolve(pickup_location, settings)
 	validate_email_address(customer.get("email"), throw=True)
 	if not customer.get("full_name"):
 		frappe.throw(_("Name is required"))
-	if cint(settings.landmark_required):
+	# Landmarks guide delivery riders; pickup orders are collected in person.
+	if cint(settings.landmark_required) and payment_method != "pickup":
 		landmark = (address.get("landmark") or address.get("custom_landmark") or "").strip()
 		if not landmark:
 			frappe.throw(_("Nearest landmark is required so delivery riders can find you. (Received: {})").format(str(address)))
@@ -509,6 +531,7 @@ def create_sales_order(
 	fingerprint_provider: str = "",
 	payment_method: str = "cod",
 	advance_amount: float = 0.0,
+	pickup_location: str = "",
 ):
 	settings = frappe.get_cached_doc("Shop Settings")
 	cart_module.refresh_rates(cart)
@@ -533,6 +556,7 @@ def create_sales_order(
 			"custom_fingerprint_provider": fingerprint_provider or None,
 			"custom_payment_method": payment_method or "cod",
 			"custom_advance_amount": flt(advance_amount) if payment_method == "advance" else 0,
+			"custom_pickup_location": pickup_location or None,
 			"contact_email": (customer_data or {}).get("email"),
 			"contact_phone": (customer_data or {}).get("phone"),
 			"contact_mobile": (customer_data or {}).get("phone"),
@@ -551,7 +575,9 @@ def create_sales_order(
 		sales_order.apply_discount_on = "Grand Total"
 		sales_order.discount_amount = discount
 	apply_taxes(sales_order, settings)
-	apply_shipping(sales_order, settings, discount)
+	if payment_method != "pickup":
+		# Pickup hands the order over in person, so there is no courier to charge for.
+		apply_shipping(sales_order, settings, discount)
 	sales_order.flags.ignore_permissions = True
 	sales_order.insert(ignore_permissions=True)
 	sales_order.submit()
