@@ -579,6 +579,38 @@
 		});
 	}
 
+	// COD restricted to selected cities: hide the option while the chosen
+	// city is outside the list and move the customer to another method.
+	function initCodRestriction() {
+		const form = document.querySelector('[data-shop="checkout-form"]');
+		const cityInput = form && form.querySelector('[name="city"]');
+		const codRadio = form && form.querySelector('input[name="payment_method"][value="cod"]');
+		if (!cityInput || !codRadio) return;
+		const allowed = (storeContext().cod_allowed_cities || []).map((c) =>
+			String(c).trim().toLowerCase()
+		);
+		if (!allowed.length) return;
+		const option = codRadio.closest("label") || codRadio.parentElement;
+		if (!option) return;
+		const shownDisplay = option.style.display;
+		function sync() {
+			const city = (cityInput.value || "").trim().toLowerCase();
+			const eligible = !city || allowed.includes(city);
+			option.style.display = eligible ? shownDisplay : "none";
+			if (!eligible && codRadio.checked) {
+				const fallback =
+					form.querySelector('input[name="payment_method"][value="advance"]') ||
+					form.querySelector('input[name="payment_method"][value="gateway"]');
+				if (fallback) {
+					fallback.checked = true;
+					fallback.dispatchEvent(new Event("change", { bubbles: true }));
+				}
+			}
+		}
+		cityInput.addEventListener("change", sync);
+		sync();
+	}
+
 	function syncPaymentUI() {
 		const chosen = document.querySelector('input[name="payment_method"]:checked');
 		const submit = document.querySelector('[data-shop="checkout-form"] [type="submit"]');
@@ -586,6 +618,8 @@
 			submit.textContent = chosen.value === "gateway" ? "Pay now" : "Place order";
 		const note = document.querySelector('[data-shop="gateway-note"]');
 		if (note) note.hidden = chosen?.value !== "gateway";
+		const advNote = document.querySelector('[data-shop="advance-instructions"]');
+		if (advNote) advNote.hidden = chosen?.value !== "advance";
 	}
 
 	function preselectPayment() {
@@ -762,10 +796,35 @@
 		const countryInput = form.querySelector('[name="country"]');
 		const homeCountry = store.address_country;
 
-		// Country: locked single value
+		// Country: locked to the store's single country. page_data exposes
+		// address_country as the repeater's [{name}] rows, so unwrap the row,
+		// and keep re-applying until the option exists — the repeater's
+		// <option>s hydrate after this script runs, so a one-shot assignment
+		// to the still-empty select is silently dropped.
 		if (countryInput && homeCountry) {
-			countryInput.value = homeCountry;
+			const home =
+				typeof homeCountry === "string"
+					? homeCountry
+					: (homeCountry[0] && (homeCountry[0].name || homeCountry[0])) || "";
 			countryInput.setAttribute("readonly", "readonly");
+			let tries = 0;
+			const lockCountry = () => {
+				if (!home || countryInput.value) return;
+				if (countryInput.tagName !== "SELECT") {
+					countryInput.value = home;
+					return;
+				}
+				const hasOption = Array.from(countryInput.options).some(
+					(option) => option.value === home
+				);
+				if (hasOption) {
+					countryInput.value = home;
+					countryInput.dispatchEvent(new Event("change", { bubbles: true }));
+					return;
+				}
+				if (tries++ < 50) setTimeout(lockCountry, 100);
+			};
+			lockCountry();
 		}
 
 		// Theme select blocks render their <option>s from a Builder repeater, which
@@ -876,7 +935,14 @@
 			.querySelectorAll('[data-shop="checkout-form"] input[name="payment_method"]')
 			.forEach((radio) => radio.addEventListener("change", syncPaymentUI));
 		const picker = document.querySelector('[data-shop="address-picker"]');
-		if (picker) picker.addEventListener("change", () => applySavedAddress(picker));
+		if (picker)
+			picker.addEventListener("change", () => {
+				applySavedAddress(picker);
+				// Re-run dependent checks (city cascade, COD availability).
+				const city = document.querySelector('[data-shop="checkout-form"] [name="city"]');
+				if (city) city.dispatchEvent(new Event("change", { bubbles: true }));
+			});
+		initCodRestriction();
 
 		// Preload CreepJS fingerprint on checkout page (runs in background, cached in localStorage)
 		const store = storeContext();

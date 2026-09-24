@@ -47,7 +47,7 @@ def generate():
 		("dot-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("dot-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("dot-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"), False),
+		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions"), False),
 		(
 			"dot-order-confirmation",
 			"Order Confirmed",
@@ -2585,6 +2585,36 @@ def checkout_blocks(refs):
 					"width": "100%",
 				},
 			),
+			block(
+				"div",
+				name="Advance Instructions",
+				attrs={"data-shop": "advance-instructions", "hidden": "hidden"},
+				visibilityCondition={"key": "advance_instructions", "comesFrom": "dataScript"},
+				styles={
+					"borderColor": refs["line"],
+					"borderRadius": "2px",
+					"borderStyle": "solid",
+					"borderWidth": "1px",
+					"gridColumn": "span 2",
+					"padding": "12px 14px",
+					"width": "100%",
+				},
+				children=[
+					block(
+						"p",
+						text="",
+						styles={
+							"color": refs["ink"],
+							"fontSize": "12px",
+							"fontWeight": "700",
+							"lineHeight": "1.6",
+							"whiteSpace": "pre-line",
+							"width": "100%",
+						},
+						dynamicValues=[dv("advance_instructions", "innerHTML")],
+					),
+				],
+			),
 			submit_button(refs, "Place order"),
 		],
 	)
@@ -2804,8 +2834,12 @@ def confirmation_blocks(refs):
 				dynamicValues=[dv("order.advance_payment.line", "innerHTML")],
 				visibilityCondition={"key": "order.advance_payment.line", "comesFrom": "dataScript"},
 			),
-			tile_body(
-				"",
+			block(
+				"p",
+				text="",
+				# The bank details are the tile's call to action: keep them in
+				# the ink colour and bold so they cannot be missed.
+				styles={"color": refs["ink"], "fontSize": "12px", "fontWeight": "700", "height": "fit-content", "lineHeight": "1.55", "width": "100%"},
 				dynamicValues=[dv("order.advance_payment.instructions", "innerHTML")],
 				visibilityCondition={"key": "order.advance_payment.instructions", "comesFrom": "dataScript"},
 			),

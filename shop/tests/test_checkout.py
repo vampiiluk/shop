@@ -30,6 +30,27 @@ class TestCheckout(IntegrationTestCase):
 		frappe.db.set_single_value("Shop Settings", "enable_fraud_check", previous)
 		frappe.get_cached_doc("Shop Settings")
 
+	def test_cod_rejected_for_city_outside_the_list(self):
+		cart.add_item("SHOP-DEMO-003")
+		frappe.db.set_single_value("Shop Settings", "cod_allowed_cities", "Lahore, Karachi")
+		frappe.get_cached_doc("Shop Settings")
+		self.addCleanup(self._clear_cod_cities)
+		with self.assertRaises(frappe.ValidationError):
+			checkout.place_order(customer=BUYER, address=ADDRESS, payment_method="cod")
+
+	def test_cod_allowed_when_city_is_listed(self):
+		cart.add_item("SHOP-DEMO-003")
+		# Matching is case-insensitive: the customer picks "Bengaluru".
+		frappe.db.set_single_value("Shop Settings", "cod_allowed_cities", "bengaluru")
+		frappe.get_cached_doc("Shop Settings")
+		self.addCleanup(self._clear_cod_cities)
+		result = checkout.place_order(customer=BUYER, address=ADDRESS, payment_method="cod")
+		self.assertTrue(result["sales_order"])
+
+	def _clear_cod_cities(self):
+		frappe.db.set_single_value("Shop Settings", "cod_allowed_cities", "")
+		frappe.get_cached_doc("Shop Settings")
+
 	def test_place_order_cod(self):
 		cart.add_item("SHOP-DEMO-003", qty=2)
 		result = checkout.place_order(customer=BUYER, address=ADDRESS, payment_method="cod")

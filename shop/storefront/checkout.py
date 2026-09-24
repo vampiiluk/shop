@@ -325,12 +325,28 @@ def elevated():
 		frappe.local.role_permissions = {}
 
 
+def cod_cities(settings=None) -> list[str]:
+	"""Lowercased cities where cash on delivery is offered; empty means all."""
+	settings = settings or frappe.get_cached_doc("Shop Settings")
+	raw = getattr(settings, "cod_allowed_cities", None) or ""
+	return [c.strip().lower() for c in raw.split(",") if c.strip()]
+
+
 def validate_order(cart, customer: dict, address: dict, payment_method: str):
 	if not cart or not cart.items:
 		frappe.throw(_("Your cart is empty"))
 	settings = frappe.get_cached_doc("Shop Settings")
 	if payment_method == "cod" and not settings.enable_cod:
 		frappe.throw(_("Cash on Delivery is not available"))
+	if payment_method == "cod":
+		allowed = cod_cities(settings)
+		city = (address.get("city") or "").strip()
+		if allowed and city.lower() not in allowed:
+			frappe.throw(
+				_(
+					"Cash on Delivery is not offered in {0}. Please choose Advance Payment or pay online."
+				).format(city or _("this city"))
+			)
 	if payment_method == "gateway" and not settings.payment_gateway_account:
 		frappe.throw(_("Online payment is not available"))
 	if payment_method == "advance" and not settings.enable_advance_payment:

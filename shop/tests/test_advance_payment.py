@@ -15,6 +15,7 @@ SETTING_FIELDS = (
 	"advance_payment_instructions",
 	"enable_fraud_check",
 	"enable_cod",
+	"cod_allowed_cities",
 	"auto_send_to_fulfillment",
 	"fulfillment_provider",
 	"auto_bill_on_payment",
@@ -65,6 +66,7 @@ class TestAdvancePayment(IntegrationTestCase):
 				"advance_payment_flat": 250,
 				"advance_payment_percent": 35,
 				"advance_payment_instructions": "Test account 0000",
+				"cod_allowed_cities": "Rahimyarkhan",
 			}
 		)
 		self.assertEqual(updated["enable_advance_payment"], 1)
@@ -72,6 +74,7 @@ class TestAdvancePayment(IntegrationTestCase):
 		self.assertEqual(flt(updated["advance_payment_flat"]), 250.0)
 		self.assertEqual(updated["advance_payment_percent"], 35)
 		self.assertEqual(updated["advance_payment_instructions"], "Test account 0000")
+		self.assertEqual(updated["cod_allowed_cities"], "Rahimyarkhan")
 		# Unknown basis values fall back to Percent instead of persisting.
 		reverted = settings_api.save_settings({"advance_payment_mode": "Bogus"})
 		self.assertEqual(reverted["advance_payment_mode"], "Percent")

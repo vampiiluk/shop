@@ -33,6 +33,13 @@
 					label="Cash on Delivery"
 					description="Let customers pay in cash when their order arrives."
 				/>
+				<FormControl
+					v-if="payments.enable_cod"
+					v-model="payments.cod_allowed_cities"
+					label="COD allowed cities"
+					description="Comma-separated cities where cash on delivery is offered. Leave empty to allow it everywhere."
+					class="max-w-sm"
+				/>
 				<Switch
 					v-model="payments.auto_bill_on_payment"
 					label="Auto-create Sales Invoices"
@@ -514,6 +521,7 @@ const saving = ref('')
 const store = reactive({ store_name: '', store_logo: '' })
 const payments = reactive({
 	enable_cod: true,
+	cod_allowed_cities: '',
 	payment_gateway_account: '',
 	auto_bill_on_payment: false,
 	enable_advance_payment: false,
@@ -593,6 +601,7 @@ function hydrate(doc: Record<string, any>) {
 	Object.assign(store, { store_name: doc.store_name || '', store_logo: doc.store_logo || '' })
 	Object.assign(payments, {
 		enable_cod: !!doc.enable_cod,
+		cod_allowed_cities: doc.cod_allowed_cities || '',
 		payment_gateway_account: doc.payment_gateway_account || '',
 		auto_bill_on_payment: !!doc.auto_bill_on_payment,
 		enable_advance_payment: !!doc.enable_advance_payment,

@@ -57,6 +57,7 @@ EDITABLE = (
 	"advance_payment_percent",
 	"advance_payment_flat",
 	"advance_payment_instructions",
+	"cod_allowed_cities",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"tax_template",

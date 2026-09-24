@@ -28,6 +28,7 @@
   "auto_send_to_fulfillment",
   "payments_section",
   "enable_cod",
+  "cod_allowed_cities",
   "column_break_payments",
   "payment_gateway_account",
   "auto_bill_on_payment",
@@ -204,6 +205,13 @@
    "fieldname": "enable_cod",
    "fieldtype": "Check",
    "label": "Enable Cash on Delivery"
+  },
+  {
+   "depends_on": "eval:doc.enable_cod",
+   "description": "Comma-separated cities where Cash on Delivery is offered. Leave empty to allow every city.",
+   "fieldname": "cod_allowed_cities",
+   "fieldtype": "Small Text",
+   "label": "COD Allowed Cities"
   },
   {
    "fieldname": "column_break_payments",

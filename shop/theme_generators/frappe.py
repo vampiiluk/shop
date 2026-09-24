@@ -46,7 +46,7 @@ def generate():
 		("frappe-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("frappe-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("frappe-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"), False),
+		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions"), False),
 		(
 			"frappe-order-confirmation",
 			"Order Confirmed",
@@ -2919,6 +2919,36 @@ def checkout_blocks(refs):
 				},
 			),
 			block(
+				"div",
+				name="Advance Instructions",
+				attrs={"data-shop": "advance-instructions", "hidden": "hidden"},
+				visibilityCondition={"key": "advance_instructions", "comesFrom": "dataScript"},
+				styles={
+					"borderColor": refs["line"],
+					"borderRadius": "2px",
+					"borderStyle": "solid",
+					"borderWidth": "1px",
+					"gridColumn": "span 2",
+					"padding": "12px 14px",
+					"width": "100%",
+				},
+				children=[
+					block(
+						"p",
+						text="",
+						styles={
+							"color": refs["ink"],
+							"fontSize": "12px",
+							"fontWeight": "700",
+							"lineHeight": "1.6",
+							"whiteSpace": "pre-line",
+							"width": "100%",
+						},
+						dynamicValues=[dv("advance_instructions", "innerHTML")],
+					),
+				],
+			),
+			block(
 				"button",
 				text="Place order",
 				attrs={"type": "submit"},
@@ -3202,7 +3232,9 @@ def confirmation_blocks(refs):
 			block(
 				"p",
 				text="",
-				styles=dict(tile_body_styles),
+				# The bank details are the tile's call to action: keep them in
+				# the ink colour and bold so they cannot be missed.
+				styles={**tile_body_styles, "color": refs["ink"], "fontWeight": "700"},
 				dynamicValues=[dv("order.advance_payment.instructions", "innerHTML")],
 				visibilityCondition={"key": "order.advance_payment.instructions", "comesFrom": "dataScript"},
 			),

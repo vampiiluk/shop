@@ -100,6 +100,61 @@ test.describe("storefront", () => {
 		await expect(page.locator('[name="city"]')).toHaveValue("");
 	});
 
+	test("cod option follows the configured COD city list", async ({ page }) => {
+		await addToCartViaPDP(page, "crew-neck-t-shirt");
+		await page.goto("/checkout");
+
+		const allowed: string[] = await page.evaluate(() => {
+			const data = (window as any).page_data || {};
+			return (data.store || data).cod_allowed_cities || [];
+		});
+		test.skip(!allowed.length, "COD city restriction is not configured");
+
+		const codCount = await page.locator('input[name="payment_method"][value="cod"]').count();
+		test.skip(!codCount, "COD is disabled");
+
+		const cities = await page.evaluate(() =>
+			Array.from(document.querySelectorAll('[name="city"] option'))
+				.map((option) => (option as HTMLOptionElement).value)
+				.filter((value) => value),
+		);
+		const allowedCity = cities.find((city) => allowed.includes(city.toLowerCase()));
+		expect(allowedCity).toBeTruthy();
+
+		// Each payment option is a <label> wrapping its radio input.
+		const codLabel = page
+			.locator('input[name="payment_method"][value="cod"]')
+			.locator("xpath=ancestor::label[1]");
+
+		const disallowed = cities.find((city) => !allowed.includes(city.toLowerCase()));
+		if (disallowed) {
+			// A city outside the list hides the COD option entirely.
+			await page.selectOption('[name="city"]', disallowed);
+			await expect(codLabel).toBeHidden();
+		}
+		await page.selectOption('[name="city"]', allowedCity!);
+		await expect(codLabel).toBeVisible();
+	});
+
+	test("checkout auto-selects the store's single country", async ({ page }) => {
+		await addToCartViaPDP(page, "crew-neck-t-shirt");
+		await page.goto("/checkout");
+
+		// The country list mirrors the one country configured in Shop Settings.
+		const countries = await page.evaluate(() => {
+			const data = (window as any).page_data || {};
+			const raw = (data.store || data).address_country;
+			const rows = Array.isArray(raw) ? raw : [{ name: raw }];
+			return rows
+				.map((row: any) => (typeof row === "string" ? row : row?.name))
+				.filter(Boolean);
+		});
+		test.skip(countries.length !== 1, "auto-select only applies to a single-country store");
+
+		const country = page.locator('[data-shop="checkout-form"] [name="country"]');
+		await expect(country).toHaveValue(countries[0], { timeout: 15000 });
+	});
+
 	test("full purchase flow: PDP, variant, cart, checkout, confirmation", async ({ page }) => {
 		await page.goto("/product/crew-neck-t-shirt");
 		await expect(page.locator("body")).toContainText("Crew Neck T-Shirt");

@@ -200,7 +200,7 @@ def checkout_page() -> dict:
 	result = checkout.get_checkout_summary()
 	result["store"] = store
 	# Expose store fields at the top level so Builder page_data_script can access them.
-	for key in ("address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map"):
+	for key in ("address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions"):
 		result[key] = store.get(key)
 	return result
 
@@ -250,4 +250,10 @@ def store_details() -> dict:
 				cities = [c.strip().title() for c in (row.cities or "").split(",") if c.strip()]
 				province_map[prov] = cities
 	result["province_city_map"] = province_map
+	result["cod_allowed_cities"] = [
+		c.strip().lower()
+		for c in (getattr(settings, "cod_allowed_cities", None) or "").split(",")
+		if c.strip()
+	]
+	result["advance_instructions"] = (settings.advance_payment_instructions or "").strip() or None
 	return result

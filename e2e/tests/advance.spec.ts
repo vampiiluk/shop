@@ -30,6 +30,22 @@ test.describe("advance payment", () => {
 		// valid for either base, at any percentage or flat amount.
 		await expect(page.locator("body")).toContainText(row!.label);
 
+		// Selecting the advance option reveals the bank instructions right at
+		// checkout; they render only when the merchant has filled them in.
+		const instructions: string | null = await page.evaluate(() => {
+			const data = (window as any).page_data || {};
+			const value = (data.store || data).advance_instructions;
+			return value || null;
+		});
+		await advance.check();
+		const note = page.locator('[data-shop="advance-instructions"]');
+		if (instructions) {
+			await expect(note).toBeVisible();
+			await expect(note).toContainText(instructions);
+		} else {
+			await expect(note).toBeHidden();
+		}
+
 		await fillCheckout(page, uniqueBuyer("advance-e2e"));
 		await submitCheckout(page, "advance");
 		await page.waitForURL(/order-confirmation/);
