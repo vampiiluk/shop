@@ -104,7 +104,7 @@ test.describe("store pickup", () => {
 		expect(labels).toContain("Pay at pickup");
 	});
 
-	test("maps and links on checkout open directions in Google Maps on desktop", async ({
+	test("direction buttons open Google Maps and the map itself stays view-only", async ({
 		page,
 	}) => {
 		const locations = await configuredLocations(page);
@@ -115,25 +115,33 @@ test.describe("store pickup", () => {
 		await page.locator('input[name="payment_method"][value="pickup"]').check();
 
 		const panel = page.locator('[data-shop="pickup-panel"]');
-		// Every card links its directions at Google, and the map itself carries a
-		// transparent overlay link (added by storefront.js) so a click anywhere on
-		// the embed opens directions too.
-		const googleLinks = panel.locator('a[href*="google.com/maps/dir/"]');
-		await expect(googleLinks).toHaveCount(locations.length * 2);
-		const overlay = panel.locator('a[aria-label="Open this location in your maps app"]');
-		await expect(overlay).toHaveCount(locations.length);
-		await expect(overlay.first()).toHaveAttribute("href", /google\.com\/maps\/dir/);
-		// Clicking the map opens directions in a new tab.
+		// One "Get directions" button per card — the transparent overlay that
+		// used to sit on the map is gone, so a tap there can't fire the maps app.
+		const dirLinks = panel.locator('a[href*="google.com/maps/dir/"]');
+		await expect(dirLinks).toHaveCount(locations.length);
+		await expect(dirLinks.first()).toContainText("Get directions");
+		await expect(
+			panel.locator('a[aria-label="Open this location in your maps app"]'),
+		).toHaveCount(0);
+
+		// The button opens directions in a new tab.
 		const [popup] = await Promise.all([
 			page.waitForEvent("popup"),
-			panel
-				.locator('iframe[title="Pickup location map"]')
-				.first()
-				.click({ position: { x: 50, y: 50 }, force: true }),
+			dirLinks.first().click(),
 		]);
 		await popup.waitForLoadState();
 		expect(popup.url()).toContain("google.com/maps/dir");
 		await popup.close();
+
+		// Clicking the embed itself opens nothing — it is a plain map now.
+		let popups = 0;
+		page.on("popup", () => popups++);
+		await panel
+			.locator('iframe[title="Pickup location map"]')
+			.first()
+			.click({ position: { x: 50, y: 50 }, force: true });
+		await page.waitForTimeout(1500);
+		expect(popups).toBe(0);
 	});
 });
 
@@ -152,10 +160,14 @@ test.describe("pickup maps on iPhone", () => {
 		await page.locator('input[name="payment_method"][value="pickup"]').check();
 
 		const panel = page.locator('[data-shop="pickup-panel"]');
-		// storefront.js rewrites Google directions links to Apple Maps on iOS.
+		// storefront.js rewrites the Google directions button to Apple Maps on
+		// iOS; there is no map overlay, so only the button itself is swapped.
 		const appleLinks = panel.locator('a[href*="maps.apple.com/?daddr="]');
-		await expect(appleLinks).toHaveCount(locations.length * 2);
+		await expect(appleLinks).toHaveCount(locations.length);
 		await expect(panel.locator('a[href*="google.com/maps/dir/"]')).toHaveCount(0);
+		await expect(
+			panel.locator('a[aria-label="Open this location in your maps app"]'),
+		).toHaveCount(0);
 		await expect(panel.locator('iframe[title="Pickup location map"]')).toHaveCount(
 			locations.length,
 		);

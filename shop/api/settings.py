@@ -158,6 +158,7 @@ def get_settings() -> dict:
 					"name": row.name,
 					"location_name": row.location_name,
 					"address": row.address or "",
+					"google_maps_link": row.get("google_maps_link") or "",
 					"latitude": row.latitude or "",
 					"longitude": row.longitude or "",
 					"phone": row.phone or "",
@@ -266,8 +267,14 @@ def save_provinces(provinces: list) -> dict:
 @frappe.whitelist(methods=["POST"])
 def save_pickup_locations(locations: list) -> dict:
 	"""Save the pickup location table.
-	Each entry: {location_name, address, latitude, longitude, phone}."""
+	Each entry: {location_name, address, google_maps_link, phone}.
+
+	The Google Maps link is required — its coordinates drive the map embed
+	and the directions button. Short Google links are resolved once, at
+	save time, so checkout never fetches anything."""
 	only_managers()
+	from shop.storefront.pickup import is_short_gmaps_link, parse_gmaps_link, resolve_short_gmaps_link
+
 	settings = frappe.get_doc("Shop Settings")
 	settings.pickup_locations = []
 	for entry in locations:
@@ -275,13 +282,33 @@ def save_pickup_locations(locations: list) -> dict:
 		address = (entry.get("address") or "").strip()
 		if not name or not address:
 			continue
+		link = (entry.get("google_maps_link") or "").strip()
+		coordinates = None
+		if link:
+			coordinates = parse_gmaps_link(link)
+			if not coordinates and is_short_gmaps_link(link):
+				# Google's shortener hides the coordinates — follow it once
+				# and store the full URL we landed on.
+				resolved = resolve_short_gmaps_link(link)
+				coordinates = parse_gmaps_link(resolved)
+				if coordinates:
+					link = resolved
+		if not coordinates:
+			frappe.throw(
+				_(
+					"We couldn't find coordinates in the Google Maps link for {0}. "
+					"Copy the full link from Google Maps — it should contain the pin's "
+					"coordinates, e.g. @29.1044,70.3298."
+				).format(name)
+			)
 		settings.append(
 			"pickup_locations",
 			{
 				"location_name": name,
 				"address": address,
-				"latitude": (entry.get("latitude") or "").strip(),
-				"longitude": (entry.get("longitude") or "").strip(),
+				"google_maps_link": link,
+				"latitude": coordinates[0],
+				"longitude": coordinates[1],
 				"phone": (entry.get("phone") or "").strip(),
 			},
 		)

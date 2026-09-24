@@ -16,6 +16,7 @@ ADDRESS = {
 LOCATION = {
 	"location_name": "Main Store",
 	"address": "1 Station Road, Rahim Yar Khan",
+	"google_maps_link": "https://www.google.com/maps/place/Main+Store/@29.1044,70.3298,17z",
 	"latitude": "29.1044",
 	"longitude": "70.3298",
 	"phone": "03001234567",
@@ -35,6 +36,7 @@ class TestPickup(IntegrationTestCase):
 			{
 				"location_name": row.location_name,
 				"address": row.address,
+				"google_maps_link": row.get("google_maps_link"),
 				"latitude": row.latitude,
 				"longitude": row.longitude,
 				"phone": row.phone,
@@ -171,17 +173,147 @@ class TestPickup(IntegrationTestCase):
 				{
 					"location_name": "Branch",
 					"address": "2 Mall Road, Lahore",
-					"latitude": "31.4180",
-					"longitude": "73.0822",
+					"google_maps_link": "https://www.google.com/maps/place/Branch/@31.418,73.0822,17z",
 					"phone": "03011111111",
 				}
 			]
 		)
 		self.assertEqual(len(saved["pickup_locations"]), 1)
-		self.assertEqual(saved["pickup_locations"][0]["location_name"], "Branch")
+		row = saved["pickup_locations"][0]
+		self.assertEqual(row["location_name"], "Branch")
+		# The coordinates the map uses are derived from the pasted link.
+		self.assertEqual(row["latitude"], "31.418")
+		self.assertEqual(row["longitude"], "73.0822")
+		self.assertTrue(row["google_maps_link"])
 		# Rows without a name or address are ignored rather than stored broken.
 		saved = settings_api.save_pickup_locations([{"location_name": "", "address": ""}])
 		self.assertEqual(saved["pickup_locations"], [])
+
+	def test_parse_gmaps_link_shapes(self):
+		from shop.storefront.pickup import parse_gmaps_link
+
+		# The place URL Google hands out from Share → Copy link.
+		self.assertEqual(
+			parse_gmaps_link(
+				"https://www.google.com/maps/place/Re+Loop/"
+				"@29.1044,70.3298,17z/data=!3m1!4b1!8m2!3d29.1044!4d70.3298"
+			),
+			("29.1044", "70.3298"),
+		)
+		# Coordinate query parameters, the directions URL, and bare viewports.
+		self.assertEqual(
+			parse_gmaps_link("https://maps.google.com/?q=29.1044,70.3298"), ("29.1044", "70.3298")
+		)
+		self.assertEqual(
+			parse_gmaps_link("https://www.google.com/maps/dir/?api=1&destination=31.418,73.0822"),
+			("31.418", "73.0822"),
+		)
+		self.assertEqual(
+			parse_gmaps_link("https://www.google.com/maps/@31.418,73.0822,17z"), ("31.418", "73.0822")
+		)
+		# Pasted without a scheme still parses; negative coordinates survive.
+		self.assertEqual(
+			parse_gmaps_link("www.google.com/maps/place/S/@29.1044,70.3298,17z"),
+			("29.1044", "70.3298"),
+		)
+		self.assertEqual(
+			parse_gmaps_link("https://www.google.com/maps/@-33.86,151.2,15z"), ("-33.86", "151.2")
+		)
+		# Nothing to find: empty, a bare place name, or out-of-range numbers.
+		self.assertIsNone(parse_gmaps_link(""))
+		self.assertIsNone(parse_gmaps_link(None))
+		self.assertIsNone(parse_gmaps_link("https://www.google.com/maps/place/Rahim+Yar+Khan"))
+		self.assertIsNone(parse_gmaps_link("https://www.google.com/maps/place/x/@91,200,17z"))
+
+	def test_pickup_location_requires_a_parseable_maps_link(self):
+		before = settings_api.get_settings()["pickup_locations"]
+		with self.assertRaises(frappe.ValidationError) as caught:
+			settings_api.save_pickup_locations(
+				[
+					{
+						"location_name": "Branch",
+						"address": "2 Mall Road, Lahore",
+						"google_maps_link": "https://www.google.com/maps/place/Rahim+Yar+Khan",
+					}
+				]
+			)
+		self.assertIn("Google Maps link", str(caught.exception))
+		# The throw happens before anything is persisted, so no broken row lands.
+		self.assertEqual(settings_api.get_settings()["pickup_locations"], before)
+
+	def test_short_link_is_resolved_once_at_save_time(self):
+		from unittest.mock import MagicMock, patch
+
+		resolved = MagicMock()
+		resolved.url = "https://www.google.com/maps/place/Branch/@31.418,73.0822,17z"
+		response = MagicMock()
+		response.__enter__.return_value = resolved
+		session = MagicMock()
+		session.get.return_value = response
+
+		with patch("requests.Session", return_value=session):
+			saved = settings_api.save_pickup_locations(
+				[
+					{
+						"location_name": "Branch",
+						"address": "2 Mall Road, Lahore",
+						"google_maps_link": "https://maps.app.goo.gl/AbCdEf",
+						"phone": "",
+					}
+				]
+			)
+		session.get.assert_called_once()
+		row = saved["pickup_locations"][0]
+		# The full URL replaces the shortener, so checkout never fetches anything.
+		self.assertIn("google.com/maps/place", row["google_maps_link"])
+		self.assertEqual(row["latitude"], "31.418")
+		self.assertEqual(row["longitude"], "73.0822")
+
+	def test_short_link_resolving_off_google_is_rejected(self):
+		from unittest.mock import MagicMock, patch
+
+		# A redirect that leaves Google is refused rather than stored or fetched.
+		resolved = MagicMock()
+		resolved.url = "https://evil.example.com/payload"
+		response = MagicMock()
+		response.__enter__.return_value = resolved
+		session = MagicMock()
+		session.get.return_value = response
+
+		with patch("requests.Session", return_value=session):
+			with self.assertRaises(frappe.ValidationError):
+				settings_api.save_pickup_locations(
+					[
+						{
+							"location_name": "Branch",
+							"address": "2 Mall Road, Lahore",
+							"google_maps_link": "https://maps.app.goo.gl/AbCdEf",
+						}
+					]
+				)
+
+	def test_link_only_row_still_renders_its_map(self):
+		"""A row carrying just the link still maps (coordinates derived on read)."""
+		from shop.storefront import pickup
+
+		settings = frappe.get_doc("Shop Settings")
+		settings.enable_pickup = 1
+		settings.pickup_locations = []
+		settings.append(
+			"pickup_locations",
+			{
+				"location_name": "Link Only",
+				"address": "1 Station Road",
+				"google_maps_link": "https://www.google.com/maps/place/S/@29.1044,70.3298,17z",
+			},
+		)
+		settings.save(ignore_permissions=True)
+		frappe.get_cached_doc("Shop Settings")
+
+		row = pickup.configured()[0]
+		self.assertEqual(row["latitude"], "29.1044")
+		self.assertIn("29.1044", row["map_url"])
+		self.assertIn("google.com/maps/dir", row["directions_url"])
 
 	def test_map_provider_switches_between_osm_and_google(self):
 		self._set_pickup(True)

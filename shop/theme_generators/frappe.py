@@ -1771,6 +1771,24 @@ def buy_button_styles(refs, outline=False):
 	return styles
 
 
+def directions_button(refs, key):
+	"""Block link styled like the buy button; opens directions to a pickup
+	location. ``key`` is the dataScript path to the directions URL."""
+	return block(
+		"a",
+		text="Get directions",
+		attrs={"target": "_blank", "rel": "noopener"},
+		styles={
+			**buy_button_styles(refs),
+			"display": "block",
+			"flexGrow": "0",
+			"textDecoration": "none",
+		},
+		dynamicValues=[dv(key, "href", "attribute")],
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+	)
+
+
 def pdp_buttons(refs):
 	return block(
 		"div",
@@ -3025,21 +3043,7 @@ def checkout_blocks(refs):
 											dynamicValues=[dv("map_url", "src", "attribute")],
 											visibilityCondition={"key": "map_url", "comesFrom": "dataScript"},
 										),
-										block(
-											"a",
-											text="Open in maps",
-											attrs={"target": "_blank", "rel": "noopener"},
-											styles={
-												"color": refs["ink"],
-												"fontSize": "12px",
-												"fontWeight": "500",
-												"height": "fit-content",
-												"textDecoration": "underline",
-												"width": "fit-content",
-											},
-											dynamicValues=[dv("directions_url", "href", "attribute")],
-											visibilityCondition={"key": "directions_url", "comesFrom": "dataScript"},
-										),
+											directions_button(refs, "directions_url"),
 										block(
 											"p",
 											text="",
@@ -3429,21 +3433,7 @@ def confirmation_blocks(refs):
 				dynamicValues=[dv("order.pickup_location.map_url", "src", "attribute")],
 				visibilityCondition={"key": "order.pickup_location.map_url", "comesFrom": "dataScript"},
 			),
-			block(
-				"a",
-				text="Open in maps",
-				attrs={"target": "_blank", "rel": "noopener"},
-				styles={
-					"color": refs["ink"],
-					"fontSize": "12px",
-					"fontWeight": "500",
-					"height": "fit-content",
-					"textDecoration": "underline",
-					"width": "fit-content",
-				},
-				dynamicValues=[dv("order.pickup_location.directions_url", "href", "attribute")],
-				visibilityCondition={"key": "order.pickup_location.directions_url", "comesFrom": "dataScript"},
-			),
+			directions_button(refs, "order.pickup_location.directions_url"),
 			block(
 				"p",
 				text="",

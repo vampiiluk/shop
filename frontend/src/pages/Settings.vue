@@ -626,8 +626,7 @@ const pickupLocations = ref<
 		name?: string
 		location_name: string
 		address: string
-		latitude: string
-		longitude: string
+		google_maps_link: string
 		phone: string
 	}>
 >([])
@@ -728,8 +727,7 @@ function hydrate(doc: Record<string, any>) {
 		name: row.name,
 		location_name: row.location_name,
 		address: row.address || '',
-		latitude: row.latitude || '',
-		longitude: row.longitude || '',
+		google_maps_link: row.google_maps_link || '',
 		phone: row.phone || '',
 	}))
 	Object.assign(fingerprint, {

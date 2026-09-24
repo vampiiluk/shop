@@ -470,6 +470,38 @@ def pill(refs, text, href=None, variant="solid", full=False, attrs=None, **extra
 	return block(element, text=text, attrs=base_attrs, styles=styles, **extra)
 
 
+def directions_button(refs, key):
+	"""Full-width pill link that opens directions to a pickup location.
+
+	Replaces the old text link; ``key`` is the dataScript path to the
+	directions URL (checkout uses the bare key, confirmation the nested one)."""
+	return block(
+		"a",
+		text="Get directions",
+		attrs={"target": "_blank", "rel": "noopener"},
+		styles={
+			"backgroundColor": refs["ink"],
+			"borderColor": refs["ink"],
+			"borderRadius": "999px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"boxSizing": "border-box",
+			"color": refs["paper"],
+			"fontFamily": MONO,
+			"fontSize": "10px",
+			"height": "fit-content",
+			"letterSpacing": "0.12em",
+			"padding": "11px 20px",
+			"textAlign": "center",
+			"textDecoration": "none",
+			"textTransform": "uppercase",
+			"width": "100%",
+		},
+		dynamicValues=[dv(key, "href", "attribute")],
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+	)
+
+
 def panel(refs, children, styles=None, mobile=None, name=None, tone="paper"):
 	base = {
 		"backgroundColor": refs[tone],
@@ -2682,14 +2714,7 @@ def checkout_blocks(refs):
 											dynamicValues=[dv("map_url", "src", "attribute")],
 											visibilityCondition={"key": "map_url", "comesFrom": "dataScript"},
 										),
-										block(
-											"a",
-											text="Open in maps",
-											attrs={"target": "_blank", "rel": "noopener"},
-											styles={**mono(size="10px", color=refs["ink"], spacing="0.12em"), "textDecoration": "underline"},
-											dynamicValues=[dv("directions_url", "href", "attribute")],
-											visibilityCondition={"key": "directions_url", "comesFrom": "dataScript"},
-										),
+										directions_button(refs, "directions_url"),
 										block(
 											"p",
 											text="",
@@ -2988,14 +3013,7 @@ def confirmation_blocks(refs):
 				dynamicValues=[dv("order.pickup_location.map_url", "src", "attribute")],
 				visibilityCondition={"key": "order.pickup_location.map_url", "comesFrom": "dataScript"},
 			),
-			block(
-				"a",
-				text="Open in maps",
-				attrs={"target": "_blank", "rel": "noopener"},
-				styles={**mono(size="10px", color=refs["ink"], spacing="0.12em"), "textDecoration": "underline"},
-				dynamicValues=[dv("order.pickup_location.directions_url", "href", "attribute")],
-				visibilityCondition={"key": "order.pickup_location.directions_url", "comesFrom": "dataScript"},
-			),
+			directions_button(refs, "order.pickup_location.directions_url"),
 			tile_body(
 				"",
 				dynamicValues=[dv("order.pickup_location.phone", "innerHTML")],

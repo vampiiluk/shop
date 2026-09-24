@@ -33,7 +33,7 @@
 					<tr>
 						<th class="px-4 py-2.5 font-medium">Location</th>
 						<th class="px-4 py-2.5 font-medium">Address</th>
-						<th class="px-4 py-2.5 font-medium">Coordinates</th>
+						<th class="px-4 py-2.5 font-medium">Map link</th>
 						<th class="px-4 py-2.5 font-medium">Phone</th>
 						<th class="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
 					</tr>
@@ -49,9 +49,9 @@
 						<td class="max-w-xs truncate px-4 py-3 text-ink-gray-5">
 							{{ loc.address || 'No address' }}
 						</td>
-						<td class="px-4 py-3 text-ink-gray-5">
-							<span v-if="loc.latitude && loc.longitude" class="font-mono text-xs">
-								{{ loc.latitude }}, {{ loc.longitude }}
+						<td class="max-w-[16rem] truncate px-4 py-3 text-ink-gray-5">
+							<span v-if="loc.google_maps_link" class="font-mono text-xs" :title="loc.google_maps_link">
+								{{ loc.google_maps_link }}
 							</span>
 							<span v-else class="text-ink-gray-4">—</span>
 						</td>
@@ -125,29 +125,18 @@
 							placeholder="Street, area, city"
 						/>
 					</div>
-					<div class="grid grid-cols-2 gap-4">
-						<div>
-							<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Latitude</label>
-							<input
-								v-model="editForm.latitude"
-								type="text"
-								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
-								placeholder="29.1044"
-							/>
-						</div>
-						<div>
-							<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Longitude</label>
-							<input
-								v-model="editForm.longitude"
-								type="text"
-								class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
-								placeholder="70.3298"
-							/>
-						</div>
+					<div>
+						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Google Maps link</label>
+						<input
+							v-model="editForm.google_maps_link"
+							type="text"
+							class="w-full rounded-lg border border-outline-gray-1 bg-surface-white px-3 py-2.5 font-mono text-sm text-ink-gray-8 placeholder:text-ink-gray-4 focus:border-outline-gray-2 focus:outline-none focus:ring-2 focus:ring-ink-gray-3"
+							placeholder="https://www.google.com/maps/place/.../@29.1044,70.3298,17z"
+						/>
 					</div>
 					<p class="text-p-sm text-ink-gray-5">
-						Coordinates drive the map embed. Find them by long-pressing a point on Google Maps or
-						opening the location on openstreetmap.org.
+						In Google Maps, long-press the store pin (or use Share → Copy link) and paste the
+						link here. The map embed and directions button are built from it.
 					</p>
 					<div>
 						<label class="mb-1.5 block text-sm font-medium text-ink-gray-7">Phone (optional)</label>
@@ -163,7 +152,7 @@
 					<Button variant="subtle" @click="showDialog = false">Cancel</Button>
 					<Button
 						variant="solid"
-						:disabled="!editForm.location_name.trim() || !editForm.address.trim()"
+						:disabled="!editForm.location_name.trim() || !editForm.address.trim() || !editForm.google_maps_link.trim()"
 						@click="saveEdit"
 					>
 						{{ editingIdx >= 0 ? 'Save Changes' : 'Add Location' }}
@@ -187,8 +176,7 @@ interface PickupLocation {
 	name?: string
 	location_name: string
 	address: string
-	latitude: string
-	longitude: string
+	google_maps_link: string
 	phone: string
 }
 
@@ -214,14 +202,13 @@ const editingIdx = ref(-1)
 const editForm = ref({
 	location_name: '',
 	address: '',
-	latitude: '',
-	longitude: '',
+	google_maps_link: '',
 	phone: '',
 })
 
 function addLocation() {
 	editingIdx.value = -1
-	editForm.value = { location_name: '', address: '', latitude: '', longitude: '', phone: '' }
+	editForm.value = { location_name: '', address: '', google_maps_link: '', phone: '' }
 	showDialog.value = true
 }
 
@@ -231,8 +218,7 @@ function editLocation(idx: number) {
 	editForm.value = {
 		location_name: loc.location_name,
 		address: loc.address,
-		latitude: loc.latitude,
-		longitude: loc.longitude,
+		google_maps_link: loc.google_maps_link,
 		phone: loc.phone,
 	}
 	showDialog.value = true
@@ -248,8 +234,7 @@ function saveEdit() {
 	const entry = {
 		location_name: editForm.value.location_name.trim(),
 		address: editForm.value.address.trim(),
-		latitude: editForm.value.latitude.trim(),
-		longitude: editForm.value.longitude.trim(),
+		google_maps_link: editForm.value.google_maps_link.trim(),
 		phone: editForm.value.phone.trim(),
 	}
 	if (editingIdx.value >= 0) {
@@ -265,8 +250,20 @@ function saveEdit() {
 const saveMutation = createResource({
 	url: 'shop.api.settings.save_pickup_locations',
 	onSuccess: () => toast.success('Pickup locations saved'),
-	onError: () => toast.error('Failed to save pickup locations'),
+	onError: (error: any) => toast.error(serverErrorMessage(error) || 'Failed to save pickup locations'),
 })
+
+/** Frappe's thrown message arrives wrapped in HTML/JSON — pull the text out. */
+function serverErrorMessage(error: any): string {
+	const raw =
+		error?.messages?.[0] ||
+		(typeof error?.message === 'string' ? error.message : '') ||
+		''
+	return raw
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+}
 
 function saveLocations() {
 	saveMutation.submit({ locations: locations.value })
