@@ -2807,10 +2807,17 @@ def checkout_blocks(refs):
 										map_frame(refs, "map_url"),
 										directions_button(refs, "directions_url"),
 										block(
-											"p",
+											"a",
 											text="",
-											styles=mono(size="10px", color=refs["muted"], spacing="0.1em"),
-											dynamicValues=[dv("phone", "innerHTML")],
+											styles={
+												**mono(size="10px", color=refs["muted"], spacing="0.1em"),
+												"color": f"{refs['muted']} !important",
+												"textDecoration": "underline",
+											},
+											dynamicValues=[
+												dv("phone", "innerHTML"),
+												dv("phone_dial", "href", "attribute"),
+											],
 											visibilityCondition={"key": "phone", "comesFrom": "dataScript"},
 										),
 									],
@@ -3099,9 +3106,21 @@ def confirmation_blocks(refs):
 			),
 			map_frame(refs, "order.pickup_location.map_url", height="150px", margin="4px"),
 			directions_button(refs, "order.pickup_location.directions_url"),
-			tile_body(
-				"",
-				dynamicValues=[dv("order.pickup_location.phone", "innerHTML")],
+			block(
+				"a",
+				text="",
+				styles={
+					"color": f"{refs['muted']} !important",
+					"fontSize": "12px",
+					"height": "fit-content",
+					"lineHeight": "1.55",
+					"textDecoration": "underline",
+					"width": "100%",
+				},
+				dynamicValues=[
+					dv("order.pickup_location.phone", "innerHTML"),
+					dv("order.pickup_location.phone_dial", "href", "attribute"),
+				],
 				visibilityCondition={"key": "order.pickup_location.phone", "comesFrom": "dataScript"},
 			),
 		],

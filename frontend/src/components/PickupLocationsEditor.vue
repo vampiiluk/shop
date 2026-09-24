@@ -27,7 +27,7 @@
 			</p>
 		</div>
 
-		<div v-else class="rounded-xl border border-outline-gray-1">
+		<div v-else class="overflow-x-auto rounded-xl border border-outline-gray-1">
 			<table class="w-full text-left text-sm">
 				<thead class="border-b border-outline-gray-1 bg-surface-gray-2 text-p-sm text-ink-gray-6">
 					<tr>
@@ -138,7 +138,7 @@
 							<button
 								type="button"
 								class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium"
-								:class="editForm.mode === 'link' ? 'bg-ink-gray-8 text-white' : 'text-ink-gray-6'"
+								:class="editForm.mode === 'link' ? 'bg-ink-gray-8 text-white' : 'bg-surface-gray-2 text-ink-gray-8'"
 								@click="editForm.mode = 'link'"
 							>
 								Google Maps link
@@ -146,7 +146,7 @@
 							<button
 								type="button"
 								class="flex-1 rounded-md px-3 py-1.5 text-sm font-medium"
-								:class="editForm.mode === 'coords' ? 'bg-ink-gray-8 text-white' : 'text-ink-gray-6'"
+								:class="editForm.mode === 'coords' ? 'bg-ink-gray-8 text-white' : 'bg-surface-gray-2 text-ink-gray-8'"
 								@click="editForm.mode = 'coords'"
 							>
 								Latitude / longitude

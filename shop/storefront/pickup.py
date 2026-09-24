@@ -31,13 +31,17 @@ def configured(settings=None) -> list[dict]:
 			if parsed:
 				latitude, longitude = parsed
 		urls = map_urls(latitude, longitude, settings.get("map_embed_provider"))
+		phone = (row.phone or "").strip()
 		rows.append(
 			{
 				"name": name,
 				"address": (row.address or "").strip(),
 				"latitude": latitude,
 				"longitude": longitude,
-				"phone": (row.phone or "").strip(),
+				"phone": phone,
+				# Click-to-call href for the pickup card; empty exactly when the
+				# phone text is empty, so the link hides with its label.
+				"phone_dial": f"tel:{phone.replace(' ', '')}" if phone else "",
 				"map_url": urls["map_url"],
 				"directions_url": urls["directions_url"],
 			}
