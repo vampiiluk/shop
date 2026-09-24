@@ -19,13 +19,17 @@ Graph API v26.0, verified against the live catalogue 1805695184000731:
 Updates merge (a partial UPDATE leaves ``link``/``image_link`` intact),
 ``quantity_to_sell_on_facebook: 0`` is accepted alongside
 ``availability: "out of stock"``, and prices normalise to ``PKR1,499.00``.
+Descriptions are pushed as plain text: Meta renders them literally, so the
+storefront's rich-HTML copy is converted first (``_plain_text``).
 """
 
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from html import unescape
 
 import frappe
 from frappe import _
@@ -211,6 +215,26 @@ def _context(rows: list) -> dict:
 	}
 
 
+def _plain_text(value: str) -> str:
+	"""Convert the storefront's rich-HTML copy to plain text.
+
+	Meta renders item descriptions literally, so the ``<p>`` markup the rich
+	text editor wraps paragraphs in would show up in front of the customer in
+	WhatsApp. Paragraph/list/line breaks survive as newlines so the copy stays
+	readable rather than running together.
+	"""
+	text = re.sub(r"<br\s*/?>", "\n", value, flags=re.I)
+	text = re.sub(r"</(p|div|li|tr|h[1-6])\s*>", "\n", text, flags=re.I)
+	text = re.sub(r"<(p|div|ul|ol|tr|h[1-6])\b[^>]*>", "\n", text, flags=re.I)
+	text = re.sub(r"<li[^>]*>", "- ", text, flags=re.I)
+	text = re.sub(r"<[^>]+>", "", text)
+	text = unescape(text)
+	text = re.sub(r"[ \t\u00a0]+", " ", text)
+	text = re.sub(r" *\n *", "\n", text)
+	text = re.sub(r"\n{3,}", "\n\n", text)
+	return text.strip()
+
+
 def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 	"""One Meta catalogue item mirroring exactly what the storefront shows."""
 	variant_codes = ctx["variants"].get(product.item)
@@ -236,7 +260,9 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 	}
 	description = product.description or product.short_description or ""
 	if description:
-		data["description"] = description[:DESCRIPTION_LIMIT]
+		# Meta shows the description as plain text — the storefront's HTML
+		# would put literal <p> tags in front of the customer.
+		data["description"] = _plain_text(description)[:DESCRIPTION_LIMIT]
 	rate = flt((ctx["prices"].get(product.item) or {}).get("rate"))
 	compare_at = flt(product.compare_at_price)
 	if rate > 0:

@@ -1,6 +1,7 @@
 """Dot: technical monochrome storefront. Dot grid canvas, floating capsule nav, rounded panels, mono spec labels."""
 
 from shop.theme_generators.blocks import (
+	WHATSAPP_GREEN,
 	block,
 	component_ref,
 	dv,
@@ -10,6 +11,7 @@ from shop.theme_generators.blocks import (
 	upsert_component,
 	upsert_page,
 	upsert_variables,
+	whatsapp_icon,
 )
 
 GROUP = "dot"
@@ -2079,9 +2081,12 @@ def pdp_details(refs):
 		styles=styles,
 		dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
 	)
-	actions = block(
+	# Add to cart + Buy now keep the full-width row to themselves; WhatsApp
+	# gets its own full-width row underneath on desktop (the inner row still
+	# stacks on mobile, exactly as the old flat actions row did).
+	buy_row = block(
 		"div",
-		name="Actions",
+		name="Buy row",
 		styles={"display": "flex", "flexDirection": "row", "gap": "10px", "width": "100%"},
 		mobile={"flexDirection": "column"},
 		children=[
@@ -2092,25 +2097,36 @@ def pdp_details(refs):
 				{**pill(refs, "", variant="outline", full=True)["baseStyles"], "flexGrow": "1"},
 			),
 			buy_button("Buy now", "Buy now", "buy-now", {**pill(refs, "", full=True)["baseStyles"], "flexGrow": "1"}),
-			block(
-				"a",
-				name="Buy on WhatsApp",
-				text="Buy on WhatsApp",
-				attrs={"target": "_blank", "rel": "noopener"},
-				styles={
-					**pill(refs, "", variant="outline", full=True)["baseStyles"],
-					"flexGrow": "1",
-					# Link inside the actions row: reset.css's clobbering of
-					# colour/underline/background is beaten with !important
-					# exactly as directions_button does it.
-					"backgroundColor": "transparent !important",
-					"color": f"{refs['ink']} !important",
-					"textDecoration": "none !important",
-				},
-				dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
-				visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
-			),
 		],
+	)
+	whatsapp_button = block(
+		"a",
+		name="Buy on WhatsApp",
+		attrs={"target": "_blank", "rel": "noopener"},
+		children=[whatsapp_icon(), block("span", text="Buy on WhatsApp")],
+		styles={
+			**pill(refs, "", variant="outline", full=True)["baseStyles"],
+			"alignItems": "center",
+			# WhatsApp green pill; reset.css's clobbering of the link's
+			# colour/underline/background is beaten with !important exactly
+			# as directions_button does it.
+			"backgroundColor": f"{WHATSAPP_GREEN} !important",
+			"borderColor": WHATSAPP_GREEN,
+			"color": "#FFFFFF !important",
+			"display": "flex",
+			"flexDirection": "row",
+			"gap": "9px",
+			"justifyContent": "center",
+			"textDecoration": "none !important",
+		},
+		dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
+		visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
+	)
+	actions = block(
+		"div",
+		name="Actions",
+		styles={"display": "flex", "flexDirection": "column", "gap": "10px", "width": "100%"},
+		children=[buy_row, whatsapp_button],
 	)
 	return block(
 		"div",

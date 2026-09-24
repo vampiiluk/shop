@@ -1,6 +1,7 @@
 """Frappe: crisp merch storefront. White canvas, hairline rules, serif display moments, rectangular geometry."""
 
 from shop.theme_generators.blocks import (
+	WHATSAPP_GREEN,
 	block,
 	component_ref,
 	dv,
@@ -10,6 +11,7 @@ from shop.theme_generators.blocks import (
 	upsert_component,
 	upsert_page,
 	upsert_variables,
+	whatsapp_icon,
 )
 
 GROUP = "frappe"
@@ -1937,56 +1939,72 @@ def map_frame(refs, key, height="170px", margin="2px"):
 
 
 def pdp_buttons(refs):
+	# WhatsApp sits on its own full-width row under the buy buttons on
+	# desktop; the inner row still stacks on mobile as before.
+	whatsapp_button = block(
+		"a",
+		name="Buy on WhatsApp",
+		attrs={"target": "_blank", "rel": "noopener"},
+		children=[whatsapp_icon(), block("span", text="Buy on WhatsApp")],
+		styles={
+			**buy_button_styles(refs, outline=True),
+			"alignItems": "center",
+			# WhatsApp green pill; beat reset.css's link clobber
+			# (colour/underline/background) with !important, exactly as
+			# directions_button does.
+			"backgroundColor": f"{WHATSAPP_GREEN} !important",
+			"borderColor": WHATSAPP_GREEN,
+			"color": "#FFFFFF !important",
+			"display": "flex",
+			"flexDirection": "row",
+			"gap": "9px",
+			"justifyContent": "center",
+			"textDecoration": "none !important",
+		},
+		dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
+		visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
+	)
 	return block(
 		"div",
 		name="Actions",
-		styles={"display": "flex", "flexDirection": "row", "gap": "10px", "marginTop": "4px", "width": "100%"},
-		mobile={"flexDirection": "column"},
+		styles={"display": "flex", "flexDirection": "column", "gap": "10px", "marginTop": "4px", "width": "100%"},
 		children=[
 			block(
-				"button",
-				name="Add to cart",
-				text="Add to cart",
-				attrs={
-					"type": "button",
-					"data-shop": "add-to-cart",
-					"data-label": "Add to cart",
-					"data-added-label": "Added ✓",
-					"data-out-of-stock-label": "Out of stock",
-				},
-				styles=buy_button_styles(refs, outline=True),
-				dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
+				"div",
+				name="Buy row",
+				styles={"display": "flex", "flexDirection": "row", "gap": "10px", "width": "100%"},
+				mobile={"flexDirection": "column"},
+				children=[
+					block(
+						"button",
+						name="Add to cart",
+						text="Add to cart",
+						attrs={
+							"type": "button",
+							"data-shop": "add-to-cart",
+							"data-label": "Add to cart",
+							"data-added-label": "Added ✓",
+							"data-out-of-stock-label": "Out of stock",
+						},
+						styles=buy_button_styles(refs, outline=True),
+						dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
+					),
+					block(
+						"button",
+						name="Buy now",
+						text="Buy now",
+						attrs={
+							"type": "button",
+							"data-shop": "buy-now",
+							"data-label": "Buy now",
+							"data-out-of-stock-label": "Out of stock",
+						},
+						styles=buy_button_styles(refs),
+						dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
+					),
+				],
 			),
-			block(
-				"button",
-				name="Buy now",
-				text="Buy now",
-				attrs={
-					"type": "button",
-					"data-shop": "buy-now",
-					"data-label": "Buy now",
-					"data-out-of-stock-label": "Out of stock",
-				},
-				styles=buy_button_styles(refs),
-				dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
-			),
-			block(
-				"a",
-				name="Buy on WhatsApp",
-				text="Buy on WhatsApp",
-				attrs={"target": "_blank", "rel": "noopener"},
-				styles={
-					**buy_button_styles(refs, outline=True),
-					# Link in the actions row: beat reset.css's link clobber
-					# (colour/underline/background) with !important, exactly
-					# as directions_button does.
-					"backgroundColor": f"{refs['paper']} !important",
-					"color": f"{refs['ink']} !important",
-					"textDecoration": "none !important",
-				},
-				dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
-				visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
-			),
+			whatsapp_button,
 		],
 	)
 
