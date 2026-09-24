@@ -510,15 +510,20 @@ def directions_button(refs, key):
 
 
 def contact_buttons(refs, dial_key, wa_key, phone_key):
-	"""Split pill replacing the plain phone line: the number itself dials
-	(tel:) and the other half opens a WhatsApp chat (wa.me) with the same
-	pickup location. Matches the directions pill's look; reset.css's link
-	clobber is beaten with ``!important`` exactly as ``directions_button``
-	does. ``*_key`` are dataScript paths (bare on checkout, nested on
-	confirmation)."""
+	"""Two separate pill buttons replacing the plain phone line: the number
+	itself (tap to dial on mobile; desktop JS turns it into copy-to-clipboard
+	with a brief "Copied ✓" pop — storefront.js keys off data-shop=
+	"phone-copy") and, beside it with a gap, a WhatsApp chat button (wa.me).
+	Matches the directions pill's look; reset.css's link clobber is beaten
+	with ``!important`` exactly as ``directions_button`` does. ``*_key`` are
+	dataScript paths (bare on checkout, nested on confirmation)."""
 	half = {
 		**mono(size="10px", color=refs["paper"], spacing="0.12em"),
 		"backgroundColor": f"{refs['ink']} !important",
+		"borderColor": refs["ink"],
+		"borderRadius": "999px",
+		"borderStyle": "solid",
+		"borderWidth": "1px",
 		"boxSizing": "border-box",
 		"color": f"{refs['paper']} !important",
 		"flex": "1 1 50%",
@@ -531,21 +536,16 @@ def contact_buttons(refs, dial_key, wa_key, phone_key):
 		"div",
 		styles={
 			"alignItems": "stretch",
-			"backgroundColor": refs["ink"],
-			"borderColor": refs["ink"],
-			"borderRadius": "999px",
-			"borderStyle": "solid",
-			"borderWidth": "1px",
-			"boxSizing": "border-box",
 			"display": "flex",
-			"overflow": "hidden",
+			"gap": "8px",
 			"width": "100%",
 		},
 		children=[
 			block(
 				"a",
 				text="",
-				styles={**half, "borderRight": f"1px solid {refs['paper']}66"},
+				attrs={"data-shop": "phone-copy"},
+				styles=half,
 				dynamicValues=[
 					dv(phone_key, "innerHTML"),
 					dv(dial_key, "href", "attribute"),

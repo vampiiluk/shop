@@ -1799,11 +1799,12 @@ def directions_button(refs, key):
 
 
 def contact_buttons(refs, dial_key, wa_key, phone_key):
-	"""Split button replacing the plain phone line: the number itself dials
-	(tel:) and the other half opens a WhatsApp chat (wa.me). Same buy-button
-	look as ``directions_button``; the reset.css link clobber is likewise
-	beaten with ``!important``. ``*_key`` are dataScript paths (bare on
-	confirmation-nested vs checkout-flat keys as passed in)."""
+	"""Two separate buttons replacing the plain phone line: the number itself
+	(tap to dial on mobile; desktop JS turns it into copy-to-clipboard with a
+	brief "Copied ✓" pop — storefront.js keys off data-shop="phone-copy") and,
+	beside it with a gap, a WhatsApp chat button (wa.me). Same buy-button look
+	as ``directions_button``; the reset.css link clobber is likewise beaten
+	with ``!important``. ``*_key`` are dataScript paths (bare vs nested)."""
 	half = {
 		**buy_button_styles(refs),
 		"backgroundColor": f"{refs['ink']} !important",
@@ -1818,17 +1819,17 @@ def contact_buttons(refs, dial_key, wa_key, phone_key):
 	return block(
 		"div",
 		styles={
-			**buy_button_styles(refs),
-			"backgroundColor": refs["ink"],
+			"alignItems": "stretch",
 			"display": "flex",
-			"overflow": "hidden",
-			"padding": "0",
+			"gap": "8px",
+			"width": "100%",
 		},
 		children=[
 			block(
 				"a",
 				text="",
-				styles={**half, "borderRight": f"1px solid {refs['paper']}66"},
+				attrs={"data-shop": "phone-copy"},
+				styles=half,
 				dynamicValues=[
 					dv(phone_key, "innerHTML"),
 					dv(dial_key, "href", "attribute"),

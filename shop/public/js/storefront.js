@@ -981,6 +981,82 @@
 		appleMapsDirectionsLinks();
 	}
 
+	// The pickup number button is device-aware. Phones keep the plain tel:
+	// link; desktops have no dialer, so the click is intercepted and the
+	// number is copied to the clipboard instead — with a brief "Copied ✓"
+	// swap and a scale pop so the action always shows feedback. Detected per
+	// click (hover+pointer media query), so hybrid/touch laptops behave too.
+	function legacyCopyText(text) {
+		const area = document.createElement("textarea");
+		area.value = text;
+		area.setAttribute("readonly", "");
+		area.style.position = "fixed";
+		area.style.opacity = "0";
+		document.body.appendChild(area);
+		area.select();
+		let copied = false;
+		try {
+			copied = document.execCommand("copy");
+		} catch (error) {
+			copied = false;
+		}
+		area.remove();
+		return copied;
+	}
+
+	function flashCopiedLink(link) {
+		// Remember the real number once, swap the label, pop, then restore.
+		if (!link.dataset.copyText) link.dataset.copyText = (link.textContent || "").trim();
+		link.textContent = "Copied \u2713";
+		if (typeof link.animate === "function") {
+			link.animate(
+				[
+					{ transform: "scale(1)" },
+					{ transform: "scale(1.07)" },
+					{ transform: "scale(0.98)" },
+					{ transform: "scale(1)" },
+				],
+				{ duration: 340, easing: "ease-out" },
+			);
+		}
+		clearTimeout(link._copyTimer);
+		link._copyTimer = setTimeout(() => {
+			link.textContent = link.dataset.copyText || link.textContent;
+			delete link.dataset.copyText;
+		}, 1600);
+	}
+
+	function initPhoneCopy() {
+		const isDesktop = () =>
+			typeof window.matchMedia === "function" &&
+			window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+		if (isDesktop()) {
+			document.querySelectorAll('[data-shop="phone-copy"]').forEach((link) => {
+				link.title = "Click to copy the number";
+			});
+		}
+		// Delegated: the theme may re-render the pickup panel at any time.
+		document.addEventListener("click", (event) => {
+			const link =
+				event.target instanceof Element
+					? event.target.closest('[data-shop="phone-copy"]')
+					: null;
+			if (!link || !isDesktop()) return;
+			event.preventDefault(); // desktop must never navigate to tel:
+			if (!link.title) link.title = "Click to copy the number";
+			const href = link.getAttribute("href") || "";
+			const number = href.replace(/^tel:/i, "").trim() || (link.textContent || "").trim();
+			if (!number) return;
+			const copied =
+				typeof navigator.clipboard === "function" && navigator.clipboard.writeText
+					? navigator.clipboard.writeText(number).then(() => true).catch(() => legacyCopyText(number))
+					: legacyCopyText(number);
+			Promise.resolve(copied).then((ok) => {
+				if (ok) flashCopiedLink(link);
+			});
+		});
+	}
+
 	// The map embed is view-only (pointer-events: none), so zooming is ours:
 	// rewrite the embed URL symmetrically around the pin — OSM's bbox rescaled
 	// about the marker, Google's z stepped with q untouched — which keeps the
@@ -1047,6 +1123,7 @@
 		preselectPayment();
 		syncPaymentUI();
 		initMapZoom();
+		initPhoneCopy();
 		initBuyBar();
 		initFilters();
 		initAddressDatalists();
