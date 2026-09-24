@@ -168,6 +168,7 @@ def pickup_location_info(order) -> dict | None:
 		"longitude": "",
 		"phone": "",
 		"phone_dial": "",
+		"whatsapp_url": "",
 		"map_url": "",
 		"directions_url": "",
 	}

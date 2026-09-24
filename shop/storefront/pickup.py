@@ -32,6 +32,7 @@ def configured(settings=None) -> list[dict]:
 				latitude, longitude = parsed
 		urls = map_urls(latitude, longitude, settings.get("map_embed_provider"))
 		phone = (row.phone or "").strip()
+		digits = re.sub(r"[^\d+]", "", phone)
 		rows.append(
 			{
 				"name": name,
@@ -39,14 +40,47 @@ def configured(settings=None) -> list[dict]:
 				"latitude": latitude,
 				"longitude": longitude,
 				"phone": phone,
-				# Click-to-call href for the pickup card; empty exactly when the
-				# phone text is empty, so the link hides with its label.
-				"phone_dial": f"tel:{phone.replace(' ', '')}" if phone else "",
+				# Hrefs for the split contact button: the number half dials
+				# (tel:), the other half opens a WhatsApp chat (wa.me). Both
+				# are empty exactly when the phone text is empty, so the
+				# button hides together with its label.
+				"phone_dial": f"tel:{digits}" if digits else "",
+				"whatsapp_url": whatsapp_url(settings, phone),
 				"map_url": urls["map_url"],
 				"directions_url": urls["directions_url"],
 			}
 		)
 	return rows
+
+
+# wa.me needs the full international number. The Country doctype only keeps
+# the ISO alpha-2 code, so map the storefront-relevant countries here; an
+# unknown country drops the WhatsApp half instead of guessing a broken link.
+_DIAL_CODES = {
+	"AF": "93", "AU": "61", "BD": "880", "CA": "1", "CN": "86", "GB": "44",
+	"ID": "62", "IN": "91", "IQ": "964", "IR": "98", "KE": "254", "KW": "965",
+	"LK": "94", "MM": "95", "MY": "60", "NG": "234", "NP": "977", "NZ": "64",
+	"OM": "968", "PH": "63", "PK": "92", "QA": "974", "SA": "966", "SG": "65",
+	"TH": "66", "TR": "90", "AE": "971", "US": "1", "VN": "84", "ZA": "27",
+}
+
+
+def whatsapp_url(settings, phone: str) -> str:
+	"""wa.me chat link for a pickup location; '' when it can't be formed."""
+	digits = re.sub(r"\D", "", phone or "")
+	if not digits:
+		return ""
+	if digits.startswith("00"):
+		digits = digits[2:]
+	if digits.startswith("0"):
+		# Local format (0303...): prefix the store country's calling code.
+		country = (settings.get("address_country") or "").strip()
+		iso = frappe.db.get_value("Country", country, "code") if country else ""
+		dial = _DIAL_CODES.get((iso or "").upper(), "")
+		if not dial:
+			return ""
+		digits = dial + digits.lstrip("0")
+	return f"https://wa.me/{digits}"
 
 
 _GMAPS_QUERY_COORDS = re.compile(

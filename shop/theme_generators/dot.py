@@ -509,6 +509,61 @@ def directions_button(refs, key):
 	)
 
 
+def contact_buttons(refs, dial_key, wa_key, phone_key):
+	"""Split pill replacing the plain phone line: the number itself dials
+	(tel:) and the other half opens a WhatsApp chat (wa.me) with the same
+	pickup location. Matches the directions pill's look; reset.css's link
+	clobber is beaten with ``!important`` exactly as ``directions_button``
+	does. ``*_key`` are dataScript paths (bare on checkout, nested on
+	confirmation)."""
+	half = {
+		**mono(size="10px", color=refs["paper"], spacing="0.12em"),
+		"backgroundColor": f"{refs['ink']} !important",
+		"boxSizing": "border-box",
+		"color": f"{refs['paper']} !important",
+		"flex": "1 1 50%",
+		"minWidth": "0",
+		"padding": "11px 8px",
+		"textAlign": "center",
+		"textDecoration": "none !important",
+	}
+	return block(
+		"div",
+		styles={
+			"alignItems": "stretch",
+			"backgroundColor": refs["ink"],
+			"borderColor": refs["ink"],
+			"borderRadius": "999px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"boxSizing": "border-box",
+			"display": "flex",
+			"overflow": "hidden",
+			"width": "100%",
+		},
+		children=[
+			block(
+				"a",
+				text="",
+				styles={**half, "borderRight": f"1px solid {refs['paper']}66"},
+				dynamicValues=[
+					dv(phone_key, "innerHTML"),
+					dv(dial_key, "href", "attribute"),
+				],
+			),
+			block(
+				"a",
+				text="WhatsApp",
+				attrs={"target": "_blank", "rel": "noopener"},
+				styles=half,
+				dynamicValues=[dv(wa_key, "href", "attribute")],
+				visibilityCondition={"key": wa_key, "comesFrom": "dataScript"},
+			),
+		],
+		visibilityCondition={"key": phone_key, "comesFrom": "dataScript"},
+	)
+
+
 def map_frame(refs, key, height="170px", margin="2px"):
 	"""View-only map embed with our own zoom controls.
 
@@ -2806,20 +2861,7 @@ def checkout_blocks(refs):
 										),
 										map_frame(refs, "map_url"),
 										directions_button(refs, "directions_url"),
-										block(
-											"a",
-											text="",
-											styles={
-												**mono(size="10px", color=refs["muted"], spacing="0.1em"),
-												"color": f"{refs['muted']} !important",
-												"textDecoration": "underline",
-											},
-											dynamicValues=[
-												dv("phone", "innerHTML"),
-												dv("phone_dial", "href", "attribute"),
-											],
-											visibilityCondition={"key": "phone", "comesFrom": "dataScript"},
-										),
+										contact_buttons(refs, "phone_dial", "whatsapp_url", "phone"),
 									],
 								),
 							],
@@ -3106,23 +3148,7 @@ def confirmation_blocks(refs):
 			),
 			map_frame(refs, "order.pickup_location.map_url", height="150px", margin="4px"),
 			directions_button(refs, "order.pickup_location.directions_url"),
-			block(
-				"a",
-				text="",
-				styles={
-					"color": f"{refs['muted']} !important",
-					"fontSize": "12px",
-					"height": "fit-content",
-					"lineHeight": "1.55",
-					"textDecoration": "underline",
-					"width": "100%",
-				},
-				dynamicValues=[
-					dv("order.pickup_location.phone", "innerHTML"),
-					dv("order.pickup_location.phone_dial", "href", "attribute"),
-				],
-				visibilityCondition={"key": "order.pickup_location.phone", "comesFrom": "dataScript"},
-			),
+			contact_buttons(refs, "order.pickup_location.phone_dial", "order.pickup_location.whatsapp_url", "order.pickup_location.phone"),
 		],
 		name="Pickup Tile",
 		visibilityCondition={"key": "order.pickup_location", "comesFrom": "dataScript"},
