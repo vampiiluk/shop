@@ -18,6 +18,7 @@ CHECK_FIELDS = frozenset((
 	"gms_enabled",
 	"ors_enabled",
 	"ip_intel_enabled",
+	"meta_enabled",
 ))
 
 INT_FIELDS = frozenset((
@@ -45,6 +46,7 @@ PASSWORD_FIELDS = frozenset((
 	"fingerprint_secret_key",
 	"ors_api_key",
 	"abuseipdb_api_key",
+	"meta_access_token",
 ))
 
 EDITABLE = (
@@ -101,6 +103,10 @@ EDITABLE = (
 	"ip_intel_enabled",
 	"abuseipdb_api_key",
 	"queue_schedule",
+	"meta_enabled",
+	"meta_catalog_id",
+	"meta_access_token",
+	"meta_google_product_category",
 )
 
 
@@ -131,6 +137,11 @@ def get_settings() -> dict:
 			"abuseipdb_api_key_set": bool(
 				settings.get_password("abuseipdb_api_key", raise_exception=False)
 			),
+			"meta_access_token_set": bool(
+				settings.get_password("meta_access_token", raise_exception=False)
+			),
+			"meta_last_sync": settings.meta_last_sync,
+			"meta_sync_status": settings.meta_sync_status or "",
 			"gateway_accounts": frappe.get_all(
 				"Payment Gateway Account", fields=["name", "payment_gateway", "currency"]
 			),
@@ -349,3 +360,11 @@ def download_gms(version: str | None = None) -> dict:
 	only_managers()
 	from shop.integrations.gms import download_gms as _download
 	return _download(version)
+
+
+@frappe.whitelist(methods=["POST"])
+def sync_meta_catalog() -> dict:
+	"""Run a full Meta catalogue sync now: push, prune and relink."""
+	only_managers()
+	from shop.integrations.meta_catalog import sync_all
+	return sync_all()

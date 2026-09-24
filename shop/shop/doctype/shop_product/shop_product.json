@@ -23,7 +23,9 @@
   "column_break_org",
   "options",
   "has_variants",
-  "item_group"
+  "item_group",
+  "meta_section",
+  "meta_product_id"
  ],
  "fields": [
   {
@@ -138,10 +140,23 @@
    "label": "Item Group",
    "options": "Item Group",
    "read_only": 1
+  },
+  {
+   "fieldname": "meta_section",
+   "fieldtype": "Section Break",
+   "label": "WhatsApp / Meta"
+  },
+  {
+   "description": "Product id in your Meta catalogue. Filled automatically after a sync; used to link back to Commerce Manager.",
+   "fieldname": "meta_product_id",
+   "fieldtype": "Data",
+   "label": "Meta Product ID",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "links": [],
- "modified": "2026-07-29 00:00:00.000000",
+ "modified": "2026-09-24 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Shop",
  "name": "Shop Product",

@@ -380,6 +380,14 @@ doc_events = {
 	"Address": {
 		"on_update": "shop.integrations.verification.on_address_update",
 	},
+	"Shop Product": {
+		"on_update": "shop.integrations.meta_catalog.on_product_update",
+		"on_trash": "shop.integrations.meta_catalog.on_product_trash",
+	},
+	"Stock Ledger Entry": {
+		"on_submit": "shop.integrations.meta_catalog.on_stock_change",
+		"on_cancel": "shop.integrations.meta_catalog.on_stock_change",
+	},
 }
 
 on_session_creation = "shop.storefront.cart.merge_guest_cart"
@@ -401,6 +409,7 @@ scheduler_events = {
 	],
 	"hourly": [
 		"shop.fulfillment.service.sync_open_shipments",
+		"shop.integrations.meta_catalog.scheduled_reconcile",
 	],
 	"cron": {
 		"*/10 * * * *": [

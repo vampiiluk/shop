@@ -69,6 +69,14 @@
   "fingerprint_secret_key",
   "column_break_fingerprint",
   "fingerprint_region",
+  "meta_section",
+  "meta_enabled",
+  "meta_catalog_id",
+  "meta_access_token",
+  "column_break_meta",
+  "meta_google_product_category",
+  "meta_last_sync",
+  "meta_sync_status",
   "theme_pages_section",
   "theme_pages"
  ],
@@ -504,11 +512,58 @@
    "label": "Theme Pages",
    "options": "Shop Theme Page",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "meta_section",
+   "fieldtype": "Section Break",
+   "label": "WhatsApp / Meta Catalog"
+  },
+  {
+   "default": "0",
+   "description": "Publish products, prices and stock to your Meta catalogue so they appear in WhatsApp and Facebook. Saved products push automatically; Sync now sends everything.",
+   "fieldname": "meta_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Meta Catalog Sync"
+  },
+  {
+   "description": "Catalogue ID from Commerce Manager, e.g. 1805695184000731.",
+   "fieldname": "meta_catalog_id",
+   "fieldtype": "Data",
+   "label": "Meta Catalog ID"
+  },
+  {
+   "description": "Graph API access token with catalog_management permission.",
+   "fieldname": "meta_access_token",
+   "fieldtype": "Password",
+   "label": "Meta API Key"
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Optional. Improves discovery, e.g. Apparel & Accessories > Clothing > Shirts.",
+   "fieldname": "meta_google_product_category",
+   "fieldtype": "Data",
+   "label": "Google Product Category"
+  },
+  {
+   "fieldname": "meta_last_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "meta_sync_status",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Status",
+   "read_only": 1
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-07-29 00:00:00.000000",
+ "modified": "2026-09-24 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Shop",
  "name": "Shop Settings",

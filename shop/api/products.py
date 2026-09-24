@@ -112,7 +112,23 @@ def get_product(name: str) -> dict:
 			for code in codes
 		],
 		"stock": sum(stock_map.values()),
+		"meta_product_id": doc.meta_product_id or None,
+		"meta_product_link": commerce_manager_url(doc.meta_product_id),
 	}
+
+
+def commerce_manager_url(meta_product_id: str | None) -> str | None:
+	"""Link to the catalogue's product list in Commerce Manager.
+
+	Meta exposes no verified per-product deep link (and the API token cannot
+	read the business id), so point at the catalogue's products list — which
+	is searchable by the numeric product id shown beside this link."""
+	if not meta_product_id:
+		return None
+	catalog_id = (frappe.db.get_single_value("Shop Settings", "meta_catalog_id") or "").strip()
+	if not catalog_id:
+		return None
+	return f"https://business.facebook.com/commerce/catalogs/{catalog_id}/products"
 
 
 @frappe.whitelist(methods=["POST"])

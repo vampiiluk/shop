@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import frappe
 
 from shop.storefront import pricing, stock
@@ -43,7 +45,35 @@ def get_product(slug: str) -> dict:
 	apply_compare_at(payload, payload.get("price"))
 	if payload["rating"]["count"]:
 		payload["rating"]["stars"] = star_string(payload["rating"]["average"])
+	payload["whatsapp_url"] = store_whatsapp_url(doc)
 	return payload
+
+
+def store_whatsapp_url(doc) -> str:
+	"""wa.me chat about this product with name and link prefilled, or ''.
+
+	The store's WhatsApp number lives on the pickup locations, so prefer
+	the default location and fall back to any row that has a phone. With
+	no usable number the key is '' and the storefront's Buy on WhatsApp
+	button hides itself (its visibility condition is falsy)."""
+	from shop.integrations.meta_catalog import SITE_BASE
+	from shop.storefront import pickup
+
+	settings = frappe.get_cached_doc("Shop Settings")
+	default = (settings.get("default_pickup_location") or "").strip()
+	rows = [
+		row
+		for row in pickup.configured(settings)
+		if row.get("whatsapp_url")
+	]
+	chosen = next((row for row in rows if row["name"] == default), None) or (
+		rows[0] if rows else None
+	)
+	if not chosen:
+		return ""
+	product_url = f"{SITE_BASE}/product/{doc.slug}"
+	message = f"Hi! I'm interested in {doc.product_name or doc.name} — {product_url}"
+	return f"{chosen['whatsapp_url']}?text={quote(message)}"
 
 
 def product_collections(doc) -> list[dict]:

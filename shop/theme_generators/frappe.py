@@ -1970,6 +1970,23 @@ def pdp_buttons(refs):
 				styles=buy_button_styles(refs),
 				dynamicValues=[dv("product.buy_item_code", "data-item-code", "attribute")],
 			),
+			block(
+				"a",
+				name="Buy on WhatsApp",
+				text="Buy on WhatsApp",
+				attrs={"target": "_blank", "rel": "noopener"},
+				styles={
+					**buy_button_styles(refs, outline=True),
+					# Link in the actions row: beat reset.css's link clobber
+					# (colour/underline/background) with !important, exactly
+					# as directions_button does.
+					"backgroundColor": f"{refs['paper']} !important",
+					"color": f"{refs['ink']} !important",
+					"textDecoration": "none !important",
+				},
+				dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
+				visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
+			),
 		],
 	)
 

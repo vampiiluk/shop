@@ -117,6 +117,35 @@
 					</p>
 				</CatalogSection>
 
+				<CatalogSection
+					v-if="isEdit && detail"
+					title="WhatsApp / Meta"
+					description="This product in your Meta catalogue (WhatsApp & Facebook)."
+				>
+					<template v-if="detail.meta_product_id">
+						<p class="text-xs text-ink-gray-5">Meta product ID</p>
+						<p class="break-all rounded border border-outline-gray-2 bg-surface-gray-2 px-2 py-1.5 font-mono text-sm text-ink-gray-8">
+							{{ detail.meta_product_id }}
+						</p>
+						<a
+							v-if="detail.meta_product_link"
+							:href="detail.meta_product_link"
+							target="_blank"
+							rel="noopener"
+							class="text-sm text-brand-blue hover:underline"
+						>
+							Open in Commerce Manager ↗
+						</a>
+						<p class="text-xs text-ink-gray-5">
+							Search that ID in the catalogue's product list to open the item.
+						</p>
+					</template>
+					<p v-else class="text-sm text-ink-gray-6">
+						Not in the Meta catalogue yet — save the product, then run
+						<span class="font-medium">Sync now</span> under Settings → WhatsApp / Meta Catalog.
+					</p>
+				</CatalogSection>
+
 				<CatalogSection title="Organization">
 					<Autocomplete
 						v-model="collectionValue"
@@ -191,6 +220,8 @@ interface ProductDetail {
 	slug: string
 	has_variants: number
 	stock: number
+	meta_product_id?: string | null
+	meta_product_link?: string | null
 }
 
 const props = defineProps<{ name?: string }>()

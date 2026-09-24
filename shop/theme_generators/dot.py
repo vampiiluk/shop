@@ -2092,6 +2092,24 @@ def pdp_details(refs):
 				{**pill(refs, "", variant="outline", full=True)["baseStyles"], "flexGrow": "1"},
 			),
 			buy_button("Buy now", "Buy now", "buy-now", {**pill(refs, "", full=True)["baseStyles"], "flexGrow": "1"}),
+			block(
+				"a",
+				name="Buy on WhatsApp",
+				text="Buy on WhatsApp",
+				attrs={"target": "_blank", "rel": "noopener"},
+				styles={
+					**pill(refs, "", variant="outline", full=True)["baseStyles"],
+					"flexGrow": "1",
+					# Link inside the actions row: reset.css's clobbering of
+					# colour/underline/background is beaten with !important
+					# exactly as directions_button does it.
+					"backgroundColor": "transparent !important",
+					"color": f"{refs['ink']} !important",
+					"textDecoration": "none !important",
+				},
+				dynamicValues=[dv("product.whatsapp_url", "href", "attribute")],
+				visibilityCondition={"key": "product.whatsapp_url", "comesFrom": "dataScript"},
+			),
 		],
 	)
 	return block(

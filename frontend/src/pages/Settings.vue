@@ -292,6 +292,62 @@
 				</template>
 			</CatalogSection>
 
+			<CatalogSection
+				title="WhatsApp / Meta Catalog"
+				description="Publish your products to Meta so they appear in WhatsApp and Facebook. Saved products and stock changes sync automatically."
+			>
+				<Switch
+					v-model="meta.meta_enabled"
+					label="Enable catalog sync"
+					description="Push products, prices and stock to your Meta catalogue."
+				/>
+				<div class="grid max-w-lg grid-cols-2 gap-4">
+					<FormControl
+						v-model="meta.meta_catalog_id"
+						label="Catalog ID"
+						placeholder="1805695184000731"
+						description="From Commerce Manager."
+					/>
+					<div>
+						<Password
+							v-model="meta.meta_access_token"
+							label="API key (access token)"
+							placeholder="Enter to change"
+						/>
+						<p v-if="data.meta_access_token_set && !meta.meta_access_token" class="text-xs text-green-600">
+							✓ Key stored — leave blank to keep it, type to replace
+						</p>
+					</div>
+				</div>
+				<FormControl
+					v-model="meta.meta_google_product_category"
+					label="Google product category (optional)"
+					description="Improves discovery, e.g. Apparel & Accessories > Clothing > Shirts."
+					class="max-w-lg"
+				/>
+				<p v-if="data.meta_last_sync || data.meta_sync_status" class="text-xs text-ink-gray-5">
+					Last sync: {{ data.meta_last_sync || 'never' }} — {{ data.meta_sync_status }}
+				</p>
+				<template #footer>
+					<div class="flex gap-2">
+						<Button
+							variant="solid"
+							:loading="saving === 'meta'"
+							@click="saveSection('meta', meta)"
+						>
+							Save
+						</Button>
+						<Button
+							variant="subtle"
+							:loading="syncingMeta"
+							@click="syncMeta"
+						>
+							Sync now
+						</Button>
+					</div>
+				</template>
+			</CatalogSection>
+
 			<CatalogSection title="Fraud Protection" description="Score every checkout against blacklists, velocity, address quality and device fingerprint.">
 				<Switch
 					v-model="fraud.enable_fraud_check"
@@ -656,6 +712,13 @@ const ip_intel = reactive({
 	ip_intel_enabled: true,
 	abuseipdb_api_key: '',
 })
+const meta = reactive({
+	meta_enabled: false,
+	meta_catalog_id: '',
+	meta_access_token: '',
+	meta_google_product_category: '',
+})
+const syncingMeta = ref(false)
 const downloadingGms = ref(false)
 
 const gmsStatus = createResource({
@@ -758,6 +821,12 @@ function hydrate(doc: Record<string, any>) {
 	Object.assign(ip_intel, {
 		ip_intel_enabled: !!doc.ip_intel_enabled,
 		abuseipdb_api_key: doc.abuseipdb_api_key || '',
+	})
+	Object.assign(meta, {
+		meta_enabled: !!doc.meta_enabled,
+		meta_catalog_id: doc.meta_catalog_id || '',
+		meta_access_token: doc.meta_access_token || '',
+		meta_google_product_category: doc.meta_google_product_category || '',
 	})
 }
 
@@ -872,6 +941,25 @@ async function downloadGms() {
 		toast.error('Could not download GMS Scraper')
 	} finally {
 		downloadingGms.value = false
+	}
+}
+
+async function syncMeta() {
+	syncingMeta.value = true
+	try {
+		// Save first so the sync picks up credentials typed just now.
+		settings.data = await call('shop.api.settings.save_settings', {
+			payload: normalize(meta),
+		})
+		const result = await call('shop.api.settings.sync_meta_catalog')
+		if (result.success) toast.success(result.status || 'Catalogue synced')
+		else toast.error(result.status || 'Sync failed')
+		settings.reload()
+	} catch (error) {
+		const messages = (error as { messages?: string[] }).messages
+		toast.error(messages?.[0] || 'Could not sync the Meta catalogue')
+	} finally {
+		syncingMeta.value = false
 	}
 }
 </script>
