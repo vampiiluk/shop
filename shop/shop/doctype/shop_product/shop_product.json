@@ -16,6 +16,7 @@
   "description",
   "compare_at_price",
   "highlights",
+  "condition",
   "media_section",
   "images",
   "organization_section",
@@ -94,6 +95,12 @@
    "label": "Highlights"
   },
   {
+   "fieldname": "condition",
+   "fieldtype": "Data",
+   "label": "Condition",
+   "description": "What the buyer receives, e.g. New, Preloved, Refurbished. Synced to Meta as New / Used / Refurbished."
+  },
+  {
    "fieldname": "media_section",
    "fieldtype": "Section Break",
    "label": "Images"
@@ -156,7 +163,7 @@
   }
  ],
  "links": [],
- "modified": "2026-09-24 00:00:00.000000",
+ "modified": "2026-09-25 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Shop",
  "name": "Shop Product",

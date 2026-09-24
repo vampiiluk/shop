@@ -294,7 +294,7 @@
 
 			<CatalogSection
 				title="WhatsApp / Meta Catalog"
-				description="Publish your products to Meta so they appear in WhatsApp and Facebook. Saved products and stock changes sync automatically."
+				description="Publish your products to Meta so they appear in WhatsApp and Facebook. Saved products and stock changes sync automatically; use Sync to Meta now on a product page to push it immediately."
 			>
 				<Switch
 					v-model="meta.meta_enabled"
@@ -329,22 +329,13 @@
 					Last sync: {{ data.meta_last_sync || 'never' }} — {{ data.meta_sync_status }}
 				</p>
 				<template #footer>
-					<div class="flex gap-2">
-						<Button
-							variant="solid"
-							:loading="saving === 'meta'"
-							@click="saveSection('meta', meta)"
-						>
-							Save
-						</Button>
-						<Button
-							variant="subtle"
-							:loading="syncingMeta"
-							@click="syncMeta"
-						>
-							Sync now
-						</Button>
-					</div>
+					<Button
+						variant="solid"
+						:loading="saving === 'meta'"
+						@click="saveSection('meta', meta)"
+					>
+						Save
+					</Button>
 				</template>
 			</CatalogSection>
 
@@ -718,7 +709,6 @@ const meta = reactive({
 	meta_access_token: '',
 	meta_google_product_category: '',
 })
-const syncingMeta = ref(false)
 const downloadingGms = ref(false)
 
 const gmsStatus = createResource({
@@ -941,25 +931,6 @@ async function downloadGms() {
 		toast.error('Could not download GMS Scraper')
 	} finally {
 		downloadingGms.value = false
-	}
-}
-
-async function syncMeta() {
-	syncingMeta.value = true
-	try {
-		// Save first so the sync picks up credentials typed just now.
-		settings.data = await call('shop.api.settings.save_settings', {
-			payload: normalize(meta),
-		})
-		const result = await call('shop.api.settings.sync_meta_catalog')
-		if (result.success) toast.success(result.status || 'Catalogue synced')
-		else toast.error(result.status || 'Sync failed')
-		settings.reload()
-	} catch (error) {
-		const messages = (error as { messages?: string[] }).messages
-		toast.error(messages?.[0] || 'Could not sync the Meta catalogue')
-	} finally {
-		syncingMeta.value = false
 	}
 }
 </script>

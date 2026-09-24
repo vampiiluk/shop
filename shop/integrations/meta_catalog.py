@@ -21,6 +21,19 @@ Updates merge (a partial UPDATE leaves ``link``/``image_link`` intact),
 ``availability: "out of stock"``, and prices normalise to ``PKR1,499.00``.
 Descriptions are pushed as plain text: Meta renders them literally, so the
 storefront's rich-HTML copy is converted first (``_plain_text``).
+
+Variants and condition, both verified against the live catalogue:
+
+* A product with versions is pushed as a Meta product group: one item per
+  variant (id ``{slug}--{item code}``) all sharing ``item_group_id = slug``,
+  each carrying its own ``size``/``color``, price, stock and availability.
+  Meta builds the "parent" virtually — a plain row whose id equals a group id
+  is not allowed — so once a product has variants its old single-item row is
+  deleted, along with variant items for versions that no longer exist.
+  ``item_group_id`` is written under that name but reads back from the
+  products edge as ``retailer_product_group_id``.
+* The product's free-text ``condition`` (New, Preloved, whatever the admin
+  writes) is normalised to Meta's enum: ``new``, ``refurbished``, ``used``.
 """
 
 import json
@@ -191,6 +204,7 @@ def _rows(names: list[str] | None = None) -> list:
 			"short_description",
 			"description",
 			"compare_at_price",
+			"condition",
 			"item",
 			"has_variants",
 		],
@@ -200,15 +214,19 @@ def _rows(names: list[str] | None = None) -> list:
 
 def _context(rows: list) -> dict:
 	"""Lookups shared by one batch: prices, images, variants and stock."""
-	from shop.storefront import catalog, stock
+	from shop.storefront import catalog, pricing, stock
 
 	templates = [row.item for row in rows if row.has_variants]
 	variants = catalog.variants_by_template(templates)
 	codes = [row.item for row in rows if not row.has_variants]
 	for template_codes in variants.values():
 		codes.extend(template_codes)
+	variant_codes = [code for template_codes in variants.values() for code in template_codes]
 	return {
 		"prices": catalog.display_prices(rows),
+		# per-variant rates: variants are their own catalogue items now
+		"variant_prices": pricing.get_prices(variant_codes),
+		"variant_attrs": _variant_attrs(variant_codes),
 		"images": catalog.first_images([row.name for row in rows]),
 		"variants": variants,
 		"qtys": stock.get_stock(codes),
@@ -235,6 +253,65 @@ def _plain_text(value: str) -> str:
 	return text.strip()
 
 
+# ERPNext attribute names that map onto Meta's core variant fields. Anything
+# else has no place in an items_batch item (Meta takes custom variants through
+# supplementary feeds only) and is skipped.
+CORE_VARIANT_FIELDS = {
+	"size": "size",
+	"colour": "color",
+	"color": "color",
+	"material": "material",
+	"pattern": "pattern",
+	"gender": "gender",
+	"age": "age_group",
+	"age group": "age_group",
+}
+
+
+def _condition(value) -> str:
+	"""The admin's free text ("New", "Preloved", …) → Meta's condition enum.
+
+	Meta only accepts ``new``, ``refurbished`` and ``used``. Anything written
+	that is not obviously new ("preloved", "second hand", a custom phrase)
+	maps to ``used`` — if the admin took the trouble to type a condition,
+	it isn't new. Empty stays the current default, ``new``.
+	"""
+	text = str(value or "").strip().lower()
+	if not text:
+		return "new"
+	# checked first: "renewed" contains "new"
+	if any(token in text for token in ("refurb", "renew", "open box", "open-box", "openbox")):
+		return "refurbished"
+	if "new" in text:
+		return "new"
+	return "used"
+
+
+def _child_id(slug: str, code: str) -> str:
+	"""Stable catalogue id for one variant; Meta caps ids at 100 chars."""
+	child = f"{slug}--{code.lower()}"
+	return child if len(child) <= 100 else code.lower()[:100]
+
+
+def _variant_attrs(codes: list[str]) -> dict[str, dict]:
+	"""{item code: {meta field: value}} from ERPNext's item attributes."""
+	attrs: dict[str, dict] = {}
+	if not codes:
+		return attrs
+	rows = frappe.get_all(
+		"Item Variant Attribute",
+		filters={"parent": ["in", codes]},
+		fields=["parent", "attribute", "attribute_value"],
+		order_by="parent, idx",
+	)
+	for row in rows:
+		field = CORE_VARIANT_FIELDS.get((row.attribute or "").strip().lower())
+		value = str(row.attribute_value or "").strip()
+		if field and value and field not in attrs.setdefault(row.parent, {}):
+			attrs[row.parent][field] = value
+	return attrs
+
+
 def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 	"""One Meta catalogue item mirroring exactly what the storefront shows."""
 	variant_codes = ctx["variants"].get(product.item)
@@ -254,7 +331,7 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 		# with quantity 0 is what hides a product that has sold out.
 		"availability": "in stock" if in_stock else "out of stock",
 		"quantity_to_sell_on_facebook": max(int(qty), 1) if in_stock else 0,
-		"condition": "new",
+		"condition": _condition(product.condition),
 		"brand": settings.store_name or "Store",
 		"link": f"{SITE_BASE}/product/{product.slug}",
 	}
@@ -281,27 +358,94 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 	return data
 
 
-def _push_rows(rows: list, cfg: dict, settings) -> tuple[int, list[str], list[str]]:
-	"""UPDATE (upsert) every row; returns (sent, errors, warnings)."""
+def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
+	"""Every catalogue item for one product.
+
+	Simple products stay the single item they always were. A product with
+	variants becomes a Meta product group: one item per variant, all sharing
+	``item_group_id`` with the slug and carrying that variant's own size and
+	color, price, stock and availability. The group's "parent" is virtual —
+	Meta rejects a plain row whose id equals a group id — so the slug row
+	only exists while the product has no variants.
+	"""
+	variant_codes = ctx["variants"].get(product.item) or []
+	if not variant_codes:
+		return [build_item(product, settings, cfg, ctx)]
+
+	base = build_item(product, settings, cfg, ctx)
+	always_available = cint(settings.allow_out_of_stock) or not frappe.get_cached_value(
+		"Item", product.item, "is_stock_item"
+	)
+	compare_at = flt(product.compare_at_price)
+	currency = settings.currency or "PKR"
+	items = []
+	for code in variant_codes:
+		qty = ctx["qtys"].get(code, 0.0)
+		in_stock = always_available or qty > 0
+		child = {
+			"id": _child_id(product.slug, code),
+			"item_group_id": product.slug,
+			# Meta keeps the title stable while the buyer picks a variant,
+			# so every member carries the product's own name.
+			"title": base["title"],
+			"availability": "in stock" if in_stock else "out of stock",
+			"quantity_to_sell_on_facebook": max(int(qty), 1) if in_stock else 0,
+			"condition": base["condition"],
+			"brand": base["brand"],
+			"link": base["link"],
+		}
+		if base.get("description"):
+			child["description"] = base["description"]
+		# this variant's own rate, falling back to the product's lowest
+		rate = flt((ctx["variant_prices"].get(code) or {}).get("rate")) or flt(
+			(ctx["prices"].get(product.item) or {}).get("rate")
+		)
+		if rate > 0:
+			if compare_at > rate:
+				child["price"] = _money(compare_at, currency)
+				child["sale_price"] = _money(rate, currency)
+			else:
+				child["price"] = _money(rate, currency)
+		if base.get("image_link"):
+			child["image_link"] = base["image_link"]
+		if base.get("google_product_category"):
+			child["google_product_category"] = base["google_product_category"]
+		child.update(ctx["variant_attrs"].get(code) or {})
+		items.append(child)
+	return items
+
+
+def _push_rows(rows: list, cfg: dict, settings, ctx: dict) -> tuple[int, int, list[str], list[str]]:
+	"""UPDATE (upsert) every item; returns (products, items, errors, warnings)."""
 	if not rows:
-		return 0, [], []
-	ctx = _context(rows)
+		return 0, 0, [], []
 	requests = [
-		{"method": "UPDATE", "data": build_item(row, settings, cfg, ctx)} for row in rows
+		{"method": "UPDATE", "data": item}
+		for row in rows
+		for item in build_items(row, settings, cfg, ctx)
 	]
 	errors: list[str] = []
 	warnings: list[str] = []
 	sent = _run_requests(cfg, requests, errors, warnings)
-	return sent, errors, warnings
+	return len(rows), sent, errors, warnings
 
 
-def _fetch_retailer_ids(cfg: dict) -> dict[str, str]:
-	"""retailer_id (slug) → Meta product id across the whole catalogue."""
+def _fetch_catalog(cfg: dict) -> dict[str, dict]:
+	"""retailer_id → {id, group} across the whole catalogue.
+
+	The group is written as ``item_group_id`` but only reads back as
+	``retailer_product_group_id`` — the products edge ignores
+	``item_group_id`` (verified against the live catalogue).
+	"""
 	url = f"{GRAPH_BASE}/{cfg['catalog_id']}/products"
 	query = urllib.parse.urlencode(
-		{"fields": "id,retailer_id", "limit": "500", "access_token": cfg["token"]}
+		{
+			"fields": "id,retailer_id,retailer_product_group_id",
+			"limit": "500",
+			"access_token": cfg["token"],
+		}
 	)
-	ids: dict[str, str] = {}
+	entries: dict[str, dict] = {}
 	for _ in range(40):
 		# paging.next is a full URL that already carries its query string (and
 		# the access token) — appending a second "?" to it makes Meta reject
@@ -310,22 +454,37 @@ def _fetch_retailer_ids(cfg: dict) -> dict[str, str]:
 		result = _graph("GET", f"{url}?{query}" if query else url)
 		for row in result.get("data") or []:
 			if row.get("retailer_id"):
-				ids[row["retailer_id"]] = row["id"]
+				entries[row["retailer_id"]] = {
+					"id": row["id"],
+					"group": row.get("retailer_product_group_id") or "",
+				}
 		next_url = (result.get("paging") or {}).get("next")
 		if not next_url:
 			break
 		url, query = next_url, ""
-	return ids
+	return entries
 
 
-def _link_ids(catalog_ids: dict[str, str]) -> int:
-	"""Store each product's Meta id; clear it when the item is no longer listed."""
+def _link_ids(catalog: dict[str, dict]) -> int:
+	"""Store each product's Meta id; clear it when the item is no longer listed.
+
+	A variant product has no item of its own, so it links to its group's
+	first member (sorted, keeping the id stable between syncs) — the
+	Commerce Manager search finds that id just as well."""
 	linked = 0
+	groups: dict[str, list[str]] = {}
+	for rid, entry in catalog.items():
+		if entry["group"]:
+			groups.setdefault(entry["group"], []).append(rid)
+	for members in groups.values():
+		members.sort()
 	rows = frappe.get_all(
 		"Shop Product", fields=["name", "slug", "meta_product_id"]
 	)
 	for row in rows:
-		want = catalog_ids.get(row.slug) or ""
+		want = (catalog.get(row.slug) or {}).get("id") or ""
+		if not want and row.slug in groups:
+			want = catalog[groups[row.slug][0]]["id"]
 		current = row.meta_product_id or ""
 		if want == current:
 			continue
@@ -337,11 +496,22 @@ def _link_ids(catalog_ids: dict[str, str]) -> int:
 	return linked
 
 
-def _status_text(pushed: int, deleted: int, linked: int, errors: list[str], warnings: list[str]) -> str:
+def _status_text(
+	synced: int,
+	deleted: int,
+	linked: int,
+	errors: list[str],
+	warnings: list[str],
+	items: int | None = None,
+) -> str:
 	"""One-line outcome for the Settings page (Small Text, so capped at 240)."""
 	parts = []
-	if pushed:
-		parts.append(f"Synced {pushed} product{'s' if pushed != 1 else ''}")
+	if synced:
+		line = f"Synced {synced} product{'s' if synced != 1 else ''}"
+		if items and items != synced:
+			# a variant product expands into one item per variant
+			line += f" ({items} items)"
+		parts.append(line)
 	if deleted:
 		parts.append(f"Removed {deleted}")
 	if linked:
@@ -362,52 +532,85 @@ def _record(status: str) -> None:
 	frappe.db.set_single_value("Shop Settings", "meta_sync_status", status)
 
 
-def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
-	"""Push rows, optionally prune unpublished entries, refresh Meta ids.
+def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, keep_legacy: bool = False) -> list[str]:
+	"""Catalogue ids that no longer belong.
 
-	Prune and relink both work off one catalogue listing: entries whose slug
-	matches an unpublished Shop Product are deleted (entries that do not match
-	any product — added by hand in Commerce Manager — are left alone), and
-	every product's ``meta_product_id`` is then set or cleared from that list.
+	With pruning (a full sync): everything belonging to an unpublished Shop
+	Product — its own row and its variant-group members alike. For every
+	product just pushed, additionally its old single-item row (now that it
+	has variants) and variant items for versions no longer sold. Entries
+	that match no product at all — added by hand in Commerce Manager — are
+	never touched.
+	"""
+	stale: set[str] = set()
+	if prune:
+		unpublished = set(
+			frappe.get_all("Shop Product", filters={"published": 0}, pluck="slug")
+		)
+		for rid, entry in catalog.items():
+			if rid in unpublished or (entry["group"] and entry["group"] in unpublished):
+				stale.add(rid)
+	variants = ctx.get("variants") or {}
+	for row in rows:
+		codes = variants.get(row.item) or []
+		if not codes:
+			continue  # simple product: its own row is current
+		expected = {_child_id(row.slug, code) for code in codes}
+		if row.slug in catalog and not keep_legacy:
+			# the pre-variant single-item row; kept when the push errored so
+			# a failed batch can't leave the product out of the catalogue
+			stale.add(row.slug)
+		for rid, entry in catalog.items():
+			if entry["group"] == row.slug and rid not in expected:
+				stale.add(rid)  # a variant that no longer exists
+	return sorted(stale)
+
+
+def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
+	"""Push rows, drop what no longer belongs, refresh Meta ids.
+
+	Prune, group cleanup and relink all work off one catalogue listing (see
+	``_stale_ids``); every product's ``meta_product_id`` is then set or
+	cleared from that same listing.
 	"""
 	errors: list[str] = []
 	warnings: list[str] = []
 
-	pushed, push_errors, push_warnings = _push_rows(rows, cfg, settings)
+	ctx = _context(rows) if rows else {}
+	pushed_products, pushed_items, push_errors, push_warnings = _push_rows(
+		rows, cfg, settings, ctx
+	)
 	errors.extend(push_errors)
 	warnings.extend(push_warnings)
 
 	deleted = 0
 	linked = 0
-	catalog_ids: dict[str, str] | None = None
+	catalog: dict[str, dict] | None = None
 	if rows or prune:
 		try:
-			catalog_ids = _fetch_retailer_ids(cfg)
+			catalog = _fetch_catalog(cfg)
 		except MetaAPIError as exc:
 			warnings.append(f"could not list catalogue items: {exc}")
 
-	if prune and catalog_ids is not None:
-		unpublished = set(
-			frappe.get_all("Shop Product", filters={"published": 0}, pluck="slug")
-		)
-		stale = sorted(slug for slug in catalog_ids if slug in unpublished)
+	if catalog is not None:
+		stale = _stale_ids(rows, catalog, ctx, prune, keep_legacy=bool(push_errors))
 		if stale:
 			deleted, prune_errors, prune_warnings = _run_requests(
 				cfg,
-				[{"method": "DELETE", "data": {"id": slug}} for slug in stale],
+				[{"method": "DELETE", "data": {"id": rid}} for rid in stale],
 				[],
 				[],
 			)
 			errors.extend(prune_errors)
 			warnings.extend(prune_warnings)
 			if not prune_errors:
-				for slug in stale:
-					catalog_ids.pop(slug, None)
+				for rid in stale:
+					catalog.pop(rid, None)
+		linked = _link_ids(catalog)
 
-	if catalog_ids is not None:
-		linked = _link_ids(catalog_ids)
-
-	status = _status_text(pushed, deleted, linked, errors, warnings)
+	status = _status_text(
+		pushed_products, deleted, linked, errors, warnings, items=pushed_items
+	)
 	_record(status)
 	if errors:
 		frappe.log_error(
@@ -417,7 +620,8 @@ def _sync(rows: list, cfg: dict, settings, prune: bool = False) -> dict:
 	return {
 		"success": not errors,
 		"status": status,
-		"pushed": pushed,
+		"pushed": pushed_items,
+		"products": pushed_products,
 		"deleted": deleted,
 		"linked": linked,
 		"errors": errors,
@@ -445,13 +649,25 @@ def push_products(names: list[str]) -> dict:
 
 
 def drop_product(slug: str) -> dict:
-	"""Enqueued on unpublish/trash: DELETE the product from the catalogue."""
+	"""Enqueued on unpublish/trash: DELETE the product from the catalogue.
+
+	Removes the product's own row plus every member of its variant group."""
 	if not active():
 		return {"success": False, "status": "Meta catalog sync is off"}
 	cfg = config()
 	errors: list[str] = []
 	warnings: list[str] = []
-	_run_requests(cfg, [{"method": "DELETE", "data": {"id": slug}}], errors, warnings)
+	ids = [slug]
+	try:
+		for rid, entry in _fetch_catalog(cfg).items():
+			if entry["group"] == slug and rid not in ids:
+				ids.append(rid)
+	except MetaAPIError as exc:
+		# The product's own row can still go without the listing.
+		warnings.append(f"could not list variant items: {exc}")
+	_run_requests(
+		cfg, [{"method": "DELETE", "data": {"id": rid}} for rid in ids], errors, warnings
+	)
 	if errors:
 		status = _status_text(0, 0, 0, errors, warnings)
 		_record(status)
@@ -464,7 +680,13 @@ def drop_product(slug: str) -> dict:
 	if name:
 		# The entry is gone: clear the id so a later republish re-links the new one.
 		frappe.db.set_value("Shop Product", name, "meta_product_id", None, update_modified=False)
-	status = f"Removed {slug} from the catalogue"
+	variants = len(ids) - 1
+	status = f"Removed {slug} from the catalogue" + (
+		f" with {variants} variant{'s' if variants != 1 else ''}" if variants else ""
+	)
+	if warnings:
+		# e.g. the variant listing failed: the hourly sync retries those
+		status = f"{status} · {warnings[0]}"[:240]
 	_record(status)
 	return {"success": True, "status": status}
 

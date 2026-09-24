@@ -99,6 +99,7 @@ def get_product(name: str) -> dict:
 		"description": doc.description,
 		"compare_at_price": doc.compare_at_price,
 		"highlights": doc.highlights,
+		"condition": doc.condition,
 		"has_variants": doc.has_variants,
 		"images": [{"image": row.image, "alt_text": row.alt_text} for row in doc.images],
 		"collections": [row.collection for row in doc.collections],
@@ -132,6 +133,19 @@ def commerce_manager_url(meta_product_id: str | None) -> str | None:
 
 
 @frappe.whitelist(methods=["POST"])
+def sync_product(name: str) -> dict:
+	"""Push one product to the Meta catalogue now (the editor's Sync button).
+
+	Runs the same push/prune/relink pass the hourly job runs, scoped to this
+	product: its own items plus anything stale in its variant group.
+	"""
+	only_managers()
+	from shop.integrations.meta_catalog import push_products
+
+	return push_products([name])
+
+
+@frappe.whitelist(methods=["POST"])
 def save_product(payload: dict) -> dict:
 	only_managers()
 	doc = (
@@ -146,6 +160,9 @@ def save_product(payload: dict) -> dict:
 	doc.description = payload.get("description")
 	doc.compare_at_price = flt(payload.get("compare_at_price")) or None
 	doc.highlights = payload.get("highlights")
+	if "condition" in payload:
+		# partial payloads (e.g. the agent tool) leave it untouched
+		doc.condition = (payload.get("condition") or "").strip() or None
 	doc.ranking = cint(payload.get("ranking"))
 	doc.published = 1 if payload.get("published") else 0
 	if payload.get("slug"):
@@ -201,6 +218,7 @@ def create_product(
 	description: str | None = None,
 	short_description: str | None = None,
 	compare_at_price: float | None = None,
+	condition: str | None = None,
 	opening_stock: float = 0,
 	images: list | None = None,
 	collections: list | None = None,
@@ -231,6 +249,7 @@ def create_product(
 			"short_description": short_description,
 			"description": description,
 			"compare_at_price": compare_at_price,
+			"condition": condition,
 			"images": images or [],
 			"collections": collections or [],
 			"published": published,
