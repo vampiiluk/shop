@@ -29,6 +29,7 @@ class TestPickup(IntegrationTestCase):
 			del frappe.local.request
 		previous_fraud = frappe.db.get_single_value("Shop Settings", "enable_fraud_check")
 		frappe.db.set_single_value("Shop Settings", "enable_fraud_check", 0)
+		self.previous_provider = frappe.db.get_single_value("Shop Settings", "map_embed_provider")
 		self.previous_enable = frappe.db.get_single_value("Shop Settings", "enable_pickup")
 		self.previous_locations = [
 			{
@@ -51,7 +52,15 @@ class TestPickup(IntegrationTestCase):
 			settings.append("pickup_locations", row)
 		settings.save(ignore_permissions=True)
 		frappe.db.set_single_value("Shop Settings", "enable_fraud_check", previous_fraud)
+		frappe.db.set_single_value(
+			"Shop Settings", "map_embed_provider", self.previous_provider or "OpenStreetMap"
+		)
 		frappe.get_cached_doc("Shop Settings")
+
+	def _map_host(self) -> str:
+		"""The embed host the store is currently configured to use."""
+		provider = frappe.db.get_single_value("Shop Settings", "map_embed_provider")
+		return "google.com" if provider == "Google Maps" else "openstreetmap.org"
 
 	def _set_pickup(self, enabled: bool):
 		settings = frappe.get_doc("Shop Settings")
@@ -76,7 +85,7 @@ class TestPickup(IntegrationTestCase):
 		self.assertEqual(len(summary["pickup_locations"]), 1)
 		row = summary["pickup_locations"][0]
 		self.assertEqual(row["name"], LOCATION["location_name"])
-		self.assertIn("openstreetmap.org", row["map_url"])
+		self.assertIn(self._map_host(), row["map_url"])
 		self.assertIn(LOCATION["latitude"], row["map_url"])
 		self.assertTrue(row["directions_url"])
 
@@ -118,7 +127,7 @@ class TestPickup(IntegrationTestCase):
 		summary = orders_summary(sales_order)
 		self.assertEqual(summary["payment_method"], "pickup")
 		self.assertEqual(summary["pickup_location"]["name"], LOCATION["location_name"])
-		self.assertIn("openstreetmap.org", summary["pickup_location"]["map_url"])
+		self.assertIn(self._map_host(), summary["pickup_location"]["map_url"])
 		# No courier means no "ships in 48 hours" hint on the confirmation page.
 		self.assertFalse(summary["awaiting_shipment"])
 		labels = [stage["label"] for stage in summary["progress"]]
@@ -173,6 +182,55 @@ class TestPickup(IntegrationTestCase):
 		# Rows without a name or address are ignored rather than stored broken.
 		saved = settings_api.save_pickup_locations([{"location_name": "", "address": ""}])
 		self.assertEqual(saved["pickup_locations"], [])
+
+	def test_map_provider_switches_between_osm_and_google(self):
+		self._set_pickup(True)
+		frappe.db.set_single_value("Shop Settings", "map_embed_provider", "OpenStreetMap")
+		frappe.get_cached_doc("Shop Settings")
+		row = checkout.get_checkout_summary()["pickup_locations"][0]
+		self.assertIn("openstreetmap.org/export/embed.html", row["map_url"])
+
+		updated = settings_api.save_settings({"map_embed_provider": "Google Maps"})
+		self.assertEqual(updated["map_embed_provider"], "Google Maps")
+		row = checkout.get_checkout_summary()["pickup_locations"][0]
+		self.assertIn("maps.google.com", row["map_url"])
+		self.assertIn("output=embed", row["map_url"])
+		# The directions link stays Google either way — storefront.js swaps it
+		# to Apple Maps on iPhones at the page level.
+		self.assertIn("google.com/maps/dir", row["directions_url"])
+
+		# Unknown providers fall back to the default embed rather than breaking.
+		updated = settings_api.save_settings({"map_embed_provider": "Bing"})
+		self.assertEqual(updated["map_embed_provider"], "OpenStreetMap")
+
+	def test_pickup_orders_are_never_sent_for_shipping(self):
+		from shop.fulfillment import service
+
+		self._set_pickup(True)
+		cart.add_item("SHOP-DEMO-003")
+		result = checkout.place_order(
+			customer=BUYER, address=ADDRESS, payment_method="pickup", pickup_location=LOCATION["location_name"]
+		)
+		order = result["sales_order"]
+		# Manual hand-off is refused with a pickup-specific message...
+		with self.assertRaises(frappe.ValidationError) as caught:
+			service.send(order, "manual")
+		self.assertIn("collected in person", str(caught.exception))
+		# ...and the automatic route skips the order without logging an error.
+		previous_auto = frappe.db.get_single_value("Shop Settings", "auto_send_to_fulfillment")
+		frappe.db.set_single_value("Shop Settings", "auto_send_to_fulfillment", 1)
+		frappe.get_cached_doc("Shop Settings")
+		self.addCleanup(
+			frappe.db.set_single_value, "Shop Settings", "auto_send_to_fulfillment", previous_auto
+		)
+		service.auto_send(order)
+		self.assertFalse(frappe.db.exists("Shop Fulfillment", {"sales_order": order}))
+		# The admin order view reports pickup instead of a shipping state.
+		from shop.api import orders as orders_api
+
+		detail = orders_api.get_order(order)
+		self.assertEqual(detail["pickup_location"], LOCATION["location_name"])
+		self.assertEqual(detail["fulfillment_status"], "Awaiting pickup")
 
 
 def orders_summary(sales_order) -> dict:

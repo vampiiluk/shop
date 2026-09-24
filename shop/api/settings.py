@@ -60,6 +60,7 @@ EDITABLE = (
 	"advance_payment_instructions",
 	"cod_allowed_cities",
 	"enable_pickup",
+	"map_embed_provider",
 	"allow_out_of_stock",
 	"prices_include_tax",
 	"tax_template",
@@ -232,6 +233,8 @@ def save_settings(payload: dict) -> dict:
 				value = "Every 20 Minutes"
 		elif field == "advance_payment_mode":
 			value = value if value in ("Percent", "Flat") else "Percent"
+		elif field == "map_embed_provider":
+			value = value if value in ("OpenStreetMap", "Google Maps") else "OpenStreetMap"
 		elif field == "fraud_signal_weights":
 			from shop.integrations.signal_weights import validate_weights_json
 

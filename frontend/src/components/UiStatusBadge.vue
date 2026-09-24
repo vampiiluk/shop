@@ -20,6 +20,8 @@ const themes: Record<string, string> = {
 	'Partly fulfilled': 'amber',
 	Abandoned: 'amber',
 	Requested: 'amber',
+	'Awaiting pickup': 'blue',
+	'Picked up': 'green',
 	Approved: 'blue',
 	Cancelled: 'red',
 	Rejected: 'red',

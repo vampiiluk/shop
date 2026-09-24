@@ -31,6 +31,7 @@
   "cod_allowed_cities",
   "enable_pickup",
   "pickup_locations",
+  "map_embed_provider",
   "column_break_payments",
   "payment_gateway_account",
   "auto_bill_on_payment",
@@ -229,6 +230,15 @@
    "fieldtype": "Table",
    "label": "Pickup Locations",
    "options": "Shop Pickup Location"
+  },
+  {
+   "default": "OpenStreetMap",
+   "depends_on": "eval:doc.enable_pickup",
+   "description": "Map shown for pickup locations. Both embeds are keyless — no API key or billing.",
+   "fieldname": "map_embed_provider",
+   "fieldtype": "Select",
+   "label": "Map Embed Provider",
+   "options": "OpenStreetMap\nGoogle Maps"
   },
   {
    "fieldname": "column_break_payments",

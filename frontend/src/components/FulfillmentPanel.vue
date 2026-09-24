@@ -10,7 +10,7 @@
 			class="mt-4 rounded border border-outline-gray-1 px-3 py-2 text-p-sm text-ink-gray-7"
 		>
 			Collect balance <span class="font-medium text-ink-gray-9">{{ collectBalance }}</span> from
-			the customer on delivery.
+			the customer {{ pickup ? 'when they collect the order' : 'on delivery' }}.
 		</p>
 
 		<div v-if="loading" class="mt-4 space-y-2">
@@ -91,6 +91,22 @@
 			</div>
 		</template>
 
+		<template v-else-if="pickup">
+			<p class="mt-3 text-p-base text-ink-gray-6">
+				Store pickup — the customer collects this order
+				<span v-if="pickupLocation" class="font-medium text-ink-gray-8">at {{ pickupLocation }}</span>
+				and pays in person. Nothing is shipped, so no fulfillment provider is involved.
+			</p>
+
+			<p v-if="cancelled" class="mt-3 text-p-sm text-ink-gray-5">
+				This order is cancelled, so it will not be handed over.
+			</p>
+			<p v-else class="mt-3 text-p-sm text-ink-gray-5">
+				Use <span class="font-medium">Fulfill</span> above to record the handover once the customer
+				collects the order.
+			</p>
+		</template>
+
 		<template v-else>
 			<p class="mt-3 text-p-base text-ink-gray-6">
 				Nothing shipped yet. This order goes to
@@ -168,7 +184,13 @@ interface Provider {
 
 const OPEN_STATUSES = ['Pending', 'Accepted', 'Shipped']
 
-const props = defineProps<{ order: string; docstatus: number; collectBalance?: string }>()
+const props = defineProps<{
+	order: string
+	docstatus: number
+	collectBalance?: string
+	pickup?: boolean
+	pickupLocation?: string
+}>()
 const emit = defineEmits<{ changed: [] }>()
 
 const busy = ref('')
@@ -187,6 +209,7 @@ const providers = createResource({
 })
 
 // Only the "no shipment yet" state needs the store default, so it is fetched on demand.
+// Pickup orders never show that state, so the store settings stay unloaded for them.
 const settings = createResource({ url: 'shop.api.settings.get_settings' })
 
 const shipment = computed<FulfillmentSummary | null>(() => fulfillment.data || null)
@@ -196,7 +219,7 @@ const loading = computed(() => !fulfillment.fetched && !fulfillment.error)
 watch(
 	() => fulfillment.fetched,
 	(fetched) => {
-		if (fetched && !shipment.value && !settings.fetched) settings.fetch()
+		if (fetched && !shipment.value && !props.pickup && !settings.fetched) settings.fetch()
 	},
 )
 

@@ -6,7 +6,7 @@
 					<UiStatusBadge :label="doc.display_status" />
 					<UiStatusBadge :label="doc.payment_status" />
 					<UiStatusBadge :label="doc.fulfillment_status" />
-					
+					<UiStatusBadge v-if="isPickup" label="Store pickup" theme="blue" />
 				</template>
 				<template #actions>
 					<Button @click="$router.push({ name: 'Assistant', query: { message: `Analyze fraud risk for ${doc.name}` } })">
@@ -78,6 +78,8 @@
 						:order="doc.name"
 						:docstatus="doc.docstatus"
 						:collect-balance="collectBalance"
+						:pickup="isPickup"
+						:pickup-location="doc.pickup_location"
 						@changed="order.reload()"
 					/>
 
@@ -112,6 +114,10 @@
 							<div v-if="doc.payment_method === 'advance'" class="flex justify-between gap-3">
 								<dt class="text-ink-gray-5">Advance due</dt>
 								<dd class="text-ink-gray-8">{{ doc.formatted_advance_amount }}</dd>
+							</div>
+							<div v-if="isPickup && doc.pickup_location" class="flex justify-between gap-3">
+								<dt class="text-ink-gray-5">Pickup at</dt>
+								<dd class="text-right text-ink-gray-8">{{ doc.pickup_location }}</dd>
 							</div>
 							<div class="flex justify-between gap-3">
 								<dt class="text-ink-gray-5">Received</dt>
@@ -222,9 +228,11 @@ const paymentMethodLabel = computed(() => {
 		cod: 'Cash on delivery',
 		gateway: 'Online payment',
 		advance: 'Advance payment',
+		pickup: 'Store pickup',
 	}
 	return labels[doc.value.payment_method] || doc.value.payment_method
 })
+const isPickup = computed(() => doc.value.payment_method === 'pickup')
 const collectBalance = computed(() =>
 	doc.value.courier_balance > 0 ? doc.value.formatted_courier_balance : '',
 )
@@ -238,7 +246,7 @@ const paymentHint = computed(() => {
 const canFulfill = computed(
 	() =>
 		doc.value.docstatus === 1 &&
-		!['Fulfilled', 'Cancelled'].includes(doc.value.fulfillment_status),
+		!['Fulfilled', 'Picked up', 'Cancelled'].includes(doc.value.fulfillment_status),
 )
 const canCancel = computed(() => doc.value.docstatus !== 2)
 

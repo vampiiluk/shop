@@ -18,7 +18,7 @@ def configured(settings=None) -> list[dict]:
 		name = (row.location_name or "").strip()
 		if not name:
 			continue
-		urls = map_urls(row.latitude, row.longitude)
+		urls = map_urls(row.latitude, row.longitude, settings.get("map_embed_provider"))
 		rows.append(
 			{
 				"name": name,
@@ -33,19 +33,27 @@ def configured(settings=None) -> list[dict]:
 	return rows
 
 
-def map_urls(latitude, longitude) -> dict:
-	"""OpenStreetMap embed + directions links; empty strings without coordinates."""
+def map_urls(latitude, longitude, provider="OpenStreetMap") -> dict:
+	"""Map embed + directions links; empty strings without coordinates.
+
+	Both embeds are keyless: OpenStreetMap's export endpoint, or Google's
+	`output=embed` maps URL (no API key, no billing). The directions link
+	stays Google — storefront.js swaps it for Apple Maps on iPhones."""
 	lat = _coordinate(latitude)
 	lng = _coordinate(longitude)
 	if lat is None or lng is None:
 		return {"map_url": "", "directions_url": ""}
-	# ~600m box around the pin so the embed frames the location sensibly.
-	bbox = f"{lng - 0.004:.4f},{lat - 0.003:.4f},{lng + 0.004:.4f},{lat + 0.003:.4f}"
-	return {
-		"map_url": (
+	if (provider or "OpenStreetMap") == "Google Maps":
+		map_url = f"https://maps.google.com/maps?q={lat},{lng}&hl=en&z=16&output=embed"
+	else:
+		# ~600m box around the pin so the embed frames the location sensibly.
+		bbox = f"{lng - 0.004:.4f},{lat - 0.003:.4f},{lng + 0.004:.4f},{lat + 0.003:.4f}"
+		map_url = (
 			f"https://www.openstreetmap.org/export/embed.html?bbox={bbox}"
 			f"&layer=mapnik&marker={lat},{lng}"
-		),
+		)
+	return {
+		"map_url": map_url,
 		"directions_url": f"https://www.google.com/maps/dir/?api=1&destination={lat},{lng}",
 	}
 

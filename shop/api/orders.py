@@ -89,11 +89,12 @@ def decorate(orders: list) -> None:
 def fulfillment_label(order) -> str:
 	if order.docstatus == 2:
 		return "Cancelled"
+	pickup = (order.get("custom_payment_method") or "") == "pickup"
 	if flt(order.per_delivered) >= 100:
-		return "Fulfilled"
+		return "Picked up" if pickup else "Fulfilled"
 	if flt(order.per_delivered) > 0:
 		return "Partly fulfilled"
-	return "Unfulfilled"
+	return "Awaiting pickup" if pickup else "Unfulfilled"
 
 
 def paid_orders(names: list[str]) -> set:
@@ -251,6 +252,7 @@ def get_order(name: str) -> dict:
 		"docstatus": order.docstatus,
 		"payment_status": payment_status_label(order.custom_payment_method, received, total),
 		"payment_method": order.custom_payment_method or "cod",
+		"pickup_location": order.get("custom_pickup_location") or "",
 		"payment_received": received,
 		"payment_balance": balance,
 		"advance_amount": advance,

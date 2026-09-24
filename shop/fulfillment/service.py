@@ -14,6 +14,9 @@ def send(order_name: str, provider_key: str | None = None) -> str:
 	order = frappe.get_doc("Sales Order", order_name)
 	if order.docstatus != 1:
 		frappe.throw(_("Only submitted orders can be sent for fulfillment"))
+	if (order.get("custom_payment_method") or "") == "pickup":
+		# The customer collects at the store: no courier is involved.
+		frappe.throw(_("Store pickup orders are collected in person and are never shipped"))
 	existing = frappe.db.exists(
 		"Shop Fulfillment", {"sales_order": order_name, "status": ["in", OPEN_STATUSES]}
 	)
@@ -94,6 +97,10 @@ def auto_send(order_name: str) -> None:
 	"""Hand a paid order over without waiting to be asked, when the store wants that."""
 	settings = frappe.get_cached_doc("Shop Settings")
 	if not settings.get("auto_send_to_fulfillment"):
+		return
+	# Pickup orders skip the courier entirely — and quietly, so marking one
+	# paid does not leave an error in the Error Log.
+	if frappe.db.get_value("Sales Order", order_name, "custom_payment_method") == "pickup":
 		return
 	if frappe.db.exists("Shop Fulfillment", {"sales_order": order_name, "status": ["in", OPEN_STATUSES]}):
 		return

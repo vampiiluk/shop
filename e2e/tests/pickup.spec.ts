@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 import { addToCartViaPDP, fillCheckout } from "./personas/helpers";
 
 const BUYER = {
@@ -15,6 +15,24 @@ interface PickupLocation {
 	name: string;
 	address: string;
 	map_url: string;
+	directions_url: string;
+}
+
+/** The store may embed OpenStreetMap or (keyless) Google Maps — match whichever. */
+function mapSrcSelector(locations: PickupLocation[]): string {
+	return locations[0]?.map_url.includes("google.com")
+		? 'iframe[src*="maps.google.com"]'
+		: 'iframe[src*="openstreetmap.org"]';
+}
+
+async function configuredLocations(page: {
+	request: import("@playwright/test").APIRequestContext;
+}): Promise<PickupLocation[]> {
+	const summary = await page.request.get(
+		"/api/method/shop.storefront.checkout.get_checkout_summary",
+	);
+	const message = (await summary.json()).message;
+	return (message.pickup_locations || []) as PickupLocation[];
 }
 
 test.describe("store pickup", () => {
@@ -25,11 +43,7 @@ test.describe("store pickup", () => {
 
 		// Gate on the store's own settings: the summary exposes pickup_locations
 		// only when pickup is switched on with at least one location.
-		const summary = await page.request.get(
-			"/api/method/shop.storefront.checkout.get_checkout_summary",
-		);
-		const message = (await summary.json()).message;
-		const locations = (message.pickup_locations || []) as PickupLocation[];
+		const locations = await configuredLocations(page);
 		test.skip(!locations.length, "pickup is not configured in Shop Settings");
 
 		await page.goto("/checkout");
@@ -40,10 +54,10 @@ test.describe("store pickup", () => {
 		// One card per location, each embedding a map of where to collect.
 		const panel = page.locator('[data-shop="pickup-panel"]');
 		await expect(panel).toBeVisible();
-		await expect(panel.locator('input[name="pickup_location"]')).toHaveCount(locations.length);
-		await expect(panel.locator('iframe[src*="openstreetmap.org"]')).toHaveCount(
+		await expect(panel.locator('input[name="pickup_location"]')).toHaveCount(
 			locations.length,
 		);
+		await expect(panel.locator(mapSrcSelector(locations))).toHaveCount(locations.length);
 		await expect(panel).toContainText(locations[0].name);
 		await expect(panel).toContainText("no shipping fee");
 
@@ -67,7 +81,7 @@ test.describe("store pickup", () => {
 		await page.waitForURL(/order-confirmation/, { timeout: 60000 });
 
 		await expect(page.locator("body")).toContainText(locations[0].name);
-		await expect(page.locator('iframe[src*="openstreetmap.org"]')).toHaveCount(1);
+		await expect(page.locator(mapSrcSelector(locations))).toHaveCount(1);
 		// Pickup progress: placed now; ready/picked up release when they pay at the store.
 		await expect(page.locator('[data-shop="progress-stage"]')).toHaveCount(4);
 
@@ -83,8 +97,67 @@ test.describe("store pickup", () => {
 		const order = (await api.json()).message;
 		expect(order.payment_method).toBe("pickup");
 		expect(order.pickup_location?.name).toBe(locations[0].name);
-		expect(order.pickup_location?.map_url).toContain("openstreetmap.org");
+		expect(order.pickup_location?.map_url).toContain(
+			locations[0].map_url.includes("google.com") ? "google.com" : "openstreetmap.org",
+		);
 		const labels = (order.progress as { label: string }[]).map((stage) => stage.label);
 		expect(labels).toContain("Pay at pickup");
+	});
+
+	test("maps and links on checkout open directions in Google Maps on desktop", async ({
+		page,
+	}) => {
+		const locations = await configuredLocations(page);
+		test.skip(!locations.length, "pickup is not configured in Shop Settings");
+
+		await addToCartViaPDP(page, "ceramic-mug");
+		await page.goto("/checkout");
+		await page.locator('input[name="payment_method"][value="pickup"]').check();
+
+		const panel = page.locator('[data-shop="pickup-panel"]');
+		// Every card links its directions at Google, and the map itself carries a
+		// transparent overlay link (added by storefront.js) so a click anywhere on
+		// the embed opens directions too.
+		const googleLinks = panel.locator('a[href*="google.com/maps/dir/"]');
+		await expect(googleLinks).toHaveCount(locations.length * 2);
+		const overlay = panel.locator('a[aria-label="Open this location in your maps app"]');
+		await expect(overlay).toHaveCount(locations.length);
+		await expect(overlay.first()).toHaveAttribute("href", /google\.com\/maps\/dir/);
+		// Clicking the map opens directions in a new tab.
+		const [popup] = await Promise.all([
+			page.waitForEvent("popup"),
+			panel
+				.locator('iframe[title="Pickup location map"]')
+				.first()
+				.click({ position: { x: 50, y: 50 }, force: true }),
+		]);
+		await popup.waitForLoadState();
+		expect(popup.url()).toContain("google.com/maps/dir");
+		await popup.close();
+	});
+});
+
+test.describe("pickup maps on iPhone", () => {
+	// Strip defaultBrowserType (it would force a new worker) and keep only the
+	// iPhone emulation — the Apple Maps swap keys off the user agent.
+	const { defaultBrowserType: _ignored, ...iphone } = devices["iPhone 13"];
+	test.use(iphone);
+
+	test("direction links open Apple Maps instead of Google Maps", async ({ page }) => {
+		const locations = await configuredLocations(page);
+		test.skip(!locations.length, "pickup is not configured in Shop Settings");
+
+		await addToCartViaPDP(page, "ceramic-mug");
+		await page.goto("/checkout");
+		await page.locator('input[name="payment_method"][value="pickup"]').check();
+
+		const panel = page.locator('[data-shop="pickup-panel"]');
+		// storefront.js rewrites Google directions links to Apple Maps on iOS.
+		const appleLinks = panel.locator('a[href*="maps.apple.com/?daddr="]');
+		await expect(appleLinks).toHaveCount(locations.length * 2);
+		await expect(panel.locator('a[href*="google.com/maps/dir/"]')).toHaveCount(0);
+		await expect(panel.locator('iframe[title="Pickup location map"]')).toHaveCount(
+			locations.length,
+		);
 	});
 });

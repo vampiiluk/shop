@@ -943,6 +943,79 @@
 		}
 	}
 
+	function appleMapsDirectionsLinks() {
+		// iPhone/iPad: hand "Open in maps" links to Apple Maps instead of Google.
+		const ua = navigator.userAgent;
+		const isApple =
+			/iPad|iPhone|iPod/.test(ua) ||
+			(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS
+		if (!isApple) return;
+		document.querySelectorAll('a[href*="google.com/maps/dir/"]').forEach((link) => {
+			const match = (link.getAttribute("href") || "").match(
+				/destination=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/
+			);
+			if (!match) return;
+			link.setAttribute("href", `https://maps.apple.com/?daddr=${match[1]},${match[2]}`);
+		});
+	}
+
+	function initMapTapOpen() {
+		// An iframe swallows every pointer event, so tapping the embedded map
+		// does nothing. Lay a transparent link over each map that opens the
+		// same directions URL in the device's maps app.
+		document.querySelectorAll('iframe[title="Pickup location map"]').forEach((frame) => {
+			// On repeat runs the frame already sits inside its wrapper div.
+			let wrap = frame.parentElement;
+			const alreadyWrapped = wrap && wrap.dataset && wrap.dataset.mapWrap;
+			if (!alreadyWrapped) {
+				wrap = document.createElement("div");
+				wrap.dataset.mapWrap = "1";
+				wrap.style.position = "relative";
+				frame.parentNode.insertBefore(wrap, frame);
+				wrap.appendChild(frame);
+			}
+			// The card holding this frame also holds the "Open in maps" link,
+			// which may already have been swapped to Apple Maps — match both.
+			const card = wrap.parentElement;
+			const dirLink =
+				(card &&
+					card.querySelector(
+						"a[href*='maps/dir/'], a[href*='maps.apple.com/']"
+					)) ||
+				null;
+			if (!dirLink) return;
+			const href = dirLink.getAttribute("href");
+			if (!href) return;
+			let overlay = wrap.querySelector(
+				'a[aria-label="Open this location in your maps app"]'
+			);
+			if (!overlay) {
+				overlay = document.createElement("a");
+				overlay.target = "_blank";
+				overlay.rel = "noopener";
+				overlay.setAttribute("aria-label", "Open this location in your maps app");
+				overlay.style.cssText =
+					"position:absolute;inset:0;display:block;z-index:1;cursor:pointer;border-radius:4px;";
+				wrap.appendChild(overlay);
+			}
+			// Keep the overlay pointing wherever the card's link points,
+			// including after the Apple Maps swap rewrites it. Only touch the
+			// attribute when it actually changes — setAttribute queues a
+			// mutation record even for identical values, which would keep the
+			// observer below re-firing forever.
+			if (overlay.getAttribute("href") !== href) overlay.setAttribute("href", href);
+		});
+	}
+
+	// The theme's dataScript fills the map/directions hrefs after load, so both
+	// passes above are repeated (idempotently) whenever the DOM changes.
+	// Order matters: lay the overlay down first (it copies the Google URL),
+	// then let the Apple Maps swap rewrite both links at once.
+	function refreshMapLinks() {
+		initMapTapOpen();
+		appleMapsDirectionsLinks();
+	}
+
 	document.addEventListener("DOMContentLoaded", () => {
 		initGallery();
 		initVariantPicker();
@@ -965,6 +1038,16 @@
 				if (city) city.dispatchEvent(new Event("change", { bubbles: true }));
 			});
 		initCodRestriction();
+		refreshMapLinks();
+		let mapRefreshQueued = false;
+		new MutationObserver(() => {
+			if (mapRefreshQueued) return;
+			mapRefreshQueued = true;
+			setTimeout(() => {
+				mapRefreshQueued = false;
+				refreshMapLinks();
+			}, 50);
+		}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
 
 		// Preload CreepJS fingerprint on checkout page (runs in background, cached in localStorage)
 		const store = storeContext();

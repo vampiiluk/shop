@@ -81,6 +81,18 @@
 					description="Customers collect and pay at the store like cash on delivery; shipping is waived for pickup orders."
 				/>
 				<PickupLocationsEditor v-if="payments.enable_pickup" v-model="pickupLocations" />
+				<FormControl
+					v-if="payments.enable_pickup"
+					v-model="payments.map_embed_provider"
+					type="select"
+					label="Map provider"
+					description="Embed shown for pickup locations. Both options are keyless — no API key or billing."
+					:options="[
+						{ label: 'OpenStreetMap', value: 'OpenStreetMap' },
+						{ label: 'Google Maps', value: 'Google Maps' },
+					]"
+					class="max-w-sm"
+				/>
 				<Switch
 					v-model="payments.auto_bill_on_payment"
 					label="Auto-create Sales Invoices"
@@ -565,6 +577,7 @@ const payments = reactive({
 	enable_cod: true,
 	cod_allowed_cities: '',
 	enable_pickup: false,
+	map_embed_provider: 'OpenStreetMap',
 	payment_gateway_account: '',
 	auto_bill_on_payment: false,
 	enable_advance_payment: false,
@@ -656,6 +669,7 @@ function hydrate(doc: Record<string, any>) {
 		enable_cod: !!doc.enable_cod,
 		cod_allowed_cities: doc.cod_allowed_cities || '',
 		enable_pickup: !!doc.enable_pickup,
+		map_embed_provider: doc.map_embed_provider || 'OpenStreetMap',
 		payment_gateway_account: doc.payment_gateway_account || '',
 		auto_bill_on_payment: !!doc.auto_bill_on_payment,
 		enable_advance_payment: !!doc.enable_advance_payment,
