@@ -1204,6 +1204,28 @@ def hero(refs):
 	)
 
 
+def condition_tag(refs, key, size="10px", padding="5px 12px"):
+	"""Mono pill with the product's condition, shown above its name.
+
+	``key`` is the dataScript path — ``product.condition`` on the product
+	page, the row's bare ``condition`` inside a card — and a product
+	without a condition hides the tag entirely."""
+	return block(
+		"span",
+		text="Condition",
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+		styles={
+			**mono(size=size, color=refs["ink"], spacing="0.14em"),
+			"borderColor": refs["ink"],
+			"borderRadius": "999px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"padding": padding,
+		},
+		dynamicValues=[dv(key, "innerHTML")],
+	)
+
+
 def product_card(refs):
 	well = block(
 		"div",
@@ -1295,6 +1317,7 @@ def product_card(refs):
 		dynamicValues=[dv("route", "href", "attribute")],
 		children=[
 			well,
+			condition_tag(refs, "condition"),
 			block(
 				"h3",
 				text="Product",
@@ -2211,6 +2234,7 @@ def pdp_details(refs):
 		name="Details",
 		styles={"display": "flex", "flexDirection": "column", "gap": "18px", "width": "100%"},
 		children=[
+			condition_tag(refs, "product.condition", size="11px", padding="7px 16px"),
 			block(
 				"h1",
 				text="Product",

@@ -45,6 +45,7 @@ def get_products(
 			"product_name",
 			"slug",
 			"short_description",
+			"condition",
 			"has_variants",
 			"item",
 			"compare_at_price",
@@ -228,6 +229,9 @@ def decorate(products: list) -> None:
 	ratings = reviews.summaries([p.name for p in products])
 	for product in products:
 		product.route = f"/product/{product.slug}"
+		# The storefront shows this as a tag above the product name, so a
+		# stray blank must collapse to '' and hide the tag, not render it.
+		product.condition = (product.get("condition") or "").strip()
 		product.image = images.get(product.name)
 		price = prices.get(product.item, {})
 		product.price = price.get("rate")

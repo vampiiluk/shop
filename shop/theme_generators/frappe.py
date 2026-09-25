@@ -901,6 +901,35 @@ def card_price_row(refs):
 	)
 
 
+def condition_tag(refs, key, size="11px", padding="4px 10px"):
+	"""Small bordered chip with the product's condition above its name.
+
+	``key`` is the dataScript path — ``product.condition`` on the product
+	page, the row's bare ``condition`` inside a card — and a product
+	without a condition hides the tag entirely."""
+	return block(
+		"span",
+		name="Condition Tag",
+		text="Condition",
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+		styles={
+			"borderColor": refs["line"],
+			"borderRadius": "2px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"color": refs["ink"],
+			"fontSize": size,
+			"fontWeight": "600",
+			"height": "fit-content",
+			"letterSpacing": "0.08em",
+			"padding": padding,
+			"textTransform": "uppercase",
+			"width": "fit-content",
+		},
+		dynamicValues=[dv(key, "innerHTML")],
+	)
+
+
 def product_card(refs):
 	return block(
 		"a",
@@ -929,6 +958,7 @@ def product_card(refs):
 				},
 				dynamicValues=[dv("image", "src", "attribute"), dv("product_name", "alt", "attribute")],
 			),
+			condition_tag(refs, "condition"),
 			block(
 				"h3",
 				text="Product",
@@ -1564,6 +1594,7 @@ def pdp_details(refs):
 		name="Details",
 		styles={"display": "flex", "flexDirection": "column", "gap": "16px", "width": "100%"},
 		children=[
+			condition_tag(refs, "product.condition"),
 			block(
 				"h1",
 				text="Product",
