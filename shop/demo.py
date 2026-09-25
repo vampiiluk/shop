@@ -3,7 +3,7 @@ import frappe
 DEMO_PREFIX = "SHOP-DEMO-"
 ITEM_GROUP = "Products"
 STOCK_QTY = 25
-IMAGE_VERSION = 2
+IMAGE_VERSION = 3
 
 # kept without stock so out-of-stock states are demoable
 OUT_OF_STOCK = ("SHOP-DEMO-009", "SHOP-DEMO-002-L-OLV")
