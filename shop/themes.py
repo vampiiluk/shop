@@ -154,6 +154,7 @@ def clone_template(template_name: str, group: str, settings):
 			"route": clone.route,
 		},
 	)
+	return clone.name
 
 
 def live_page_name(page_name: str) -> str:
@@ -188,7 +189,17 @@ def refresh_theme(group: str):
 			sync_clone(page, template)
 			page.save(ignore_permissions=True)
 		else:
-			clone_template(template_name, group, settings)
+			page = clone_template(template_name, group, settings)
+			# `clone_template` publishes, but only apply_theme decides which
+			# group is live — it unpublishes the outgoing group first. Refreshing
+			# a group that is not active would otherwise insert a clone whose
+			# `published_at` outranks the live theme's on the same route, and
+			# find_page_with_path breaks that tie in its favour, serving a
+			# different theme to every visitor than Settings says is active.
+			if group != settings.active_theme:
+				frappe.db.set_value(
+					"Builder Page", page, "published", 0, update_modified=False
+				)
 	settings.save(ignore_permissions=True)
 	set_home_page()
 	clear_render_cache()
