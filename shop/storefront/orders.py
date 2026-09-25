@@ -91,6 +91,7 @@ def order_summary(order) -> dict:
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
 		"payment_method": method,
 		"advance_payment": advance_payment_info(order),
+		"raast": raast_payment_info(order),
 		"pickup_location": pickup_location_info(order),
 		"taxes": [
 			{"description": tax.description, "amount": tax.tax_amount, "formatted_amount": pricing.format_amount(tax.tax_amount)}
@@ -149,6 +150,18 @@ def advance_payment_info(order) -> dict | None:
 	}
 
 
+def raast_payment_info(order) -> dict | None:
+	"""Raast QR block for the confirmation page; None unless the customer chose it.
+
+	The QR, the copyable account details and the download link all come from
+	one encoder so the tile can never show a code that disagrees with the
+	account it names.
+	"""
+	from shop import payments
+
+	return payments.payment_context(order)
+
+
 def pickup_location_info(order) -> dict | None:
 	"""Pickup block for the confirmation page; None unless the customer chose pickup."""
 	if (order.get("custom_payment_method") or "cod") != "pickup":
@@ -194,8 +207,14 @@ def order_progress(order, shipment: dict | None) -> list[dict]:
 		paid = True
 	else:
 		paid = fully_paid or bool(order.get("advance_paid")) or has_payment(order.name)
-		if not paid and (order.get("custom_payment_method") or "") == "advance":
+		method = order.get("custom_payment_method") or ""
+		if not paid and method == "advance":
 			payment_label = _("Advance pending")
+		elif not paid and method == "raast":
+			# Raast is settled by scanning the QR, never on delivery: naming it
+			# here stops the customer waiting for a courier to collect money
+			# they owe before the order ships.
+			payment_label = _("Awaiting Raast payment")
 		else:
 			payment_label = (
 				_("Paid") if paid or expects_online_payment(order.name) else _("Payment on delivery")

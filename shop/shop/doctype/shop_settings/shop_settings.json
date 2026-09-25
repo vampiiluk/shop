@@ -42,6 +42,10 @@
   "advance_payment_percent",
   "advance_payment_flat",
   "advance_payment_instructions",
+  "enable_raast_qr",
+  "raast_iban",
+  "raast_account_title",
+  "raast_payment_instructions",
   "coupons_section",
   "custom_sync_coupons_to_pos",
   "custom_sync_pos_coupons_to_site",
@@ -316,6 +320,35 @@
    "fieldname": "advance_payment_instructions",
    "fieldtype": "Small Text",
    "label": "Advance Payment Instructions",
+   "rows": 3
+  },
+  {
+   "default": "0",
+   "description": "Offer Raast QR at checkout: the customer scans a code with their banking app and pays the full order total in one transfer. Needs a valid IBAN below before the method appears.",
+   "fieldname": "enable_raast_qr",
+   "fieldtype": "Check",
+   "label": "Enable Raast QR"
+  },
+  {
+   "depends_on": "eval:doc.enable_raast_qr",
+   "description": "The Raast IBAN the QR pays into, 24 characters (PK..). Checked on save, so a typo cannot ship a code pointing at the wrong account.",
+   "fieldname": "raast_iban",
+   "fieldtype": "Data",
+   "label": "Raast IBAN"
+  },
+  {
+   "depends_on": "eval:doc.enable_raast_qr",
+   "description": "The account holder's name as the bank shows it. Shown next to the QR so the customer can confirm they are paying the right account.",
+   "fieldname": "raast_account_title",
+   "fieldtype": "Data",
+   "label": "Raast Account Title"
+  },
+  {
+   "depends_on": "eval:doc.enable_raast_qr",
+   "description": "Optional note shown under the QR — for example how quickly the order ships once the transfer lands.",
+   "fieldname": "raast_payment_instructions",
+   "fieldtype": "Small Text",
+   "label": "Raast Payment Instructions",
    "rows": 3
   },
   {

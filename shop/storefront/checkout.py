@@ -5,6 +5,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import add_days, cint, flt, nowdate, validate_email_address
 
+from shop import payments as raast_module
 from shop.storefront import cart as cart_module
 from shop.storefront import pickup as pickup_module
 from shop.storefront import pricing, stock
@@ -50,6 +51,10 @@ def get_checkout_summary() -> dict:
 				"balance_amount": balance,
 			}
 		)
+	# Full-order payment by QR: offered only when it is switched on and the
+	# IBAN would actually encode, and only when there is an amount to pay.
+	if raast_module.configured(settings) and flt(payload.get("total")) > 0:
+		methods.append({"method": "raast", "label": _("Raast QR — pay the full amount now")})
 	pickup_locations = pickup_module.configured(settings)
 	if pickup_locations:
 		methods.append({"method": "pickup", "label": _("Store Pickup — pay when you collect")})
@@ -274,7 +279,14 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 				ip_address=client_ip,
 			)
 		if payment_method == "gateway" or (fraud and fraud.verdict == "Advance Required"):
-			if settings and not settings.payment_gateway_account and payment_method in (
+			# Raast is settled by scanning a QR on the confirmation page: it has
+			# no gateway to redirect to, and the customer is paying the whole
+			# order up front, so the order stands as placed either way.
+			if payment_method == "raast":
+				if fraud:
+					fraud.signals["advance_deferred"] = True
+					fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)
+			elif settings and not settings.payment_gateway_account and payment_method in (
 				"cod",
 				"pickup",
 				"advance",
@@ -373,6 +385,8 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str, pic
 		frappe.throw(_("Online payment is not available"))
 	if payment_method == "advance" and not settings.enable_advance_payment:
 		frappe.throw(_("Advance payment is not available"))
+	if payment_method == "raast" and not raast_module.configured(settings):
+		frappe.throw(_("Raast QR payment is not available"))
 	if payment_method == "pickup":
 		pickup_module.resolve(pickup_location, settings)
 	validate_email_address(customer.get("email"), throw=True)

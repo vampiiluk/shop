@@ -163,6 +163,33 @@
 						class="max-w-md"
 					/>
 				</template>
+				<Switch
+					v-model="payments.enable_raast_qr"
+					label="Raast QR"
+					description="Offer a QR at checkout that pays the whole order in one transfer to your account. Customers only see it once a valid IBAN is saved below."
+				/>
+				<template v-if="payments.enable_raast_qr">
+					<FormControl
+						v-model="payments.raast_iban"
+						label="Raast IBAN"
+						description="The 24-character Pakistani IBAN (PK..) the QR pays into. Spaces are stripped and the checksum verified on save, so a typo cannot ship a code pointing at the wrong account."
+						class="max-w-sm"
+					/>
+					<FormControl
+						v-model="payments.raast_account_title"
+						label="Account title"
+						description="The account holder's name exactly as the bank shows it, printed beside the QR so the customer can confirm where the money is going."
+						class="max-w-sm"
+					/>
+					<FormControl
+						v-model="payments.raast_payment_instructions"
+						type="textarea"
+						:rows="3"
+						label="Raast payment instructions"
+						description="Optional note shown under the QR — for example how quickly the order ships once the transfer lands."
+						class="max-w-md"
+					/>
+				</template>
 				<template #footer>
 					<Button
 						variant="solid"
@@ -642,6 +669,10 @@ const payments = reactive({
 	advance_payment_percent: 20,
 	advance_payment_flat: 0,
 	advance_payment_instructions: '',
+	enable_raast_qr: false,
+	raast_iban: '',
+	raast_account_title: '',
+	raast_payment_instructions: '',
 })
 const shipping = reactive({ flat_shipping_rate: 0, free_shipping_above: 0, shipping_account: '' })
 const fulfillment = reactive({ fulfillment_provider: 'manual', auto_send_to_fulfillment: false })
@@ -746,6 +777,10 @@ function hydrate(doc: Record<string, any>) {
 		advance_payment_percent: doc.advance_payment_percent ?? 20,
 		advance_payment_flat: doc.advance_payment_flat ?? 0,
 		advance_payment_instructions: doc.advance_payment_instructions || '',
+		enable_raast_qr: !!doc.enable_raast_qr,
+		raast_iban: doc.raast_iban || '',
+		raast_account_title: doc.raast_account_title || '',
+		raast_payment_instructions: doc.raast_payment_instructions || '',
 	})
 	Object.assign(shipping, {
 		flat_shipping_rate: doc.flat_shipping_rate || 0,

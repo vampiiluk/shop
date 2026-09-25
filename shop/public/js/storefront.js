@@ -1057,6 +1057,69 @@
 		});
 	}
 
+	// Raast confirmation: the QR is only scannable from a different device, so
+	// everything a customer on the paying phone needs has to work without
+	// scanning — copy the raw IBAN, copy a paste-ready block of account,
+	// amount and order number, and download the image itself. Both handlers
+	// are delegated so a re-rendered confirmation panel keeps working.
+	function initRaastActions() {
+		const writeClipboard = (text) =>
+			typeof navigator.clipboard === "function" && navigator.clipboard.writeText
+				? navigator.clipboard.writeText(text).then(() => true).catch(() => legacyCopyText(text))
+				: legacyCopyText(text);
+
+		document.addEventListener("click", (event) => {
+			const target = event.target instanceof Element ? event.target : null;
+			if (!target) return;
+
+			const copier = target.closest('[data-shop="raast-copy"]');
+			if (copier) {
+				const text = copier.getAttribute("data-copy") || "";
+				if (!text) return;
+				event.preventDefault();
+				Promise.resolve(writeClipboard(text)).then((ok) => {
+					if (ok) flashCopiedLink(copier);
+				});
+				return;
+			}
+
+			const link = target.closest('[data-shop="raast-download"]');
+			if (!link) return;
+			// Second pass after a failed Blob attempt: leave the click alone so
+			// the anchor's own download handling runs instead of looping.
+			if (link.dataset.nativeDownload === "1") return;
+			const href = link.getAttribute("href") || "";
+			if (!/^data:image\//i.test(href)) return;
+			event.preventDefault();
+
+			const filename = link.getAttribute("download") || "raast-qr.png";
+			const nativeDownload = () => {
+				// Rarer than it looks: data URLs are same-origin, but if the
+				// conversion fails the plain anchor still saves the file rather
+				// than the button silently doing nothing.
+				link.dataset.nativeDownload = "1";
+				link.click();
+			};
+			if (typeof fetch !== "function") {
+				nativeDownload();
+				return;
+			}
+			fetch(href)
+				.then((response) => (response.ok ? response.blob() : Promise.reject(new Error("no blob"))))
+				.then((blob) => {
+					const url = URL.createObjectURL(blob);
+					const anchor = document.createElement("a");
+					anchor.href = url;
+					anchor.download = filename;
+					document.body.appendChild(anchor);
+					anchor.click();
+					anchor.remove();
+					setTimeout(() => URL.revokeObjectURL(url), 4000);
+				})
+				.catch(nativeDownload);
+		});
+	}
+
 	// The map embed is view-only (pointer-events: none), so zooming is ours:
 	// rewrite the embed URL symmetrically around the pin — OSM's bbox rescaled
 	// about the marker, Google's z stepped with q untouched — which keeps the
@@ -1124,6 +1187,7 @@
 		syncPaymentUI();
 		initMapZoom();
 		initPhoneCopy();
+		initRaastActions();
 		initBuyBar();
 		initFilters();
 		initAddressDatalists();

@@ -3660,6 +3660,120 @@ def confirmation_blocks(refs):
 			contact_buttons(refs, "order.pickup_location.phone_dial", "order.pickup_location.whatsapp_url", "order.pickup_location.phone"),
 		],
 	)
+	# Raast settles the whole order in one scan, so it takes the full panel
+	# width and carries its own action row. The copy buttons are not an extra:
+	# a customer who reached this page on the phone they bank from cannot aim
+	# that phone at its own screen, so the IBAN and a paste-ready transfer note
+	# have to be one tap away, and the image downloadable for the same reason.
+	raast_solid = {
+		**buy_button_styles(refs),
+		"backgroundColor": f"{refs['ink']} !important",
+		"color": f"{refs['paper']} !important",
+		"flexGrow": "0",
+		"textDecoration": "none !important",
+		"width": "fit-content",
+	}
+	raast_actions = block(
+		"div",
+		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "8px", "width": "100%"},
+		children=[
+			block(
+				"button",
+				text="Copy IBAN",
+				attrs={"type": "button", "data-shop": "raast-copy"},
+				styles=dict(raast_solid),
+				dynamicValues=[dv("order.raast.copy_iban", "data-copy", "attribute")],
+				visibilityCondition={"key": "order.raast.copy_iban", "comesFrom": "dataScript"},
+			),
+			block(
+				"button",
+				text="Copy details",
+				attrs={"type": "button", "data-shop": "raast-copy"},
+				styles={**buy_button_styles(refs, outline=True), "flexGrow": "0", "width": "fit-content"},
+				dynamicValues=[dv("order.raast.copy_details", "data-copy", "attribute")],
+				visibilityCondition={"key": "order.raast.copy_details", "comesFrom": "dataScript"},
+			),
+			# The href and filename are bound rather than static so the link can
+			# never save the wrong image; the visibility key hides it until there
+			# is a QR at all. `!important` beats reset.css's link clobber, exactly
+			# as directions_button does.
+			block(
+				"a",
+				text="Download QR",
+				attrs={"download": "", "data-shop": "raast-download", "href": "#"},
+				styles=dict(raast_solid),
+				dynamicValues=[
+					dv("order.raast.qr_data_url", "href", "attribute"),
+					dv("order.raast.download_name", "download", "attribute"),
+				],
+				visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
+			),
+		],
+	)
+	raast_tile = block(
+		"div",
+		name="Raast Tile",
+		styles={**tile_styles, "gridColumn": "span 2"},
+		mobile={"gridColumn": "span 1"},
+		visibilityCondition={"key": "order.raast", "comesFrom": "dataScript"},
+		children=[
+			tile_title("Raast payment"),
+			block(
+				"p",
+				text="",
+				styles=dict(tile_body_styles),
+				dynamicValues=[dv("order.raast.line", "innerHTML")],
+				visibilityCondition={"key": "order.raast.line", "comesFrom": "dataScript"},
+			),
+			block(
+				"div",
+				styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "20px", "width": "100%"},
+				children=[
+					block(
+						"img",
+						attrs={"alt": "Raast payment QR code"},
+						styles={"borderRadius": "4px", "display": "block", "flexShrink": "0", "height": "auto", "width": "240px"},
+						dynamicValues=[dv("order.raast.qr_data_url", "src", "attribute")],
+						visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
+					),
+					block(
+						"div",
+						styles={"display": "flex", "flexDirection": "column", "gap": "7px", "minWidth": "200px", "width": "100%"},
+						children=[
+							block(
+								"p",
+								text="",
+								styles={"fontSize": "18px", "fontWeight": "700", "height": "fit-content", "width": "fit-content"},
+								dynamicValues=[dv("order.raast.formatted_amount", "innerHTML")],
+							),
+							block(
+								"p",
+								text="",
+								styles={**tile_body_styles, "color": refs["ink"], "fontWeight": "700"},
+								dynamicValues=[dv("order.raast.account_title", "innerHTML")],
+								visibilityCondition={"key": "order.raast.account_title", "comesFrom": "dataScript"},
+							),
+							block(
+								"p",
+								text="",
+								styles={**tile_body_styles, "color": refs["ink"], "fontWeight": "600", "letterSpacing": "0.04em"},
+								dynamicValues=[dv("order.raast.iban", "innerHTML")],
+								visibilityCondition={"key": "order.raast.iban", "comesFrom": "dataScript"},
+							),
+							raast_actions,
+						],
+					),
+				],
+			),
+			block(
+				"p",
+				text="",
+				styles=dict(tile_body_styles),
+				dynamicValues=[dv("order.raast.instructions", "innerHTML")],
+				visibilityCondition={"key": "order.raast.instructions", "comesFrom": "dataScript"},
+			),
+		],
+	)
 	progress_stage = block(
 		"div",
 		name="Progress Stage",
@@ -3826,6 +3940,7 @@ def confirmation_blocks(refs):
 					delivery_tile,
 					advance_tile,
 					pickup_tile,
+					raast_tile,
 					info_tile("Order confirmation", "A receipt for this order has been sent to your email address."),
 				],
 			),
