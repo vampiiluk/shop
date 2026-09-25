@@ -40,6 +40,22 @@ doc_events = {
 		"on_update": "shop.integrations.pos_coupon_sync.write_pos_coupon_links",
 		"on_trash": "shop.integrations.pos_coupon_sync.delete_pos_coupon_from_erpnext",
 	},
+	"Address": {
+		"on_update": "shop.integrations.verification.on_address_update",
+	},
+	"Shop Product": {
+		"on_update": "shop.integrations.meta_catalog.on_product_update",
+		"on_trash": "shop.integrations.meta_catalog.on_product_trash",
+	},
+	"Stock Ledger Entry": {
+		"on_submit": "shop.integrations.meta_catalog.on_stock_change",
+		"on_cancel": "shop.integrations.meta_catalog.on_stock_change",
+	},
+	"File": {
+		# cap uploads at the same 800px/q75 as the demo set so new product
+		# photos can't undo the PageSpeed image fix
+		"before_insert": "shop.files.shrink_uploaded_image",
+	},
 }
 
 custom_fields = {
@@ -382,20 +398,6 @@ custom_fields = {
 
 after_install = "shop.install.after_install"
 after_migrate = "shop.install.after_migrate"
-
-doc_events = {
-	"Address": {
-		"on_update": "shop.integrations.verification.on_address_update",
-	},
-	"Shop Product": {
-		"on_update": "shop.integrations.meta_catalog.on_product_update",
-		"on_trash": "shop.integrations.meta_catalog.on_product_trash",
-	},
-	"Stock Ledger Entry": {
-		"on_submit": "shop.integrations.meta_catalog.on_stock_change",
-		"on_cancel": "shop.integrations.meta_catalog.on_stock_change",
-	},
-}
 
 on_session_creation = "shop.storefront.cart.merge_guest_cart"
 

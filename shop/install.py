@@ -17,6 +17,7 @@ def setup():
 	create_shop_manager_role()
 	apply_custom_fields()
 	sync_templates()
+	ensure_user_fonts()
 	apply_default_theme()
 	sync_agent()
 	enable_customer_signup()
@@ -104,6 +105,43 @@ def sync_templates():
 
 	sync_builder_templates(app="shop", publish=False)
 	organize_template_folders()
+
+
+def ensure_user_fonts():
+	"""Seed the User Font records that take storefront pages off Google Fonts.
+
+	The woff2 files ship with this app, but the records that make Builder's
+	stock set_custom_font() swap the Google URLs for local ones are data.
+	Creates them on install/migrate; existing records are never touched.
+	Without the files a record would 404 and break text rendering worse than
+	the Google CDN does, so a missing file keeps the stock Google fallback."""
+	font_files = {
+		"Space Grotesk": "space-grotesk.woff2",
+		"DM Mono": "dm-mono.woff2",
+	}
+	fonts_dir = os.path.join(frappe.get_app_path("shop"), "public", "fonts")
+	missing = [f for f in font_files.values() if not os.path.exists(os.path.join(fonts_dir, f))]
+	if missing:
+		click.secho(
+			f"Storefront font files missing ({', '.join(missing)}) - pages keep using Google Fonts.",
+			fg="yellow",
+		)
+		return
+
+	created = False
+	for font_name, filename in font_files.items():
+		if frappe.db.exists("User Font", font_name):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "User Font",
+				"font_name": font_name,
+				"font_file": f"/assets/shop/fonts/{filename}",
+			}
+		).insert(ignore_permissions=True)
+		created = True
+	if created:
+		frappe.db.commit()
 
 
 def apply_default_theme():
