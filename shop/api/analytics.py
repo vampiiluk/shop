@@ -96,3 +96,28 @@ def status_breakdown(orders: list) -> list[dict]:
 		label = DISPLAY_STATUS.get(order.status, order.status)
 		counts[label] = counts.get(label, 0) + 1
 	return [{"status": status, "count": count} for status, count in sorted(counts.items())]
+
+
+@frappe.whitelist(allow_guest=True)
+def make_view_log(**kwargs):
+	"""Compatibility override for frappe's ``web_page_view.make_view_log``.
+
+	Builder's page script sends ``version`` as an int (``parseInt`` of the
+	browser version from the user agent) while frappe's endpoint annotates it
+	``str | None``. Strict argument validation then rejects the request with a
+	417 and every view log from a real browser is dropped. Coerce the value
+	before delegating to the original implementation. Wired up through
+	``override_whitelisted_methods`` in hooks.py.
+
+	Declared with ``**kwargs`` on purpose: it keeps us forward-compatible with
+	new arguments frappe may add, and without annotations frappe's type
+	validation lets the raw payload through for coercion here.
+	"""
+	from frappe.website.doctype.web_page_view.web_page_view import (
+		make_view_log as _make_view_log,
+	)
+
+	if kwargs.get("version") is not None:
+		kwargs["version"] = str(kwargs["version"])
+
+	return _make_view_log(**frappe.get_newargs(_make_view_log, kwargs))

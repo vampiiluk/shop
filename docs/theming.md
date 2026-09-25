@@ -71,9 +71,10 @@ bench --site yoursite execute shop.themes.refresh_theme --kwargs '{"group":"dot"
 ```
 
 `refresh_theme` pushes regenerated templates into the live pages in place and
-never unpublishes, so the storefront stays up. `apply_theme` is for switching
-themes; on its own it republishes the existing clones, which still point at the
-previous component block ids.
+never unpublishes, so the storefront stays up. `apply_theme` switches themes and
+also syncs every re-activated clone with its current template content, so a
+clone left over from before a regeneration cannot serve stale component block
+ids.
 
 Both helpers clear the site cache when they finish. Builder resolves a page's
 components through the cached Builder Component doc, and a stale entry renders

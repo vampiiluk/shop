@@ -27,6 +27,13 @@ override_doctype_class = {
 	"Payment Request": "shop.overrides.payment_request.ShopPaymentRequest",
 }
 
+override_whitelisted_methods = {
+	# Builder's page script sends view-log `version` as an int while frappe's
+	# endpoint types it `str | None`; strict validation answers 417 and the log
+	# is lost. The shop override coerces and delegates to the original.
+	"frappe.website.doctype.web_page_view.web_page_view.make_view_log": "shop.api.analytics.make_view_log",
+}
+
 doc_events = {
 	"POS Coupon": {
 		"validate": "shop.integrations.pos_coupon_sync.sync_pos_coupon_to_erpnext",

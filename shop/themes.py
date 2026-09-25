@@ -65,11 +65,14 @@ def apply_theme(group: str) -> None:
 		for row in settings.theme_pages
 		if row.template_group == group and frappe.db.exists("Builder Page", row.page)
 	}
-	for template in templates:
-		if template in tracked:
-			republish(tracked[template].page)
+	for template_name in templates:
+		if template_name in tracked:
+			# Re-activation must also push the current template content: a clone
+			# can predate a template regeneration, and its component overrides
+			# would then reference block ids that no longer exist.
+			republish(tracked[template_name].page, frappe.get_doc("Builder Page", template_name))
 		else:
-			clone_template(template, group, settings)
+			clone_template(template_name, group, settings)
 	settings.active_theme = group
 	settings.save(ignore_permissions=True)
 	set_home_page()
@@ -104,12 +107,25 @@ def unpublish_active_theme(settings=None):
 			page.save(ignore_permissions=True)
 
 
-def republish(name: str):
+def republish(name: str, template: frappe.Document | None = None):
 	page = frappe.get_doc("Builder Page", name)
+	if template is not None:
+		sync_clone(page, template)
 	page.published = 1
 	page.published_at = now()
 	page.project_folder = ensure_folder(LIVE_FOLDER)
 	page.save(ignore_permissions=True)
+
+
+def sync_clone(page: frappe.Document, template: frappe.Document) -> None:
+	"""Push a template's content into an existing live clone in place."""
+	page.blocks = template.blocks
+	page.draft_blocks = template.blocks
+	page.page_data_script = template.page_data_script
+	page.body_html = template.body_html
+	page.client_scripts = []
+	for script in template.client_scripts:
+		page.append("client_scripts", {"builder_script": script.builder_script})
 
 
 def clone_template(template_name: str, group: str, settings):
@@ -166,13 +182,7 @@ def refresh_theme(group: str):
 		template = frappe.get_doc("Builder Page", template_name)
 		if template_name in tracked:
 			page = frappe.get_doc("Builder Page", tracked[template_name].page)
-			page.blocks = template.blocks
-			page.draft_blocks = template.blocks
-			page.page_data_script = template.page_data_script
-			page.body_html = template.body_html
-			page.client_scripts = []
-			for script in template.client_scripts:
-				page.append("client_scripts", {"builder_script": script.builder_script})
+			sync_clone(page, template)
 			page.save(ignore_permissions=True)
 		else:
 			clone_template(template_name, group, settings)
