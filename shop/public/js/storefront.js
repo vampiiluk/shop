@@ -641,6 +641,10 @@
 		if (note) note.hidden = chosen?.value !== "gateway";
 		const advNote = document.querySelector('[data-shop="advance-instructions"]');
 		if (advNote) advNote.hidden = chosen?.value !== "advance";
+		// Raast's note says the QR arrives with the order, so it belongs to
+		// the moment the method is picked, not to the summary below it.
+		const raastNote = document.querySelector('[data-shop="raast-instructions"]');
+		if (raastNote) raastNote.hidden = chosen?.value !== "raast";
 		// Pickup: show the location picker and swap in the no-shipping totals.
 		const pickup = chosen?.value === "pickup";
 		const pickupPanel = document.querySelector('[data-shop="pickup-panel"]');

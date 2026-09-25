@@ -25,6 +25,7 @@ the confirmation page needs no extra request for it.
 
 import base64
 import io
+import os
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import frappe
@@ -88,6 +89,18 @@ def format_iban(value) -> str:
 	return " ".join(iban[index : index + 4] for index in range(0, len(iban), 4))
 
 
+def bank_code(value) -> str:
+	"""The four-character bank identifier inside a Pakistani IBAN.
+
+	`PK` + two check digits + the bank code + the account number, so the bank
+	a payment is heading for can be printed straight off the number itself —
+	which is the only place it is available once the QR has been downloaded
+	and the settings page is nowhere in sight.
+	"""
+	iban = normalize_iban(value)
+	return iban[4:8] if len(iban) >= 8 else ""
+
+
 def normalize_amount(value) -> str:
 	"""Amount for tag 05: whole or two-decimal digits, never zero or longer
 	than the template's ten characters."""
@@ -145,18 +158,141 @@ def build_payload(iban: str, amount) -> str:
 	return body + crc16_ccitt_false(body)
 
 
-def qr_data_url(payload: str) -> str:
-	"""PNG data URL for the payload.
+# Faces for the caption printed under the QR. Noto is in this bench's font
+# package; the rest are the usual names on other images. Pillow's own bundled
+# face has no rupee glyph and would draw a tofu box, so _caption swaps it out.
+_CARD_FONT_DIRS = (
+	"/usr/share/fonts/truetype/noto",
+	"/usr/share/fonts/truetype/dejavu",
+	"/usr/share/fonts/truetype/liberation",
+	"/usr/share/fonts/truetype/freefont",
+	"/usr/share/fonts/TTF",
+)
+_CARD_FONT_FILES = (
+	("NotoSans-Regular.ttf", "NotoSans-Bold.ttf"),
+	("DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
+	("LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"),
+	("FreeSans.ttf", "FreeSansBold.ttf"),
+)
+_CARD_FONTS: dict = {}
+
+
+def _card_font(size: int, bold: bool = False):
+	"""A TrueType face for the caption, memoised by (size, bold)."""
+	from PIL import ImageFont
+
+	key = (size, bold)
+	if key in _CARD_FONTS:
+		return _CARD_FONTS[key]
+	font = None
+	for regular, heavy in _CARD_FONT_FILES:
+		name = heavy if bold else regular
+		for directory in _CARD_FONT_DIRS:
+			path = os.path.join(directory, name)
+			if os.path.exists(path):
+				try:
+					font = ImageFont.truetype(path, size)
+				except OSError:
+					continue
+				break
+		if font is not None:
+			break
+	if font is None:
+		# Pillow >= 10.1 scales its embedded face; older builds take no size.
+		try:
+			font = ImageFont.load_default(size=size)
+		except TypeError:  # pragma: no cover - Pillow is a Frappe dependency
+			font = ImageFont.load_default()
+	_CARD_FONTS[key] = font
+	return font
+
+
+def _has_glyph(font, char: str) -> bool:
+	"""Whether the face draws `char` or only the same box it draws for a
+	private-use codepoint (i.e. it has no glyph for it)."""
+	from PIL import Image, ImageDraw
+
+	def stamp(text: str) -> bytes:
+		image = Image.new("L", (40, 40), 0)
+		ImageDraw.Draw(image).text((3, 3), text, font=font, fill=255)
+		return image.tobytes()
+
+	glyph = stamp(char)
+	return any(glyph) and glyph != stamp("\ue000") and glyph != stamp("\u0fff")
+
+
+def _caption(text: str, font) -> str:
+	"""Render `text` with the face we actually have rather than a tofu box."""
+	if "\u20a8" in text and not _has_glyph(font, "\u20a8"):
+		return text.replace("\u20a8", "Rs")
+	return text
+
+
+def _png_url(data: bytes) -> str:
+	return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
+def qr_data_url(payload: str, headline: str = "", lines=()) -> str:
+	"""PNG data URL for the payload, captioned with what the payment is for.
 
 	Inline rather than an uploaded file: it costs one round trip to build, no
 	extra request to serve, and it cannot be orphaned by a later media cleanup.
 	High error correction so a scuffed screen or a slight crop still scans.
+
+	The caption is the point of the download. A saved image outlives this
+	page, so the amount, the account, the bank and the order it settles have
+	to be readable from the picture alone — a gallery full of squares that
+	all look alike is not a record anyone can reconcile later. Pillow is not
+	an extra dependency here: Frappe itself ships it.
 	"""
 	if not payload or segno is None:
 		return ""
-	buffer = io.BytesIO()
-	segno.make(payload, error="h").save(buffer, kind="png", scale=14, border=4)
-	return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+	qr = io.BytesIO()
+	segno.make(payload, error="h").save(qr, kind="png", scale=14, border=4)
+	try:
+		from PIL import Image, ImageDraw
+	except ImportError:  # pragma: no cover - Pillow is a Frappe dependency
+		return _png_url(qr.getvalue())
+
+	code = Image.open(io.BytesIO(qr.getvalue())).convert("RGB")
+	rows = []
+	if headline:
+		font = _card_font(42, bold=True)
+		rows.append((_caption(headline, font), font))
+	for line in lines:
+		font = _card_font(24)
+		rows.append((_caption(line, font), font))
+
+	measure = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+	pad = 34
+	row_gap = 7
+	widths = [measure.textlength(text, font=font) for text, font in rows]
+	heights = [measure.textbbox((0, 0), text, font=font, anchor="mt")[3] for text, font in rows]
+	width = max(code.width + 2 * pad, int(max(widths, default=0)) + 2 * pad)
+	# The code already carries its own four-module quiet zone; the rule is set
+	# further out than that, and the caption further still.
+	rule_y = pad + code.height + (24 if rows else 0)
+	text_y = rule_y + (17 if rows else 0)
+	height = text_y + sum(heights) + row_gap * max(0, len(rows) - 1) + pad
+
+	card = Image.new("RGB", (width, height), (255, 255, 255))
+	card.paste(code, ((width - code.width) // 2, pad))
+	draw = ImageDraw.Draw(card)
+	y = text_y
+	if rows:
+		draw.line([(pad, rule_y), (width - pad, rule_y)], fill=(127, 127, 127), width=1)
+		for (text, font), line_height in zip(rows, heights):
+			draw.text((width // 2, y), text, font=font, fill=(17, 17, 17), anchor="mt")
+			y += line_height + row_gap
+	# Down to one bit: the caption is the only antialiased part, and this URL
+	# is inlined in the confirmation page, so every grey pixel it does not
+	# need is a byte the customer downloads for nothing. The QR is already
+	# pure black and white, so thresholding leaves it untouched.
+	card = card.convert("L").point(lambda pixel: 255 if pixel >= 128 else 0)
+	card = card.convert("1", dither=Image.Dither.NONE)
+	out = io.BytesIO()
+	card.save(out, format="PNG", optimize=True)
+	return _png_url(out.getvalue())
 
 
 def configured(settings=None) -> bool:
@@ -206,7 +342,22 @@ def payment_context(order, settings=None) -> dict | None:
 		"iban": format_iban(iban_raw),
 		"iban_raw": iban_raw,
 		"payload": payload,
-		"qr_data_url": qr_data_url(payload),
+		"qr_data_url": qr_data_url(
+			payload,
+			headline=formatted_amount,
+			# Printed under the code so a screenshot saved months later still
+			# says whose account it is, which bank, and which order it settles.
+			lines=[
+				part
+				for part in (
+					account_title,
+					f"{_('Bank')} {bank_code(iban_raw)}",
+					format_iban(iban_raw),
+					f"{_('Order')} {order.name}",
+				)
+				if part
+			],
+		),
 		"order": order.name,
 		# "Copy IBAN" is the raw value so a bank app's paste field accepts it
 		# without stray spaces; "Copy details" is the block a person pastes

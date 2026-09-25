@@ -49,7 +49,7 @@ def generate():
 		("dot-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("dot-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("dot-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions"), False),
+		("dot-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions", "raast_instructions"), False),
 		(
 			"dot-order-confirmation",
 			"Order Confirmed",
@@ -2934,6 +2934,40 @@ def checkout_blocks(refs):
 					),
 				],
 			),
+			# Raast has no gateway and no bank details to paste in before the
+			# order exists — the QR is built from the order itself — so what it
+			# says at this step is that. Shown exactly where Advance shows its
+			# own note, keyed to the payment method the customer picked.
+			block(
+				"div",
+				name="Raast Instructions",
+				attrs={"data-shop": "raast-instructions", "hidden": "hidden"},
+				visibilityCondition={"key": "raast_instructions", "comesFrom": "dataScript"},
+				styles={
+					"borderColor": refs["line"],
+					"borderRadius": "2px",
+					"borderStyle": "solid",
+					"borderWidth": "1px",
+					"gridColumn": "span 2",
+					"padding": "12px 14px",
+					"width": "100%",
+				},
+				children=[
+					block(
+						"p",
+						text="",
+						styles={
+							"color": refs["ink"],
+							"fontSize": "12px",
+							"fontWeight": "700",
+							"lineHeight": "1.6",
+							"whiteSpace": "pre-line",
+							"width": "100%",
+						},
+						dynamicValues=[dv("raast_instructions", "innerHTML")],
+					),
+				],
+			),
 			block(
 				"div",
 				name="Pickup Locations",
@@ -3294,7 +3328,12 @@ def confirmation_blocks(refs):
 	# opened this page on the very phone they bank from cannot point that phone
 	# at its own screen, so the IBAN and a paste-ready transfer note have to be
 	# one tap away, with the image downloadable for the same reason.
-	raast_actions = block(
+	# Two columns: the transfer details with their copy buttons on the left,
+	# the code and its download on the right. The customer who opened this
+	# page on the very phone they bank from cannot point that phone at its own
+	# screen, so the IBAN and a paste-ready transfer note have to be one tap
+	# away, and the image downloadable for the same reason.
+	raast_copy = block(
 		"div",
 		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "8px", "width": "100%"},
 		children=[
@@ -3313,39 +3352,39 @@ def confirmation_blocks(refs):
 				dynamicValues=[dv("order.raast.copy_details", "data-copy", "attribute")],
 				visibilityCondition={"key": "order.raast.copy_details", "comesFrom": "dataScript"},
 			),
-			# An anchor inherits reset.css's underline and link colour unless told
-			# otherwise, exactly as the directions and contact pills are. href and
-			# download are bound rather than static so the link can never save the
-			# wrong image; the visibility key hides it until there is a QR at all.
-			block(
-				"a",
-				text="Download QR",
-				attrs={"download": "", "data-shop": "raast-download", "href": "#"},
-				styles={
-					"backgroundColor": f"{refs['paper']} !important",
-					"borderColor": refs["ink"],
-					"borderRadius": "999px",
-					"borderStyle": "solid",
-					"borderWidth": "1px",
-					"boxSizing": "border-box",
-					"color": f"{refs['ink']} !important",
-					"fontFamily": MONO,
-					"fontSize": "11px",
-					"height": "fit-content",
-					"letterSpacing": "0.14em",
-					"padding": "14px 28px",
-					"textAlign": "center",
-					"textDecoration": "none !important",
-					"textTransform": "uppercase",
-					"width": "fit-content",
-				},
-				dynamicValues=[
-					dv("order.raast.qr_data_url", "href", "attribute"),
-					dv("order.raast.download_name", "download", "attribute"),
-				],
-				visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
-			),
 		],
+	)
+	# An anchor inherits reset.css's underline and link colour unless told
+	# otherwise, exactly as the directions and contact pills are. href and
+	# download are bound rather than static so the link can never save the
+	# wrong image; the visibility key hides it until there is a QR at all.
+	raast_download = block(
+		"a",
+		text="Download QR",
+		attrs={"download": "", "data-shop": "raast-download", "href": "#"},
+		styles={
+			"backgroundColor": f"{refs['paper']} !important",
+			"borderColor": refs["ink"],
+			"borderRadius": "999px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"boxSizing": "border-box",
+			"color": f"{refs['ink']} !important",
+			"fontFamily": MONO,
+			"fontSize": "11px",
+			"height": "fit-content",
+			"letterSpacing": "0.14em",
+			"padding": "14px 28px",
+			"textAlign": "center",
+			"textDecoration": "none !important",
+			"textTransform": "uppercase",
+			"width": "fit-content",
+		},
+		dynamicValues=[
+			dv("order.raast.qr_data_url", "href", "attribute"),
+			dv("order.raast.download_name", "download", "attribute"),
+		],
+		visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
 	)
 	raast_tile = inset(
 		refs,
@@ -3358,24 +3397,19 @@ def confirmation_blocks(refs):
 			),
 			block(
 				"div",
-				styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "20px", "width": "100%"},
+				name="Raast Columns",
+				styles={
+					"alignItems": "start",
+					"display": "grid",
+					"gap": "20px",
+					"gridTemplateColumns": "minmax(0, 1fr) minmax(0, 260px)",
+					"width": "100%",
+				},
+				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
 					block(
-						"img",
-						attrs={"alt": "Raast payment QR code"},
-						styles={
-							"borderRadius": "10px",
-							"display": "block",
-							"flexShrink": "0",
-							"height": "auto",
-							"width": "240px",
-						},
-						dynamicValues=[dv("order.raast.qr_data_url", "src", "attribute")],
-						visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
-					),
-					block(
 						"div",
-						styles={"display": "flex", "flexDirection": "column", "gap": "8px", "minWidth": "200px", "width": "100%"},
+						styles={"display": "flex", "flexDirection": "column", "gap": "8px", "width": "100%"},
 						children=[
 							block(
 								"p",
@@ -3397,7 +3431,34 @@ def confirmation_blocks(refs):
 								dynamicValues=[dv("order.raast.iban", "innerHTML")],
 								visibilityCondition={"key": "order.raast.iban", "comesFrom": "dataScript"},
 							),
-							raast_actions,
+							raast_copy,
+						],
+					),
+					block(
+						"div",
+						styles={
+							"alignItems": "flex-start",
+							"display": "flex",
+							"flexDirection": "column",
+							"gap": "12px",
+							"width": "100%",
+						},
+						children=[
+							block(
+								"img",
+								attrs={"alt": "Raast payment QR code"},
+								styles={
+									"borderRadius": "10px",
+									"display": "block",
+									"flexShrink": "0",
+									"height": "auto",
+									"maxWidth": "240px",
+									"width": "100%",
+								},
+								dynamicValues=[dv("order.raast.qr_data_url", "src", "attribute")],
+								visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
+							),
+							raast_download,
 						],
 					),
 				],
@@ -3463,17 +3524,37 @@ def confirmation_blocks(refs):
 				styles={"display": "grid", "gap": "12px", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "width": "100%"},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
-					info_tile(
-						"Shipping",
-						"Your order ships in 48 hours. We will email you the tracking number.",
-						name="Shipping Tile",
-						visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
-					),
+					# Raast is what the customer came back here to act on, so it
+					# sits above the shipment tiles rather than underneath them.
+					raast_tile,
 					delivery_tile,
 					advance_tile,
 					pickup_tile,
-					raast_tile,
-					info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
+					# Shipping and Receipt get a row of their own. Left to the
+					# main grid they would each strand an empty cell whenever the
+					# conditional tiles above them are hidden — which for a Raast
+					# order is all of them.
+					block(
+						"div",
+						name="Notes Row",
+						styles={
+							"display": "grid",
+							"gap": "12px",
+							"gridColumn": "span 2",
+							"gridTemplateColumns": "repeat(2, minmax(0, 1fr))",
+							"width": "100%",
+						},
+						mobile={"gridColumn": "span 1", "gridTemplateColumns": "minmax(0, 1fr)"},
+						children=[
+							info_tile(
+								"Shipping",
+								"Your order ships in 48 hours. We will email you the tracking number.",
+								name="Shipping Tile",
+								visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
+							),
+							info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
+						],
+					),
 				],
 			),
 			block(
