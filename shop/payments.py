@@ -21,13 +21,19 @@ The payload is the SBP P2P template from "Standard for Interoperable QR Code"
     10 04 <CRC16>       EMVCo QRCPS checksum over everything above plus "1004"
 
 Tag 03 (FI name) and tag 06 (particulars) are optional and left out so the
-payload stays minimal; tag 07 is reserved for future use by SBP, which is why
-there is no expiry — a checkout QR should stay valid until the order is paid
-rather than quietly going stale. The QR itself is rendered as a PNG data URL so
-the confirmation page needs no extra request for it.
+payload stays minimal. Tag 07 carries an expiry seven days out in Pakistan
+time. SBP marks that tag reserved, but a scanner that insists on it throws the
+whole code away — JazzCash did exactly that: of five variants put up for
+testing, only the two carrying tag 07 were accepted, in JazzCash and Meezan
+both, while the scheme identifier (30 against 00) made no difference at all.
+The code is rebuilt every time the page is drawn, so whoever opens the
+confirmation link gets seven fresh days from that moment rather than a code
+that quietly went stale on somebody else's schedule. The QR itself is rendered
+as a PNG data URL so the confirmation page needs no extra request for it.
 """
 
 import base64
+import datetime
 import io
 import os
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -47,6 +53,10 @@ POI_STATIC = "11"
 POI_DYNAMIC = "12"
 SCHEME_RAAST = "30"
 CRC_TAG = "1004"
+# Tag 07: seven days, stamped in Pakistan time the way the banks stamp their
+# own codes (JazzCash's sample was issue time plus exactly seven days).
+QR_EXPIRY_DAYS = 7
+PKT = datetime.timezone(datetime.timedelta(hours=5))  # Pakistan, no DST
 
 # IBANs are 30 chars max per ISO 13616, but tag 04 in the SBP template is
 # fixed at 24 — Pakistan's own length.
@@ -191,7 +201,14 @@ def tlv(tag: str, value: str) -> str:
 	return f"{tag}{len(value):02d}{value}"
 
 
-def build_payload(iban: str, amount) -> str:
+def qr_expiry(now: datetime.datetime | None = None) -> datetime.datetime:
+	"""When the code stops being payable: seven days from now, in PKT."""
+	if now is None:
+		now = datetime.datetime.now(PKT)
+	return now + datetime.timedelta(days=QR_EXPIRY_DAYS)
+
+
+def build_payload(iban: str, amount, expiry: datetime.datetime | None = None) -> str:
 	"""Encode the Raast P2P payload; empty when the IBAN or amount is unusable."""
 	iban = normalize_iban(iban)
 	if not is_valid_iban(iban):
@@ -200,12 +217,14 @@ def build_payload(iban: str, amount) -> str:
 	if not value:
 		return ""
 	# The amount is fixed by this code, so the point of initiation is dynamic.
+	# Tag 07 is what lets JazzCash read it at all — see the module docstring.
 	body = (
 		tlv("00", P2P_FORMAT)
 		+ tlv("01", POI_DYNAMIC)
 		+ tlv("02", SCHEME_RAAST)
 		+ tlv("04", iban)
 		+ tlv("05", value)
+		+ tlv("07", (expiry or qr_expiry()).strftime("%d%m%Y%H%M"))
 		+ CRC_TAG
 	)
 	return body + crc16_ccitt_false(body)
@@ -406,7 +425,10 @@ def payment_context(order, settings=None) -> dict | None:
 	formatted_amount = _format_amount(amount)
 	iban_raw = normalize_iban(settings.raast_iban)
 	valid = is_valid_iban(iban_raw)
-	payload = build_payload(iban_raw, outstanding) if valid else ""
+	# One expiry per draw: the code and the date printed on its card come
+	# from the same stamp, so the card cannot promise a day the QR misses.
+	expiry = qr_expiry() if valid else None
+	payload = build_payload(iban_raw, outstanding, expiry) if valid else ""
 	account_title = (settings.raast_account_title or "").strip()
 	instructions = (settings.raast_payment_instructions or "").strip() or None
 	# Whichever bank the money is heading for: Settings → Payments wins when
@@ -480,6 +502,9 @@ def payment_context(order, settings=None) -> dict | None:
 					named or f"{_('Bank')} {bank_code(iban_raw)}",
 					format_iban(iban_raw),
 					f"{_('Order')} {order.name}",
+					# A saved card outlives the code drawn on it, so the day
+					# it stops working belongs on the picture itself.
+					f"{_('Valid until')} {expiry.strftime('%d %b %Y')}" if expiry else "",
 				)
 				if part
 			],
