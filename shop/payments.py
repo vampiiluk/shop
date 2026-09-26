@@ -538,6 +538,9 @@ def payment_context(order, settings=None) -> dict | None:
 			else ""
 		),
 		"download_name": f"raast-{order.name}.png",
+		# The day the code stops being payable: printed under the code on its
+		# card and quoted in the receipt email, both off the same stamp.
+		"valid_until": expiry.strftime("%d %b %Y") if expiry else "",
 		"instructions": instructions,
 	}
 

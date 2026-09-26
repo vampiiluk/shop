@@ -341,10 +341,12 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 
 def queue_confirmation_email(sales_order, email: str, confirmation_url: str):
 	try:
+		message, inline_images = confirmation_email(sales_order, confirmation_url)
 		frappe.sendmail(
 			recipients=[email],
 			subject=_("Your order {0} is confirmed").format(sales_order.name),
-			message=confirmation_email_html(sales_order, confirmation_url),
+			message=message,
+			inline_images=inline_images,
 			reference_doctype="Sales Order",
 			reference_name=sales_order.name,
 		)
@@ -352,31 +354,501 @@ def queue_confirmation_email(sales_order, email: str, confirmation_url: str):
 		frappe.log_error(title="Order confirmation email failed")
 
 
-def confirmation_email_html(sales_order, confirmation_url: str) -> str:
-	from shop.storefront import pricing
+# An inbox keeps no stylesheet and runs no script, so the receipt is built
+# from tables and inline declarations alone — no flex, no grid, nothing that
+# has to be laid out by anything but the mail client itself.
+_EMAIL_FONT = "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+_EMAIL_MONO = "SFMono-Regular,Menlo,Consolas,Liberation Mono,monospace"
+_EMAIL_INK = "#18181b"
+_EMAIL_MUTED = "#71717a"
+_EMAIL_LINE = "#e4e4e7"
+_EMAIL_SOFT = "#f4f4f5"
+
+
+def _email_style(**props) -> str:
+	"""An inline style built from keyword properties; underscores are dashes.
+
+	Declarations one by one rather than the shorthand ``font`` property:
+	Gmail meets a shorthand it cannot parse by discarding the whole
+	declaration, which would drop the typeface off half the receipt."""
+	return ";".join(f"{key.replace('_', '-')}:{value}" for key, value in props.items())
+
+
+def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[dict]]:
+	"""The confirmation email: its HTML and the images that travel inside it.
+
+	The confirmation page prints a Receipt tile promising this mail, so the
+	mail repeats the page — progress, items, totals, the way the order is
+	being paid for, and where it is going — because a customer who keeps it
+	should be able to read their whole order without opening a link.
+
+	Email runs no JavaScript, which decides two of the page's controls. The
+	Copy IBAN and Copy details buttons are answered by what they would have
+	copied: the transfer block set as text a thumb can select. Download QR
+	is answered by the code itself, inlined as an image the inbox keeps on
+	the message, so it can be saved or scanned straight from there. Every
+	other control becomes a link, which is the whole of what mail can
+	honestly offer; the page keeps the buttons it can actually press.
+	"""
+	import base64
+
+	from shop.storefront import orders as orders_module
 
 	settings = frappe.get_cached_doc("Shop Settings")
-	rows = "".join(
-		f"<tr><td style='padding:6px 0'>{frappe.utils.escape_html(row.item_name)} × {frappe.utils.cint(row.qty)}</td>"
-		f"<td style='padding:6px 0;text-align:right'>{pricing.format_amount(row.amount)}</td></tr>"
-		for row in sales_order.items
+	summary = orders_module.order_summary(sales_order)
+	escape = frappe.utils.escape_html
+	raw_name = summary["name"]
+	store = escape((settings.store_name or _("our store")).strip())
+	name = escape(raw_name)
+	method = summary["payment_method"]
+	images: list[dict] = []
+
+	def section(text, color=_EMAIL_MUTED):
+		"""The mono, letter-spaced heading the confirmation page prints."""
+		css = _email_style(
+			margin="0 0 8px",
+			font_family=_EMAIL_MONO,
+			font_size="10px",
+			font_weight="600",
+			letter_spacing="0.14em",
+			text_transform="uppercase",
+			color=color,
+		)
+		return f"<p style='{css}'>{escape(text)}</p>"
+
+	def band(content, top="18px", bottom="0", extra=None):
+		"""One full-width band of the card, guttered like the panel."""
+		css = _email_style(padding=f"{top} 28px {bottom}", **(extra or {}))
+		return f"<tr><td style='{css}'>{content}</td></tr>"
+
+	def chip(text, done):
+		css = _email_style(
+			display="inline-block",
+			margin="0 6px 6px 0",
+			padding="6px 11px",
+			border_radius="999px",
+			font_family=_EMAIL_MONO,
+			font_size="10px",
+			font_weight="600",
+			letter_spacing="0.1em",
+			line_height="1.3",
+			text_transform="uppercase",
+			background_color=_EMAIL_INK if done else _EMAIL_SOFT,
+			color="#ffffff" if done else _EMAIL_MUTED,
+		)
+		return f"<span style='{css}'>{('&check; ' if done else '')}{escape(text)}</span>"
+
+	def money_row(text, value, strong=False):
+		left = _email_style(
+			padding="7px 0",
+			font_size="15px" if strong else "13px",
+			font_weight="700" if strong else "400",
+			color=_EMAIL_INK,
+			border_top=f"1px solid {_EMAIL_LINE}" if strong else "none",
+		)
+		right = _email_style(
+			padding="12px 0 7px" if strong else "7px 0",
+			text_align="right",
+			font_size="15px" if strong else "13px",
+			font_weight="700" if strong else "400",
+			color=_EMAIL_INK,
+			border_top=f"1px solid {_EMAIL_LINE}" if strong else "none",
+		)
+		return (
+			"<tr>"
+			f"<td style='{left}'>{escape(text)}</td>"
+			f"<td align='right' style='{right}'>{escape(value)}</td>"
+			"</tr>"
+		)
+
+	def button(text, href, solid=True, small=False):
+		"""A link wearing the page's pill: mail cannot press a real button."""
+		css = _email_style(
+			display="inline-block",
+			margin="0 8px 8px 0",
+			padding="10px 16px" if small else "13px 24px",
+			border_radius="999px",
+			border=f"1px solid {_EMAIL_INK}",
+			font_family=_EMAIL_MONO,
+			font_size="10px" if small else "11px",
+			font_weight="600",
+			letter_spacing="0.12em",
+			line_height="1.2",
+			text_align="center",
+			text_decoration="none",
+			text_transform="uppercase",
+			background_color=_EMAIL_INK if solid else "transparent",
+			color="#ffffff" if solid else _EMAIL_INK,
+		)
+		return f"<a href='{escape(href)}' style='{css}'>{escape(text)}</a>"
+
+	def link(text, href, color="#ffffff"):
+		css = _email_style(color=color, font_family=_EMAIL_MONO, font_size="11px",
+			letter_spacing="0.12em", text_transform="uppercase", text_decoration="underline")
+		return f"<a href='{escape(href)}' style='{css}'>{escape(text)}</a>"
+
+	# --- what the order is ---------------------------------------------
+	item_cell = _email_style(
+		padding="11px 0", border_bottom=f"1px solid {_EMAIL_LINE}", font_size="14px", color=_EMAIL_INK
 	)
-	discount = (
-		f"<tr><td style='padding:6px 0'>Discount</td>"
-		f"<td style='padding:6px 0;text-align:right'>-{pricing.format_amount(sales_order.discount_amount)}</td></tr>"
-		if sales_order.discount_amount
-		else ""
+	qty_css = _email_style(color=_EMAIL_MUTED, font_size="12px")
+	item_rows = "".join(
+		"<tr>"
+		f"<td style='{item_cell}'>{escape(str(row['item_name']))} "
+		f"<span style='{qty_css}'>&times; {escape(str(row['qty']))}</span></td>"
+		f"<td align='right' style='{item_cell}'>{escape(row['formatted_amount'])}</td>"
+		"</tr>"
+		for row in summary["items"]
 	)
-	return f"""
-	<p>Thank you for your order at {frappe.utils.escape_html(settings.store_name or "our store")}.</p>
-	<table style="width:100%;max-width:480px;border-collapse:collapse">
-		{rows}{discount}
-		<tr><td style="padding:10px 0;font-weight:bold;border-top:1px solid #ddd">Total</td>
-		<td style="padding:10px 0;font-weight:bold;text-align:right;border-top:1px solid #ddd">
-		{pricing.format_amount(sales_order.grand_total)}</td></tr>
-	</table>
-	<p><a href="{frappe.utils.get_url(confirmation_url)}">View your order</a></p>
-	"""
+	totals = [money_row(_("Subtotal"), summary["formatted_total"])]
+	if summary["formatted_discount"]:
+		totals.append(money_row(_("Discount"), f"-{summary['formatted_discount']}"))
+	totals.append(money_row(_("Shipping"), summary["formatted_shipping"] or _("Free")))
+	totals.append(money_row(_("Total"), summary["formatted_grand_total"], strong=True))
+	summary_block = band(
+		section(_("Order summary"))
+		+ f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;border-collapse:collapse;'>"
+		+ item_rows
+		+ "".join(totals)
+		+ "</table>"
+	)
+
+	# --- how it is being paid ------------------------------------------
+	raast = summary["raast"] or {}
+	advance = summary["advance_payment"] or {}
+	status_chip = summary["payment_status"] or ""
+	payment_block = ""
+
+	def pay_head(title, dark):
+		"""Title and the ledger's own status, facing each other."""
+		title_css = _email_style(
+			margin="0", font_family=_EMAIL_MONO, font_size="10px", font_weight="600",
+			letter_spacing="0.16em", text_transform="uppercase",
+			color="#ffffff" if dark else _EMAIL_INK,
+		)
+		chip_css = _email_style(
+			display="inline-block", padding="5px 12px", border_radius="999px",
+			border=f"1px solid {'rgba(255,255,255,0.45)' if dark else _EMAIL_LINE}",
+			font_family=_EMAIL_MONO, font_size="9px", font_weight="600",
+			letter_spacing="0.14em", text_transform="uppercase",
+			color="#ffffff" if dark else _EMAIL_INK,
+		)
+		inner = _email_style(padding="0", font_size="0")
+		return (
+			"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+			f"style='width:100%;'><tr><td style='{inner}'><p style='{title_css}'>{escape(title)}</p></td>"
+			f"<td align='right' style='{inner}'><span style='{chip_css}'>{escape(status_chip)}</span></td></tr></table>"
+		)
+
+	def detail(label_text, value, dark=True, mono=False):
+		"""One label over one value — the panel's Account title / Bank / IBAN."""
+		if not value:
+			return ""
+		label_css = _email_style(
+			margin="14px 0 0", font_family=_EMAIL_MONO, font_size="9px", font_weight="600",
+			letter_spacing="0.16em", text_transform="uppercase",
+			color="rgba(255,255,255,0.6)" if dark else _EMAIL_MUTED,
+		)
+		value_css = _email_style(
+			margin="4px 0 0", font_size="15px", font_weight="600",
+			color="#ffffff" if dark else _EMAIL_INK,
+			font_family=_EMAIL_MONO if mono else _EMAIL_FONT,
+			letter_spacing="0.04em" if mono else "normal",
+		)
+		return f"<p style='{label_css}'>{escape(label_text)}</p><p style='{value_css}'>{escape(str(value))}</p>"
+
+	if method == "raast" and raast:
+		# The QR panel, inverted exactly as the page inverts it: what is owed
+		# leads, the account sits under it, and the code is framed in white
+		# so it scans off a dark message as easily as off the page.
+		left = [pay_head(_("Advance payment"), dark=True)]
+		amount_css = _email_style(
+			margin="16px 0 0", font_size="32px", font_weight="600", line_height="1.1",
+			letter_spacing="-0.02em", color="#ffffff",
+		)
+		left.append(f"<p style='{amount_css}'>{escape(raast['formatted_amount'])}</p>")
+		line_css = _email_style(margin="8px 0 0", font_size="13px", line_height="1.6",
+			color="rgba(255,255,255,0.78)")
+		left.append(f"<p style='{line_css}'>{escape(raast.get('line') or '')}</p>")
+		left.append(
+			f"<div style='{_email_style(height='1px', margin='16px 0 0', background_color='rgba(255,255,255,0.16)', font_size='0')}'>"
+			"&nbsp;</div>"
+		)
+		left.append(detail(_("Account title"), raast.get("account_title")))
+		left.append(detail(_("Bank"), raast.get("bank")))
+		left.append(detail(_("Raast IBAN"), raast.get("iban"), mono=True))
+		if raast.get("copy_details"):
+			# What the page's two Copy buttons would have put on the
+			# clipboard, laid out to be selected in one long press instead.
+			transfer_label = _email_style(
+				margin="18px 0 0", font_family=_EMAIL_MONO, font_size="9px", font_weight="600",
+				letter_spacing="0.16em", text_transform="uppercase", color="rgba(255,255,255,0.6)",
+			)
+			transfer_css = _email_style(
+				margin="6px 0 0", padding="12px 14px", border_radius="10px",
+				background_color="rgba(255,255,255,0.07)",
+				border="1px solid rgba(255,255,255,0.18)", font_family=_EMAIL_MONO,
+				font_size="12px", line_height="1.75", white_space="pre-wrap", color="#ffffff",
+			)
+			left.append(f"<p style='{transfer_label}'>{escape(_('Transfer details'))}</p>")
+			left.append(f"<div style='{transfer_css}'>{escape(raast['copy_details'])}</div>")
+		right = []
+		qr_image = ""
+		if raast.get("qr_data_url"):
+			try:
+				png = base64.b64decode(raast["qr_data_url"].partition(",")[2])
+			except Exception:
+				png = b""
+			if png:
+				images.append({"filename": "raast-qr.png", "filecontent": png})
+				img_css = _email_style(
+					display="block", width="240px", max_width="100%", height="auto",
+					margin="0 auto", border_radius="6px",
+				)
+				qr_image = f"<img embed='raast-qr.png' alt='{escape(_('Raast QR code'))}' width='240' style='{img_css}'>"
+		if qr_image:
+			frame_css = _email_style(
+				background_color="#ffffff", border_radius="12px", padding="12px", text_align="center"
+			)
+			caption_css = _email_style(
+				margin="10px 0 0", font_size="11px", letter_spacing="0.06em",
+				text_align="center", color="rgba(255,255,255,0.62)",
+			)
+			valid_css = _email_style(margin="6px 0 0", font_size="11px", text_align="center",
+				color="rgba(255,255,255,0.62)")
+			right.append(f"<div style='{frame_css}'>{qr_image}</div>")
+			right.append(f"<p style='{caption_css}'>{escape(_('Raast QR code — scan with banking app'))}</p>")
+			if raast.get("valid_until"):
+				right.append(
+					f"<p style='{valid_css}'>{escape(_('Valid until {0}').format(raast['valid_until']))}</p>"
+				)
+		foot = []
+		if raast.get("instructions"):
+			foot.append(
+				f"<p style='{_email_style(margin='0', font_size='12px', line_height='1.6', color='rgba(255,255,255,0.72)')}'>"
+				f"{escape(raast['instructions'])}</p>"
+			)
+		foot.append(
+			f"<p style='{_email_style(margin='12px 0 0', font_size='12px', line_height='1.6', color='rgba(255,255,255,0.72)')}'>"
+			f"{escape(_('Open your order to copy the account details in one tap or save the QR to your phone.'))}</p>"
+		)
+		foot.append(link(_("View your order"), frappe.utils.get_url(confirmation_url)))
+		left_cell = _email_style(padding="22px 18px 20px 22px", vertical_align="top", width="58%")
+		right_cell = _email_style(padding="22px 22px 20px 6px", vertical_align="top", width="42%")
+		payment_block = band(
+			"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+			"style='width:100%;background-color:#18181b;border-radius:16px;'><tr>"
+			f"<td style='{left_cell}'>{''.join(left)}</td>"
+			f"<td style='{right_cell}'>{''.join(right)}</td></tr>"
+			f"<tr><td colspan='2' style='{_email_style(padding='0 22px 22px')}'>{''.join(foot)}</td></tr>"
+			"</table>",
+			top="20px",
+		)
+	elif method in ("advance", "cod", "pickup", "gateway"):
+		# No QR to frame: the same facts in the panel's light clothing —
+		# what is owed, in the store's own words, with the ledger's status.
+		title = _("Advance payment") if method == "advance" else _("Payment")
+		if method == "advance":
+			figure = advance.get("formatted_advance_amount") or summary["formatted_grand_total"]
+			line = advance.get("line") or ""
+		elif method == "pickup":
+			figure = summary["formatted_grand_total"]
+			line = _("Pay {0} when you collect your order.").format(summary["formatted_grand_total"])
+		elif method == "cod":
+			figure = summary["formatted_grand_total"]
+			line = _("Pay {0} in cash when your order arrives.").format(summary["formatted_grand_total"])
+		else:
+			figure = summary["formatted_grand_total"]
+			line = _("Payment is completed through our secure online checkout.")
+		figure_css = _email_style(margin="14px 0 0", font_size="26px", font_weight="600",
+			letter_spacing="-0.02em", color=_EMAIL_INK)
+		line_css = _email_style(margin="6px 0 0", font_size="13px", line_height="1.6", color=_EMAIL_MUTED)
+		parts = [pay_head(title, dark=False), f"<p style='{figure_css}'>{escape(figure)}</p>",
+			f"<p style='{line_css}'>{escape(line)}</p>"]
+		if advance.get("instructions"):
+			parts.append(
+				f"<p style='{_email_style(margin='12px 0 0', font_size='12px', font_weight='600', line_height='1.6', color=_EMAIL_INK)}'>"
+				f"{escape(advance['instructions'])}</p>"
+			)
+		frame = _email_style(
+			background_color=_EMAIL_SOFT, border=f"1px solid {_EMAIL_LINE}",
+			border_radius="16px", padding="18px 20px",
+		)
+		payment_block = band(f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+			f"border='0' style='width:100%;'><tr><td style='{frame}'>{''.join(parts)}</td></tr></table>", top="20px")
+
+	# --- where it is going ---------------------------------------------
+	destination = ""
+	if method == "pickup" and summary.get("pickup_location"):
+		location = summary["pickup_location"]
+		body = [section(_("Pickup"))]
+		place_css = _email_style(margin="0", font_size="14px", font_weight="700", color=_EMAIL_INK)
+		body.append(f"<p style='{place_css}'>{escape(location.get('name') or _('Store pickup'))}</p>")
+		text_css = _email_style(margin="4px 0 0", font_size="13px", line_height="1.65", color=_EMAIL_MUTED)
+		if location.get("address"):
+			body.append(f"<p style='{text_css}'>{escape(location['address'])}</p>")
+		controls = []
+		if location.get("phone"):
+			phone_css = _email_style(display="inline-block", margin="0 14px 10px 0",
+				padding="10px 0", line_height="1.2", font_size="13px", color=_EMAIL_INK,
+				text_decoration="underline")
+			dial = location.get("phone_dial") or f"tel:{location['phone']}"
+			controls.append(f"<a href='{escape(dial)}' style='{phone_css}'>{escape(location['phone'])}</a>")
+		if location.get("directions_url"):
+			controls.append(button(_("Get directions"), location["directions_url"], solid=True, small=True))
+		if location.get("whatsapp_url"):
+			controls.append(button(_("WhatsApp"), location["whatsapp_url"], solid=False, small=True))
+		if controls:
+			body.append(
+				f"<p style='{_email_style(margin='12px 0 0', font_size='0')}'>{''.join(controls)}</p>"
+			)
+		frame = _email_style(background_color=_EMAIL_SOFT, border=f"1px solid {_EMAIL_LINE}",
+			border_radius="12px", padding="16px 18px")
+		destination = band(
+			f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+			f"style='width:100%;'><tr><td style='{frame}'>{''.join(body)}</td></tr></table>"
+		)
+	else:
+		address = None
+		if sales_order.customer_address:
+			try:
+				address = frappe.get_doc("Address", sales_order.customer_address)
+			except Exception:
+				address = None
+		recipient = (getattr(address, "address_title", None) or sales_order.customer_name or "").strip()
+		street = ", ".join(
+			p for p in ((getattr(address, "address_line1", None) or ""), (getattr(address, "address_line2", None) or "")) if p
+		)
+		city_line = ", ".join(
+			p for p in ((getattr(address, "city", None) or ""), (getattr(address, "pincode", None) or "")) if p
+		)
+		region = ", ".join(
+			p for p in ((getattr(address, "state", None) or ""), (getattr(address, "country", None) or "")) if p
+		)
+		landmark = (getattr(address, "custom_landmark", None) or "").strip()
+		phone = (sales_order.contact_phone or getattr(address, "phone", None) or "").strip()
+		if recipient or street or city_line:
+			body = [section(_("Deliver to"))]
+			if recipient:
+				place_css = _email_style(margin="0", font_size="14px", font_weight="700", color=_EMAIL_INK)
+				body.append(f"<p style='{place_css}'>{escape(recipient)}</p>")
+			text_css = _email_style(margin="4px 0 0", font_size="13px", line_height="1.65", color=_EMAIL_MUTED)
+			for line in (street, city_line, region):
+				if line:
+					body.append(f"<p style='{text_css}'>{escape(line)}</p>")
+			if landmark:
+				body.append(
+					f"<p style='{text_css}'>{escape(_('Landmark: {0}').format(landmark))}</p>"
+				)
+			if phone:
+				body.append(f"<p style='{text_css}'>{escape(_('Phone: {0}').format(phone))}</p>")
+			frame = _email_style(background_color=_EMAIL_SOFT, border=f"1px solid {_EMAIL_LINE}",
+				border_radius="12px", padding="16px 18px")
+			destination = band(
+				f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+				f"style='width:100%;'><tr><td style='{frame}'>{''.join(body)}</td></tr></table>"
+			)
+
+	# --- the page's two info tiles --------------------------------------
+	tiles = []
+	if method != "pickup":
+		tiles.append(
+			(section(_("Shipping"))
+			 + f"<p style='{_email_style(margin='0', font_size='12px', line_height='1.6', color=_EMAIL_MUTED)}'>"
+			 + escape(_("Your order ships in 48 hours. We will email you the tracking number.")) + "</p>")
+		)
+	tiles.append(
+		(section(_("Receipt"))
+		 + f"<p style='{_email_style(margin='0', font_size='12px', line_height='1.6', color=_EMAIL_MUTED)}'>"
+		 + escape(_("Keep this email — it is your receipt for order {0}.").format(raw_name)) + "</p>")
+	)
+	tile_css = _email_style(
+		background_color=_EMAIL_SOFT, border_radius="12px", padding="14px 16px", vertical_align="top"
+	)
+	# One tile (a pickup order has no shipping line to face) takes the whole
+	# row rather than leaving a hole where its neighbour would have been —
+	# the same empty-cell problem the page solves by giving Shipping and
+	# Receipt a row of their own.
+	tile_left = _email_style(padding="0 6px 0 0", vertical_align="top",
+		width="100%" if len(tiles) == 1 else "50%")
+	tile_right = _email_style(padding="0 0 0 6px", vertical_align="top", width="50%")
+	cells = "".join(
+		f"<td style='{tile_left if i == 0 else tile_right}'><table role='presentation' width='100%' "
+		f"cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr>"
+		f"<td style='{tile_css}'>{tile}</td></tr></table></td>"
+		for i, tile in enumerate(tiles)
+	)
+	tiles_html = f"<tr>{cells}</tr>"
+	tiles_block = band(
+		"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+		f"style='width:100%;'>{tiles_html}</table>",
+		top="20px",
+	)
+
+	# --- the controls, as links ----------------------------------------
+	controls = "".join(
+		[
+			button(_("View your order"), frappe.utils.get_url(confirmation_url), solid=True),
+			button(_("Track my order"), frappe.utils.get_url("/account/orders"), solid=False),
+			button(_("Continue shopping"), frappe.utils.get_url("/products"), solid=False),
+		]
+	)
+	controls_block = band(f"<p style='{_email_style(margin='0', font_size='0')}'>{controls}</p>", top="22px")
+
+	progress_block = band(
+		"".join(chip(stage["label"], stage.get("done") == "true") for stage in summary["progress"]),
+		top="18px",
+		extra={"font_size": "0"},
+	)
+
+	# --- masthead and footer -------------------------------------------
+	brand_css = _email_style(
+		margin="0", font_family=_EMAIL_MONO, font_size="10px", font_weight="600",
+		letter_spacing="0.18em", text_transform="uppercase", color=_EMAIL_MUTED,
+	)
+	headline_css = _email_style(
+		margin="14px 0 0", font_size="24px", font_weight="600", line_height="1.25",
+		letter_spacing="-0.01em", color=_EMAIL_INK,
+	)
+	intro_css = _email_style(margin="8px 0 0", font_size="14px", line_height="1.6", color=_EMAIL_MUTED)
+	head = band(
+		f"<p style='{brand_css}'>{store} &nbsp;·&nbsp; {escape(_('Receipt'))}</p>"
+		f"<h1 style='{headline_css}'>{escape(_('Order {0} confirmed').format(raw_name))}</h1>"
+		f"<p style='{intro_css}'>{escape(_('Thank you for your order at {0} — everything about it is below.').format((settings.store_name or _('our store')).strip()))}</p>",
+		top="26px",
+	)
+	foot_css = _email_style(
+		margin="0", font_family=_EMAIL_MONO, font_size="10px", letter_spacing="0.1em",
+		text_transform="uppercase", color=_EMAIL_MUTED,
+	)
+	tail = band(
+		f"<p style='{foot_css}'>{store} &nbsp;·&nbsp; {escape(summary['display_status'])} "
+		f"&nbsp;·&nbsp; {escape(str(summary['transaction_date']))}</p>",
+		top="20px",
+		bottom="26px",
+	)
+
+	shell_outer = _email_style(background_color=_EMAIL_SOFT, padding="24px 12px")
+	shell_card = _email_style(
+		width="100%", max_width="600px", background_color="#ffffff", border=f"1px solid {_EMAIL_LINE}",
+		border_radius="16px", border_collapse="separate",
+	)
+	html = (
+		"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+		f"style='{shell_outer}'><tr><td align='center'>"
+		"<table role='presentation' width='600' cellpadding='0' cellspacing='0' border='0' "
+		f"style='{shell_card}'>"
+		+ head
+		+ progress_block
+		+ summary_block
+		+ payment_block
+		+ destination
+		+ tiles_block
+		+ controls_block
+		+ tail
+		+ "</table></td></tr></table>"
+	)
+	return html, images
 
 
 @contextmanager
