@@ -344,7 +344,7 @@ def queue_confirmation_email(sales_order, email: str, confirmation_url: str):
 		message, inline_images = confirmation_email(sales_order, confirmation_url)
 		frappe.sendmail(
 			recipients=[email],
-			subject=_("Your order {0} is confirmed").format(sales_order.name),
+			subject=_("Receipt for order {0}").format(sales_order.name),
 			message=message,
 			inline_images=inline_images,
 			reference_doctype="Sales Order",
@@ -800,7 +800,11 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 	intro_css = _email_style(margin="8px 0 0", font_size="14px", line_height="1.6", color=_EMAIL_MUTED)
 	head = band(
 		f"<p style='{brand_css}'>{store} &nbsp;·&nbsp; {escape(_('Receipt'))}</p>"
-		f"<h1 style='{headline_css}'>{escape(_('Order {0} confirmed').format(raw_name))}</h1>"
+		# The order number ends the heading; nothing follows it. The word
+		# "confirmed" used to be appended there and read as part of the
+		# name — the chips below say where the order stands, and the line
+		# under the heading says why the mail arrived.
+		f"<h1 style='{headline_css}'>{escape(_('Order {0}').format(raw_name))}</h1>"
 		f"<p style='{intro_css}'>{escape(_('Thank you for your order at {0} — everything about it is below.').format((settings.store_name or _('our store')).strip()))}</p>",
 		top="26px",
 	)
