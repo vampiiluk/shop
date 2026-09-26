@@ -62,11 +62,11 @@ def get_checkout_summary() -> dict:
 	balance = max(total - advance, 0.0)
 	if raast_module.configured(settings) and total > 0:
 		if advance > 0 and balance > 0:
-			label = _("Raast QR — {0} now by QR · {1} on delivery").format(
+			label = _("Advance Payment — {0} now by QR · {1} on delivery").format(
 				pricing.format_amount(advance), pricing.format_amount(balance)
 			)
 		else:
-			label = _("Raast QR — pay {0} in full now").format(pricing.format_amount(total))
+			label = _("Advance Payment — pay {0} in full now").format(pricing.format_amount(total))
 		methods.append(
 			{
 				"method": "raast",
@@ -413,10 +413,10 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str, pic
 		allowed = cod_cities(settings)
 		city = (address.get("city") or "").strip()
 		if allowed and city.lower() not in allowed:
-			# Name a method the checkout is actually offering: the Advance row
-			# only exists where there is no QR to show for it, because the two
-			# are one option wherever a QR can be built.
-			alternative = _("Raast QR") if raast_module.configured(settings) else _("Advance Payment")
+			# Name the method the checkout is offering. Both rows are called
+			# Advance Payment now — one simply has a QR behind it — so either
+			# way the customer is pointed at the same name.
+			alternative = _("Advance Payment")
 			frappe.throw(
 				_("Cash on Delivery is not offered in {0}. Please choose {1} or pay online.").format(
 					city or _("this city"), alternative
@@ -427,7 +427,7 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str, pic
 	if payment_method == "advance" and not settings.enable_advance_payment:
 		frappe.throw(_("Advance payment is not available"))
 	if payment_method == "raast" and not raast_module.configured(settings):
-		frappe.throw(_("Raast QR payment is not available"))
+		frappe.throw(_("Advance payment is not available"))
 	if payment_method == "pickup":
 		pickup_module.resolve(pickup_location, settings)
 	validate_email_address(customer.get("email"), throw=True)

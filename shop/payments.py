@@ -422,7 +422,7 @@ def payment_context(order, settings=None) -> dict | None:
 		# No usable account to point at (the detail rows below are hidden, and
 		# a bad one must never be shown), so do not promise an account the page
 		# cannot name — send the customer to us instead.
-		line = _("Raast payment is unavailable right now. Please contact us to pay {0} by bank transfer.").format(
+		line = _("Advance payment is unavailable right now. Please contact us to pay {0} by bank transfer.").format(
 			formatted_amount
 		)
 	elif not outstanding:
