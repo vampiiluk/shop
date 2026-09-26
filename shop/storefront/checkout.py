@@ -364,6 +364,41 @@ _EMAIL_MUTED = "#71717a"
 _EMAIL_LINE = "#e4e4e7"
 _EMAIL_SOFT = "#f4f4f5"
 
+# The card is drawn at 600px. This is the same markup under a phone.
+# Everything with an e- class is a cell that would otherwise stay side by
+# side — the QR panel's two columns, the Shipping and Receipt tiles — so
+# at 620px and below they stack instead of squeezing the code down to
+# something a camera will not read, the 28px gutter that is a thumb's
+# width of space comes in, and each link button becomes a full-width,
+# tappable bar. Media queries are honoured by Gmail, Apple Mail, Yahoo
+# and Outlook.com; Outlook on the desktop is wide, so it simply never
+# meets them. With !important throughout because an inline declaration
+# outranks a rule, and email CSS has to win by volume.
+_EMAIL_NARROW = (
+	"<style type='text/css'>"
+	"@media only screen and (max-width:620px){"
+	# Before anything else: width:100% is content-box by default, so a cell
+	# that is told to be 100% wide *and* padded would add its 18px gutters
+	# on top of the full width and bulge past the panel — the rows used to
+	# run into the right edge on a phone. Padding inside the width instead.
+	".e-outer,.e-col-l,.e-col-r,.e-tile,.e-btn{box-sizing:border-box!important}"
+	".e-outer{padding:12px 8px!important}"
+	".e-band{padding-left:16px!important;padding-right:16px!important}"
+	".e-col-l{display:block!important;width:100%!important;max-width:100%!important;"
+	"padding:18px 18px 4px!important}"
+	".e-col-r{display:block!important;width:100%!important;max-width:100%!important;"
+	"padding:14px 18px 18px!important}"
+	".e-panel-foot{padding:0 18px 18px!important}"
+	".e-tile{display:block!important;width:100%!important;max-width:100%!important;"
+	"padding:0 0 8px!important}"
+	".e-tile-last{padding-bottom:0!important}"
+	".e-h1{font-size:21px!important}"
+	".e-col-l p{overflow-wrap:anywhere!important;word-break:break-word!important}"
+	".e-btn{display:block!important;width:100%!important;margin:0 0 8px!important}"
+	"}"
+	"</style>"
+)
+
 
 def _email_style(**props) -> str:
 	"""An inline style built from keyword properties; underscores are dashes.
@@ -417,9 +452,13 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		return f"<p style='{css}'>{escape(text)}</p>"
 
 	def band(content, top="18px", bottom="0", extra=None):
-		"""One full-width band of the card, guttered like the panel."""
+		"""One full-width band of the card, guttered like the panel.
+
+		Classed so the narrow-screen rules below can pull the 28px gutter
+		in — on a phone that gutter is most of a thumb's width of space.
+		"""
 		css = _email_style(padding=f"{top} 28px {bottom}", **(extra or {}))
-		return f"<tr><td style='{css}'>{content}</td></tr>"
+		return f"<tr><td class='e-band' style='{css}'>{content}</td></tr>"
 
 	def chip(text, done):
 		css = _email_style(
@@ -462,7 +501,12 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		)
 
 	def button(text, href, solid=True, small=False):
-		"""A link wearing the page's pill: mail cannot press a real button."""
+		"""A link wearing the page's pill: mail cannot press a real button.
+
+		Inline-block so three of them share a row on a desktop and wrap on
+		a phone, where the narrow-screen rules turn each into a full-width,
+		thumb-sized target.
+		"""
 		css = _email_style(
 			display="inline-block",
 			margin="0 8px 8px 0",
@@ -480,7 +524,7 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 			background_color=_EMAIL_INK if solid else "transparent",
 			color="#ffffff" if solid else _EMAIL_INK,
 		)
-		return f"<a href='{escape(href)}' style='{css}'>{escape(text)}</a>"
+		return f"<a class='e-btn' href='{escape(href)}' style='{css}'>{escape(text)}</a>"
 
 	def link(text, href, color="#ffffff"):
 		css = _email_style(color=color, font_family=_EMAIL_MONO, font_size="11px",
@@ -625,9 +669,10 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		payment_block = band(
 			"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
 			"style='width:100%;background-color:#18181b;border-radius:16px;'><tr>"
-			f"<td style='{left_cell}'>{''.join(left)}</td>"
-			f"<td style='{right_cell}'>{''.join(right)}</td></tr>"
-			f"<tr><td colspan='2' style='{_email_style(padding='0 22px 22px')}'>{''.join(foot)}</td></tr>"
+			f"<td class='e-col-l' style='{left_cell}'>{''.join(left)}</td>"
+			f"<td class='e-col-r' style='{right_cell}'>{''.join(right)}</td></tr>"
+			f"<tr><td colspan='2' class='e-panel-foot' "
+			f"style='{_email_style(padding='0 22px 22px')}'>{''.join(foot)}</td></tr>"
 			"</table>",
 			top="20px",
 		)
@@ -760,7 +805,9 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		width="100%" if len(tiles) == 1 else "50%")
 	tile_right = _email_style(padding="0 0 0 6px", vertical_align="top", width="50%")
 	cells = "".join(
-		f"<td style='{tile_left if i == 0 else tile_right}'><table role='presentation' width='100%' "
+		f"<td class='e-tile{' e-tile-last' if i == len(tiles) - 1 else ''}' "
+		f"style='{tile_left if i == 0 else tile_right}'>"
+		f"<table role='presentation' width='100%' "
 		f"cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr>"
 		f"<td style='{tile_css}'>{tile}</td></tr></table></td>"
 		for i, tile in enumerate(tiles)
@@ -804,7 +851,7 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		# "confirmed" used to be appended there and read as part of the
 		# name — the chips below say where the order stands, and the line
 		# under the heading says why the mail arrived.
-		f"<h1 style='{headline_css}'>{escape(_('Order {0}').format(raw_name))}</h1>"
+		f"<h1 class='e-h1' style='{headline_css}'>{escape(_('Order {0}').format(raw_name))}</h1>"
 		f"<p style='{intro_css}'>{escape(_('Thank you for your order at {0} — everything about it is below.').format((settings.store_name or _('our store')).strip()))}</p>",
 		top="26px",
 	)
@@ -825,10 +872,15 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		border_radius="16px", border_collapse="separate",
 	)
 	html = (
+		_EMAIL_NARROW
+		+ "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+		f"style='{shell_outer}'><tr><td class='e-outer' align='center'>"
+		# width is an attribute, not a style: it is what Outlook reads and
+		# what a phone would otherwise hold the card at. 100% with the
+		# max-width in the style lets the same table be 600 on a desk and
+		# whatever the screen gives it in a hand.
 		"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-		f"style='{shell_outer}'><tr><td align='center'>"
-		"<table role='presentation' width='600' cellpadding='0' cellspacing='0' border='0' "
-		f"style='{shell_card}'>"
+		f"class='e-card' style='{shell_card}'>"
 		+ head
 		+ progress_block
 		+ summary_block
