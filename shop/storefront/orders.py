@@ -66,10 +66,16 @@ def can_view(name: str, token: str | None) -> bool:
 
 
 def order_summary(order) -> dict:
+	from shop.api.orders import payment_status_label, payments_received
 	from shop.storefront import returns
 
 	shipment = shipment_summary(order.name)
 	method = order.get("custom_payment_method") or "cod"
+	# What the customer still owes, straight off the ledger: the confirmation
+	# page shows a payment status next to the QR, and that status has to flip
+	# to Paid on its own once the transfer is recorded — a checkout screen
+	# that keeps calling a settled order unpaid is worse than no status at all.
+	payment_status = payment_status_label(method, payments_received([order.name]).get(order.name), order.grand_total)
 	return {
 		"returns": returns.summary(order.name),
 		"name": order.name,
@@ -90,6 +96,7 @@ def order_summary(order) -> dict:
 		"grand_total": order.grand_total,
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
 		"payment_method": method,
+		"payment_status": payment_status,
 		"advance_payment": advance_payment_info(order),
 		"raast": raast_payment_info(order),
 		"pickup_location": pickup_location_info(order),
@@ -154,7 +161,7 @@ def raast_payment_info(order) -> dict | None:
 	"""Raast QR block for the confirmation page; None unless the customer chose it.
 
 	The QR, the copyable account details and the download link all come from
-	one encoder so the tile can never show a code that disagrees with the
+	one encoder so the panel can never show a code that disagrees with the
 	account it names.
 	"""
 	from shop import payments

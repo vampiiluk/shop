@@ -3323,35 +3323,81 @@ def confirmation_blocks(refs):
 		name="Pickup Tile",
 		visibilityCondition={"key": "order.pickup_location", "comesFrom": "dataScript"},
 	)
-	# Raast pays the whole order in one scan, so it gets the full panel width
-	# and its own action row. Copy matters as much as the QR: the customer who
-	# opened this page on the very phone they bank from cannot point that phone
-	# at its own screen, so the IBAN and a paste-ready transfer note have to be
-	# one tap away, with the image downloadable for the same reason.
-	# Two columns: the transfer details with their copy buttons on the left,
-	# the code and its download on the right. The customer who opened this
-	# page on the very phone they bank from cannot point that phone at its own
-	# screen, so the IBAN and a paste-ready transfer note have to be one tap
-	# away, and the image downloadable for the same reason.
+	# Raast pays the whole order in one scan, so it leaves the information
+	# grid for a panel of its own directly under the total. It is not one
+	# status among several — it is the single thing this page asks the
+	# customer to do — so it is inverted against the paper panel: amount
+	# first, the account under it, the code framed in white on the right.
+	# Secondary text is the paper colour at a lower opacity rather than the
+	# muted token, because muted is mixed for a light surface and falls out
+	# of readable contrast once the panel flips to its dark-mode value,
+	# while translucent paper holds on both sides of that flip.
+	soft = lambda opacity: {"color": refs["paper"], "height": "fit-content", "opacity": str(opacity), "width": "100%"}
+	payment_rule = lambda: block(
+		"div", styles={"backgroundColor": refs["paper"], "height": "1px", "opacity": "0.16", "width": "100%"}
+	)
+	# On a dark panel the fill itself carries the weight, so the solid
+	# treatment marks the one action that settles the payment and the
+	# outline takes the secondary — the mirror of the paper panels above.
+	payment_button = lambda text, solid, **extra: block(
+		"button",
+		text=text,
+		styles={
+			"backgroundColor": refs["paper"] if solid else "transparent",
+			"borderColor": refs["paper"],
+			"borderRadius": "999px",
+			"borderStyle": "solid",
+			"borderWidth": "1px",
+			"color": refs["ink"] if solid else refs["paper"],
+			"flexBasis": "0",
+			"flexGrow": "1",
+			"fontFamily": MONO,
+			"fontSize": "11px",
+			"height": "fit-content",
+			"letterSpacing": "0.14em",
+			"minWidth": "150px",
+			"padding": "13px 24px",
+			"textAlign": "center",
+			"textTransform": "uppercase",
+		},
+		**extra,
+	)
+	# Copy matters as much as the QR: the customer reading this on the very
+	# phone they bank from cannot point that phone at its own screen, so the
+	# IBAN and a paste-ready transfer note have to be one tap away.
 	raast_copy = block(
 		"div",
-		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "8px", "width": "100%"},
+		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "10px", "width": "100%"},
 		children=[
-			pill(
-				refs,
+			payment_button(
 				"Copy IBAN",
-				attrs={"data-shop": "raast-copy"},
+				solid=True,
+				attrs={"type": "button", "data-shop": "raast-copy"},
 				dynamicValues=[dv("order.raast.copy_iban", "data-copy", "attribute")],
 				visibilityCondition={"key": "order.raast.copy_iban", "comesFrom": "dataScript"},
 			),
-			pill(
-				refs,
+			payment_button(
 				"Copy details",
-				variant="outline",
-				attrs={"data-shop": "raast-copy"},
+				solid=False,
+				attrs={"type": "button", "data-shop": "raast-copy"},
 				dynamicValues=[dv("order.raast.copy_details", "data-copy", "attribute")],
 				visibilityCondition={"key": "order.raast.copy_details", "comesFrom": "dataScript"},
 			),
+		],
+	)
+	payment_detail = lambda label_text, value_styles, key: block(
+		"div",
+		styles={"display": "flex", "flexDirection": "column", "gap": "5px", "width": "100%"},
+		# The label goes with the value: a heading left behind over an empty
+		# row whenever the account is not configured reads as a bug.
+		visibilityCondition={"key": key, "comesFrom": "dataScript"},
+		children=[
+			block(
+				"p",
+				text=label_text,
+				styles={**mono(size="9px", color=refs["paper"], spacing="0.16em"), "opacity": "0.6"},
+			),
+			block("p", text="", styles=value_styles, dynamicValues=[dv(key, "innerHTML")]),
 		],
 	)
 	# An anchor inherits reset.css's underline and link colour unless told
@@ -3364,7 +3410,7 @@ def confirmation_blocks(refs):
 		attrs={"download": "", "data-shop": "raast-download", "href": "#"},
 		styles={
 			"backgroundColor": f"{refs['paper']} !important",
-			"borderColor": refs["ink"],
+			"borderColor": refs["paper"],
 			"borderRadius": "999px",
 			"borderStyle": "solid",
 			"borderWidth": "1px",
@@ -3374,11 +3420,11 @@ def confirmation_blocks(refs):
 			"fontSize": "11px",
 			"height": "fit-content",
 			"letterSpacing": "0.14em",
-			"padding": "14px 28px",
+			"padding": "13px 24px",
 			"textAlign": "center",
 			"textDecoration": "none !important",
 			"textTransform": "uppercase",
-			"width": "fit-content",
+			"width": "100%",
 		},
 		dynamicValues=[
 			dv("order.raast.qr_data_url", "href", "attribute"),
@@ -3386,58 +3432,125 @@ def confirmation_blocks(refs):
 		],
 		visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
 	)
-	raast_tile = inset(
-		refs,
-		[
-			block("p", text="Raast payment", styles=mono(size="10px", color=refs["ink"], spacing="0.14em")),
-			tile_body(
-				"",
-				dynamicValues=[dv("order.raast.line", "innerHTML")],
-				visibilityCondition={"key": "order.raast.line", "comesFrom": "dataScript"},
-			),
+	payment_section = block(
+		"div",
+		name="Payment Section",
+		styles={
+			"backgroundColor": refs["ink"],
+			"borderRadius": "16px",
+			"display": "flex",
+			"flexDirection": "column",
+			"gap": "18px",
+			"padding": "26px",
+			"width": "100%",
+		},
+		mobile={"padding": "20px 16px"},
+		visibilityCondition={"key": "order.raast", "comesFrom": "dataScript"},
+		children=[
+			# What this panel is, and where the money stands. The chip is
+			# bound to the ledger rather than hardcoded so it reads Paid on
+			# its own once the transfer has been recorded.
 			block(
 				"div",
-				name="Raast Columns",
+				styles={
+					"alignItems": "center",
+					"display": "flex",
+					"flexDirection": "row",
+					"flexWrap": "wrap",
+					"gap": "10px",
+					"justifyContent": "space-between",
+					"width": "100%",
+				},
+				children=[
+					block("p", text="Raast payment", styles=mono(size="10px", color=refs["paper"], spacing="0.18em")),
+					block(
+						"p",
+						text="Unpaid",
+						styles={
+							**mono(size="9px", color=refs["paper"], spacing="0.14em"),
+							"borderColor": refs["paper"],
+							"borderRadius": "999px",
+							"borderStyle": "solid",
+							"borderWidth": "1px",
+							"opacity": "0.75",
+							"padding": "5px 12px",
+						},
+						dynamicValues=[dv("order.payment_status", "innerHTML")],
+					),
+				],
+			),
+			payment_rule(),
+			block(
+				"div",
+				name="Payment Columns",
 				styles={
 					"alignItems": "start",
 					"display": "grid",
-					"gap": "20px",
-					"gridTemplateColumns": "minmax(0, 1fr) minmax(0, 260px)",
+					"gap": "28px",
+					"gridTemplateColumns": "minmax(0, 1fr) minmax(0, 288px)",
 					"width": "100%",
 				},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
+					# Left: what is owed, and where to send it. The amount
+					# leads because it is the figure the customer compares
+					# against the total they have just agreed to.
 					block(
 						"div",
-						styles={"display": "flex", "flexDirection": "column", "gap": "8px", "width": "100%"},
+						styles={"display": "flex", "flexDirection": "column", "gap": "16px", "width": "100%"},
 						children=[
 							block(
 								"p",
 								text="",
-								styles=mono(size="18px", weight="600", color=refs["ink"], spacing="0.02em", upper=False),
+								styles={
+									"color": refs["paper"],
+									"fontFamily": HEAD,
+									"fontSize": "34px",
+									"fontWeight": "500",
+									"height": "fit-content",
+									"letterSpacing": "-0.02em",
+									"lineHeight": "1.1",
+									"width": "100%",
+								},
+								mobile={"fontSize": "26px"},
 								dynamicValues=[dv("order.raast.formatted_amount", "innerHTML")],
 							),
 							block(
 								"p",
 								text="",
-								styles={"fontSize": "13px", "fontWeight": "600", "height": "fit-content", "width": "100%"},
-								dynamicValues=[dv("order.raast.account_title", "innerHTML")],
-								visibilityCondition={"key": "order.raast.account_title", "comesFrom": "dataScript"},
+								styles={**soft(0.72), "fontSize": "13px", "lineHeight": "1.6"},
+								dynamicValues=[dv("order.raast.line", "innerHTML")],
+								visibilityCondition={"key": "order.raast.line", "comesFrom": "dataScript"},
 							),
-							block(
-								"p",
-								text="",
-								styles=mono(size="12px", weight="600", color=refs["ink"], spacing="0.06em", upper=False),
-								dynamicValues=[dv("order.raast.iban", "innerHTML")],
-								visibilityCondition={"key": "order.raast.iban", "comesFrom": "dataScript"},
+							payment_rule(),
+							payment_detail(
+								"Account title",
+								{
+									"color": refs["paper"],
+									"fontSize": "16px",
+									"fontWeight": "600",
+									"height": "fit-content",
+									"letterSpacing": "-0.01em",
+									"width": "100%",
+								},
+								"order.raast.account_title",
+							),
+							payment_detail(
+								"IBAN",
+								{**mono(size="14px", weight="500", color=refs["paper"], spacing="0.06em", upper=False), "width": "100%"},
+								"order.raast.iban",
 							),
 							raast_copy,
 						],
 					),
+					# Right: the code in a slip of white so it can be scanned
+					# straight off the screen, with the download under it for
+					# the customer reading this on the same phone they would
+					# have to bank from.
 					block(
 						"div",
 						styles={
-							"alignItems": "flex-start",
+							"alignItems": "center",
 							"display": "flex",
 							"flexDirection": "column",
 							"gap": "12px",
@@ -3445,36 +3558,58 @@ def confirmation_blocks(refs):
 						},
 						children=[
 							block(
-								"img",
-								attrs={"alt": "Raast payment QR code"},
+								"div",
 								styles={
-									"borderRadius": "10px",
-									"display": "block",
-									"flexShrink": "0",
-									"height": "auto",
-									"maxWidth": "240px",
-									"width": "100%",
+									"alignItems": "center",
+									"backgroundColor": refs["paper"],
+									"borderRadius": "12px",
+									"display": "flex",
+									"justifyContent": "center",
+									"padding": "12px",
+									"width": "fit-content",
 								},
-								dynamicValues=[dv("order.raast.qr_data_url", "src", "attribute")],
-								visibilityCondition={"key": "order.raast.qr_data_url", "comesFrom": "dataScript"},
+								children=[
+									block(
+										"img",
+										attrs={"alt": "Raast payment QR code"},
+										styles={
+											"borderRadius": "6px",
+											"display": "block",
+											"flexShrink": "0",
+											"height": "auto",
+											"maxWidth": "100%",
+											"width": "240px",
+										},
+										# The screen shows the bare code — the
+										# captioned card is for the download,
+										# where the picture outlives the page.
+										dynamicValues=[dv("order.raast.qr_plain_url", "src", "attribute")],
+										visibilityCondition={"key": "order.raast.qr_plain_url", "comesFrom": "dataScript"},
+									),
+								],
 							),
 							raast_download,
 						],
 					),
 				],
 			),
+			# The instructions take a rule of their own so they read as the
+			# footnote they are, and go with it when none is configured.
 			block(
-				"p",
-				text="",
-				styles={"color": refs["muted"], "fontSize": "12px", "height": "fit-content", "lineHeight": "1.55", "marginTop": "4px", "width": "100%"},
-				dynamicValues=[dv("order.raast.instructions", "innerHTML")],
+				"div",
+				styles={"display": "flex", "flexDirection": "column", "gap": "12px", "width": "100%"},
 				visibilityCondition={"key": "order.raast.instructions", "comesFrom": "dataScript"},
+				children=[
+					payment_rule(),
+					block(
+						"p",
+						text="",
+						styles={**soft(0.72), "fontSize": "12px", "lineHeight": "1.6"},
+						dynamicValues=[dv("order.raast.instructions", "innerHTML")],
+					),
+				],
 			),
 		],
-		name="Raast Tile",
-		styles={"gridColumn": "span 2"},
-		mobile={"gridColumn": "span 1"},
-		visibilityCondition={"key": "order.raast", "comesFrom": "dataScript"},
 	)
 	order_panel = panel(
 		refs,
@@ -3519,14 +3654,15 @@ def confirmation_blocks(refs):
 					money_row(refs, "Total", bound_key="order.formatted_grand_total", strong=True),
 				],
 			),
+			# Straight under the total: the figure the panel asks for is the
+			# figure the customer just read, and nothing else competes for
+			# the eye between the two.
+			payment_section,
 			block(
 				"div",
 				styles={"display": "grid", "gap": "12px", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "width": "100%"},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
-					# Raast is what the customer came back here to act on, so it
-					# sits above the shipment tiles rather than underneath them.
-					raast_tile,
 					delivery_tile,
 					advance_tile,
 					pickup_tile,

@@ -295,6 +295,23 @@ def qr_data_url(payload: str, headline: str = "", lines=()) -> str:
 	return _png_url(out.getvalue())
 
 
+def qr_plain_url(payload: str) -> str:
+	"""PNG data URL of the code on its own, for the confirmation page.
+
+	Same payload and error correction as the captioned card, without the
+	caption: on screen every line the card prints is already on the panel
+	in real text, so the picture would only be saying it twice — and a
+	bare square in its quiet zone is exactly what a scanner wants to
+	find. The caption stays on the download, which is the copy of this
+	image that outlives the page.
+	"""
+	if not payload or segno is None:
+		return ""
+	qr = io.BytesIO()
+	segno.make(payload, error="h").save(qr, kind="png", scale=14, border=4)
+	return _png_url(qr.getvalue())
+
+
 def configured(settings=None) -> bool:
 	"""Whether the method may be offered at all: switched on, a QR encoder
 	available, and an IBAN that actually passes the checksum."""
@@ -307,7 +324,7 @@ def payment_context(order, settings=None) -> dict | None:
 
 	Degrades rather than fails: an IBAN cleared after the order was placed
 	leaves the amount and instructions visible with no QR, so the customer is
-	still told what they owe instead of finding an empty tile.
+	still told what they owe instead of finding an empty panel.
 	"""
 	if (order.get("custom_payment_method") or "cod") != "raast":
 		return None
@@ -322,9 +339,10 @@ def payment_context(order, settings=None) -> dict | None:
 	instructions = (settings.raast_payment_instructions or "").strip() or None
 
 	if valid:
-		line = _("Scan the code with your banking app to pay {0} in full. Your order ships once the transfer lands.").format(
-			formatted_amount
-		)
+		# The amount is the headline of the payment panel now, so this line
+		# says what to do with the code instead of repeating the figure
+		# directly above it.
+		line = _("Scan the code with your banking app to pay in full. Your order ships once the transfer lands.")
 	else:
 		# No usable account to point at (the IBAN row is hidden below, and a
 		# bad one must never be shown), so do not promise an account the page
@@ -358,6 +376,9 @@ def payment_context(order, settings=None) -> dict | None:
 				if part
 			],
 		),
+		# The bare code for the page itself; the captioned one above is what
+		# the download hands over.
+		"qr_plain_url": qr_plain_url(payload),
 		"order": order.name,
 		# "Copy IBAN" is the raw value so a bank app's paste field accepts it
 		# without stray spaces; "Copy details" is the block a person pastes
