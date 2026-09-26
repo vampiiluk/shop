@@ -164,6 +164,15 @@ a[data-active="true"] {{
 	text-transform: uppercase;
 }}
 .progress-stage[data-done="true"] .stage-label {{ color: {refs["ink"]}; }}
+/* The confirmation page's info tiles share one two-column grid. A block
+   hidden by a visibility condition is never rendered, so :nth-child counts
+   only the tiles this order has — an odd count would otherwise strand the
+   last one beside an empty cell. The grid collapses to one column on the
+   phone, where there is no neighbour to fill. */
+.order-tiles > *:last-child:nth-child(odd) {{ grid-column: span 2; }}
+@media (max-width: 576px) {{
+	.order-tiles > *:last-child:nth-child(odd) {{ grid-column: span 1; }}
+}}
 [data-shop="cart-drawer"] {{
 	position: fixed;
 	inset: 0;
@@ -3685,37 +3694,30 @@ def confirmation_blocks(refs):
 			payment_section,
 			block(
 				"div",
+				name="Order Tiles",
+				classes=["order-tiles"],
 				styles={"display": "grid", "gap": "12px", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))", "width": "100%"},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
 					delivery_tile,
 					advance_tile,
 					pickup_tile,
-					# Shipping and Receipt get a row of their own. Left to the
-					# main grid they would each strand an empty cell whenever the
-					# conditional tiles above them are hidden — which for a Raast
-					# order is all of them.
-					block(
-						"div",
-						name="Notes Row",
-						styles={
-							"display": "grid",
-							"gap": "12px",
-							"gridColumn": "span 2",
-							"gridTemplateColumns": "repeat(2, minmax(0, 1fr))",
-							"width": "100%",
-						},
-						mobile={"gridColumn": "span 1", "gridTemplateColumns": "minmax(0, 1fr)"},
-						children=[
-							info_tile(
-								"Shipping",
-								"Your order ships in 48 hours. We will email you the tracking number.",
-								name="Shipping Tile",
-								visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
-							),
-							info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
-						],
+					# One grid for every tile, so the grid stays filled. The
+					# notes used to sit in a row of their own, which forced a
+					# break the moment any conditional tile rendered — a
+					# pickup order put Receipt alone on a second row, under
+					# the empty half beside Pickup. A block hidden by a
+					# visibility condition is not rendered at all, so the
+					# children here are exactly the tiles this order has, and
+					# .order-tiles stretches the last of them across the row
+					# whenever that count comes out odd.
+					info_tile(
+						"Shipping",
+						"Your order ships in 48 hours. We will email you the tracking number.",
+						name="Shipping Tile",
+						visibilityCondition={"key": "order.awaiting_shipment", "comesFrom": "dataScript"},
 					),
+					info_tile("Receipt", "A confirmation for this order has been sent to your email address."),
 				],
 			),
 			block(
