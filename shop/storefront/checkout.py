@@ -342,17 +342,16 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 def _receipt_from() -> tuple[str | None, str | None]:
 	"""The From line a receipt travels under, and the domain it signs as.
 
-	The outgoing account is named for the desk that answers it, so a receipt
-	lands as "Support" — a stranger, to an inbox that has never heard from
-	the store. The order page calls the sender by the store's name and the
-	mail does the same, on the account's own address; the account itself is
-	left exactly as it was. Message-Id would otherwise be stamped with the
-	site host, a third domain that matches neither the store nor the address
-	in the From line, and the inbox comparing the two finds a mismatch.
+	The name is whatever the Email Account is called on its own desk page —
+	that field is the one place to say who the mail is from, and the receipt
+	reads it from there instead of taking the name off the store, so
+	renaming the account renames the receipt too. Message-Id would otherwise
+	be stamped with the site host, a third domain matching neither the
+	account nor the address in the From line, and the inbox comparing the
+	two finds a mismatch.
 	"""
-	from email.utils import formataddr, parseaddr
+	from email.utils import parseaddr
 
-	name = ((frappe.get_cached_doc("Shop Settings").store_name or "").strip()) or _("our store")
 	try:
 		from frappe.email.doctype.email_account.email_account import EmailAccount
 
@@ -363,7 +362,7 @@ def _receipt_from() -> tuple[str | None, str | None]:
 	address = getattr(account, "email_id", None)
 	if not address:
 		return None, None
-	return formataddr((name, address), charset="utf-8"), parseaddr(address)[1].rsplit("@", 1)[-1]
+	return account.default_sender, parseaddr(address)[1].rsplit("@", 1)[-1]
 
 
 def _receipt_message_id(domain: str) -> str:
