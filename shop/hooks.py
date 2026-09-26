@@ -58,6 +58,11 @@ doc_events = {
 	},
 }
 
+# Called as every outgoing message is built, before the queue freezes it —
+# the receipt's Date, and the filename that would turn its inline QR into an
+# attachment the reader has to open instead of scan.
+make_email_body_message = ["shop.storefront.checkout.tune_outgoing_email"]
+
 custom_fields = {
 	"Coupon Code": [
 		{

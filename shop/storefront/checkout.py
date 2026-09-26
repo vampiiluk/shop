@@ -339,11 +339,49 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 	return response
 
 
+def _receipt_from() -> tuple[str | None, str | None]:
+	"""The From line a receipt travels under, and the domain it signs as.
+
+	The outgoing account is named for the desk that answers it, so a receipt
+	lands as "Support" — a stranger, to an inbox that has never heard from
+	the store. The order page calls the sender by the store's name and the
+	mail does the same, on the account's own address; the account itself is
+	left exactly as it was. Message-Id would otherwise be stamped with the
+	site host, a third domain that matches neither the store nor the address
+	in the From line, and the inbox comparing the two finds a mismatch.
+	"""
+	from email.utils import formataddr, parseaddr
+
+	name = ((frappe.get_cached_doc("Shop Settings").store_name or "").strip()) or _("our store")
+	try:
+		from frappe.email.doctype.email_account.email_account import EmailAccount
+
+		account = EmailAccount.find_default_outgoing()
+	except Exception:
+		account = None
+
+	address = getattr(account, "email_id", None)
+	if not address:
+		return None, None
+	return formataddr((name, address), charset="utf-8"), parseaddr(address)[1].rsplit("@", 1)[-1]
+
+
+def _receipt_message_id(domain: str) -> str:
+	"""A Message-Id unique to this receipt, on the address it is sent from."""
+	import random
+	import time
+
+	return f"{int(time.time())}.{random.getrandbits(48):012x}@{domain}"
+
+
 def queue_confirmation_email(sales_order, email: str, confirmation_url: str):
 	try:
 		message, inline_images = confirmation_email(sales_order, confirmation_url)
+		sender, domain = _receipt_from()
 		frappe.sendmail(
 			recipients=[email],
+			sender=sender,
+			message_id=_receipt_message_id(domain) if domain else None,
 			subject=_("Receipt for order {0}").format(sales_order.name),
 			message=message,
 			inline_images=inline_images,
@@ -352,6 +390,46 @@ def queue_confirmation_email(sales_order, email: str, confirmation_url: str):
 		)
 	except Exception:
 		frappe.log_error(title="Order confirmation email failed")
+
+
+def tune_outgoing_email(message) -> None:
+	"""Two corrections an app can make while a message is being built.
+
+	Date: the standard library stamps `-0000`, which RFC 5322 reads as "the
+	local time is unknown" — the signature of a machine-assembled message.
+	This clock is UTC and the message knows it, so it can say so.
+
+	Inline images: the QR is addressed by its Content-ID, but the filename
+	carried on the part is what makes an inbox file the picture beside the
+	message as an attachment — a code the reader has to open rather than
+	scan. The name goes; the cid stays, so the image still lands in the
+	panel it was drawn for. Everything else about the headers belongs to
+	Frappe.
+	"""
+	root = message.msg_root
+
+	try:
+		date = root.get("Date")
+		if date and date.endswith("-0000"):
+			root.replace_header("Date", date[:-5] + "+0000")
+	except Exception:
+		frappe.logger("email").warning("could not correct the Date header", exc_info=True)
+
+	try:
+		for part in _mime_parts(root):
+			if part.get_content_disposition() == "inline" and part.get_filename():
+				part.replace_header("Content-Disposition", "inline")
+	except Exception:
+		frappe.logger("email").warning("could not drop inline image filenames", exc_info=True)
+
+
+def _mime_parts(part):
+	"""Every leaf part of a message, depth first."""
+	if part.is_multipart():
+		for sub in part.get_payload() or []:
+			yield from _mime_parts(sub)
+	else:
+		yield part
 
 
 # An inbox keeps no stylesheet and runs no script, so the receipt is built
