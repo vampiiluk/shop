@@ -41,10 +41,10 @@
   "advance_payment_mode",
   "advance_payment_percent",
   "advance_payment_flat",
-  "advance_payment_instructions",
   "enable_raast_qr",
   "raast_iban",
   "raast_account_title",
+  "raast_bank_name",
   "raast_payment_instructions",
   "coupons_section",
   "custom_sync_coupons_to_pos",
@@ -285,7 +285,7 @@
   },
   {
    "default": "0",
-   "description": "Offer a partial prepayment at checkout: the customer transfers a fixed percent or flat amount to your account, the order ships once you record it, and the courier collects the balance on delivery.",
+   "description": "Offer a partial prepayment at checkout: the customer pays this percent or flat amount up front by scanning the Raast QR code, the order ships once you record it, and the courier collects the balance on delivery.",
    "fieldname": "enable_advance_payment",
    "fieldtype": "Check",
    "label": "Enable Advance Payment"
@@ -315,14 +315,6 @@
    "non_negative": 1
   },
   {
-   "depends_on": "eval:doc.enable_advance_payment",
-   "description": "Your bank / wallet account details. Shown to the customer on the order confirmation page until the advance is received.",
-   "fieldname": "advance_payment_instructions",
-   "fieldtype": "Small Text",
-   "label": "Advance Payment Instructions",
-   "rows": 3
-  },
-  {
    "default": "0",
    "description": "Offer Raast QR at checkout: the customer scans a code with their banking app and pays the full order total in one transfer. Needs a valid IBAN below before the method appears.",
    "fieldname": "enable_raast_qr",
@@ -345,10 +337,17 @@
   },
   {
    "depends_on": "eval:doc.enable_raast_qr",
-   "description": "Optional note shown under the QR — for example how quickly the order ships once the transfer lands.",
+   "description": "Leave blank to name the bank from the IBAN itself (MEZN → Meezan Bank Limited). Type a name only when the confirmation page should say something else.",
+   "fieldname": "raast_bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "depends_on": "eval:doc.enable_raast_qr",
+   "description": "Shown under the QR on the order confirmation page, and at checkout when the customer picks Advance payment.",
    "fieldname": "raast_payment_instructions",
    "fieldtype": "Small Text",
-   "label": "Raast Payment Instructions",
+   "label": "Advance Payment Instructions",
    "rows": 3
   },
   {

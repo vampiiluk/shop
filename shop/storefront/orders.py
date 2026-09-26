@@ -134,7 +134,10 @@ def advance_payment_info(order) -> dict | None:
 	courier = max(total - max(received, min(advance, total)), 0.0)
 	due_now = max(advance - received, 0.0)
 	settings = frappe.get_cached_doc("Shop Settings")
-	instructions = (settings.advance_payment_instructions or "").strip() or None
+	# One instructions field now: Settings labels it "Advance payment
+	# instructions" and the same text serves whichever way the customer is
+	# paying the advance — by QR, or by transfer when no QR can be built.
+	instructions = (settings.raast_payment_instructions or "").strip() or None
 	if received <= 0:
 		line = _(
 			"Advance due: {0} — pay to the account below and your order ships. The courier collects {1} on delivery."
@@ -218,10 +221,10 @@ def order_progress(order, shipment: dict | None) -> list[dict]:
 		if not paid and method == "advance":
 			payment_label = _("Advance pending")
 		elif not paid and method == "raast":
-			# Raast is settled by scanning the QR, never on delivery: naming it
-			# here stops the customer waiting for a courier to collect money
-			# they owe before the order ships.
-			payment_label = _("Awaiting Raast payment")
+			# Settled by scanning the QR, never on delivery: naming the
+			# advance rather than the transfer stops the customer waiting
+			# for a courier to collect money they owe before the order ships.
+			payment_label = _("Awaiting advance payment")
 		else:
 			payment_label = (
 				_("Paid") if paid or expects_online_payment(order.name) else _("Payment on delivery")

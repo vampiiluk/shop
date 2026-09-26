@@ -125,7 +125,7 @@
 				<Switch
 					v-model="payments.enable_advance_payment"
 					label="Advance payment"
-					description="Take part of the order up front (percent or flat amount); the courier collects the balance on delivery."
+					description="One option at checkout: the customer pays this percent or flat amount up front by scanning a Raast QR code, and the courier collects the balance on delivery. A valid IBAN below is what makes the QR appear."
 				/>
 				<template v-if="payments.enable_advance_payment">
 					<FormControl
@@ -155,21 +155,6 @@
 						class="max-w-sm"
 					/>
 					<FormControl
-						v-model="payments.advance_payment_instructions"
-						type="textarea"
-						:rows="3"
-						label="Advance payment instructions"
-						description="Bank or wallet details shown next to the advance due on the order confirmation page."
-						class="max-w-md"
-					/>
-				</template>
-				<Switch
-					v-model="payments.enable_raast_qr"
-					label="Raast QR"
-					description="Offer a QR at checkout that pays the whole order in one transfer to your account. Customers only see it once a valid IBAN is saved below."
-				/>
-				<template v-if="payments.enable_raast_qr">
-					<FormControl
 						v-model="payments.raast_iban"
 						label="Raast IBAN"
 						description="The 24-character Pakistani IBAN (PK..) the QR pays into. Spaces are stripped and the checksum verified on save, so a typo cannot ship a code pointing at the wrong account."
@@ -182,11 +167,17 @@
 						class="max-w-sm"
 					/>
 					<FormControl
+						v-model="payments.raast_bank_name"
+						label="Bank name"
+						description="Leave blank and the bank is named from the IBAN itself (MEZN → Meezan Bank Limited). Type a name only when the confirmation page should say something else."
+						class="max-w-sm"
+					/>
+					<FormControl
 						v-model="payments.raast_payment_instructions"
 						type="textarea"
 						:rows="3"
-						label="Raast payment instructions"
-						description="Optional note shown under the QR — for example how quickly the order ships once the transfer lands."
+						label="Advance payment instructions"
+						description="Shown under the QR on the order confirmation page, and at checkout when this option is picked."
 						class="max-w-md"
 					/>
 				</template>
@@ -194,7 +185,7 @@
 					<Button
 						variant="solid"
 						:loading="saving === 'payments'"
-						@click="saveSection('payments', payments)"
+						@click="savePayments"
 					>
 						Save
 					</Button>
@@ -668,10 +659,10 @@ const payments = reactive({
 	advance_payment_mode: 'Percent',
 	advance_payment_percent: 20,
 	advance_payment_flat: 0,
-	advance_payment_instructions: '',
 	enable_raast_qr: false,
 	raast_iban: '',
 	raast_account_title: '',
+	raast_bank_name: '',
 	raast_payment_instructions: '',
 })
 const shipping = reactive({ flat_shipping_rate: 0, free_shipping_above: 0, shipping_account: '' })
@@ -776,10 +767,10 @@ function hydrate(doc: Record<string, any>) {
 		advance_payment_mode: doc.advance_payment_mode === 'Flat' ? 'Flat' : 'Percent',
 		advance_payment_percent: doc.advance_payment_percent ?? 20,
 		advance_payment_flat: doc.advance_payment_flat ?? 0,
-		advance_payment_instructions: doc.advance_payment_instructions || '',
 		enable_raast_qr: !!doc.enable_raast_qr,
 		raast_iban: doc.raast_iban || '',
 		raast_account_title: doc.raast_account_title || '',
+		raast_bank_name: doc.raast_bank_name || '',
 		raast_payment_instructions: doc.raast_payment_instructions || '',
 	})
 	Object.assign(shipping, {
@@ -924,6 +915,13 @@ const taxOptions = computed(() => [
 
 function listOptions(names?: string[]) {
 	return (names || []).map((name) => ({ label: name, value: name }))
+}
+
+// One switch runs this whole block now, so the Raast QR flag follows
+// the advance setting — the two are a single option at checkout.
+function savePayments() {
+	payments.enable_raast_qr = payments.enable_advance_payment
+	saveSection('payments', payments)
 }
 
 async function saveSection(section: string, payload: Record<string, any>) {

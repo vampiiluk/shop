@@ -369,6 +369,9 @@ def store_details() -> dict:
 		for c in (getattr(settings, "cod_allowed_cities", None) or "").split(",")
 		if c.strip()
 	]
-	result["advance_instructions"] = (settings.advance_payment_instructions or "").strip() or None
+	# The single instructions field serves both notes: the advance row only
+	# survives where no QR can be built, and there is nothing else left to
+	# hand the customer in that case.
+	result["advance_instructions"] = (settings.raast_payment_instructions or "").strip() or None
 	result["raast_instructions"] = (settings.raast_payment_instructions or "").strip() or None
 	return result

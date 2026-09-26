@@ -12,7 +12,11 @@ SETTING_FIELDS = (
 	"advance_payment_mode",
 	"advance_payment_percent",
 	"advance_payment_flat",
-	"advance_payment_instructions",
+	"raast_payment_instructions",
+	"enable_raast_qr",
+	"raast_iban",
+	"raast_account_title",
+	"raast_bank_name",
 	"enable_fraud_check",
 	"enable_cod",
 	"cod_allowed_cities",
@@ -47,7 +51,12 @@ class TestAdvancePayment(IntegrationTestCase):
 				"advance_payment_mode": mode,
 				"advance_payment_percent": percent,
 				"advance_payment_flat": flat,
-				"advance_payment_instructions": instructions,
+				"raast_payment_instructions": instructions,
+				# Advance and Raast QR are one option, so pin the QR side
+				# here instead of inheriting whatever the site has on.
+				"enable_raast_qr": 1,
+				"raast_iban": "PK61MEZN0012030105593061",
+				"raast_account_title": "Adv Ance",
 				# deterministic checkout: no fraud calls, no surprise shipping
 				"enable_fraud_check": 0,
 				"auto_send_to_fulfillment": 0,
@@ -65,7 +74,7 @@ class TestAdvancePayment(IntegrationTestCase):
 				"advance_payment_mode": "Flat",
 				"advance_payment_flat": 250,
 				"advance_payment_percent": 35,
-				"advance_payment_instructions": "Test account 0000",
+				"raast_payment_instructions": "Test account 0000",
 				"cod_allowed_cities": "Rahimyarkhan",
 			}
 		)
@@ -73,7 +82,7 @@ class TestAdvancePayment(IntegrationTestCase):
 		self.assertEqual(updated["advance_payment_mode"], "Flat")
 		self.assertEqual(flt(updated["advance_payment_flat"]), 250.0)
 		self.assertEqual(updated["advance_payment_percent"], 35)
-		self.assertEqual(updated["advance_payment_instructions"], "Test account 0000")
+		self.assertEqual(updated["raast_payment_instructions"], "Test account 0000")
 		self.assertEqual(updated["cod_allowed_cities"], "Rahimyarkhan")
 		# Unknown basis values fall back to Percent instead of persisting.
 		reverted = settings_api.save_settings({"advance_payment_mode": "Bogus"})
@@ -91,23 +100,25 @@ class TestAdvancePayment(IntegrationTestCase):
 		_, methods = self.methods()
 		self.assertNotIn("advance", methods)
 
-	def test_summary_shows_percent_advance_with_split(self):
+	def test_summary_shows_percent_advance_in_the_merged_option(self):
 		cart.add_item("SHOP-DEMO-003")
 		summary, methods = self.methods()
-		self.assertIn("advance", methods)
+		# Advance and Raast QR are one row: same split, same promise.
+		self.assertIn("raast", methods)
+		self.assertNotIn("advance", methods)
 		total = summary["cart"]["total"]
 		self.assertGreater(total, 0)
-		self.assertAlmostEqual(methods["advance"]["advance_amount"], total * 0.20, places=2)
-		self.assertAlmostEqual(methods["advance"]["balance_amount"], total * 0.80, places=2)
-		self.assertIn("on delivery", methods["advance"]["label"])
+		self.assertAlmostEqual(methods["raast"]["advance_amount"], total * 0.20, places=2)
+		self.assertAlmostEqual(methods["raast"]["balance_amount"], total * 0.80, places=2)
+		self.assertIn("on delivery", methods["raast"]["label"])
 
 	def test_summary_flat_amount_clamped_to_total(self):
 		self.configure_advance(mode="Flat", flat=999999)
 		cart.add_item("SHOP-DEMO-003")
 		summary, methods = self.methods()
-		self.assertEqual(methods["advance"]["advance_amount"], summary["cart"]["total"])
-		self.assertEqual(methods["advance"]["balance_amount"], 0)
-		self.assertIn("full", methods["advance"]["label"].lower())
+		self.assertEqual(methods["raast"]["advance_amount"], summary["cart"]["total"])
+		self.assertEqual(methods["raast"]["balance_amount"], 0)
+		self.assertIn("full", methods["raast"]["label"].lower())
 
 	def test_place_order_rejects_disabled_advance(self):
 		self.configure_advance(enabled=0)

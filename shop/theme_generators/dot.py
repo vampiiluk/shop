@@ -3367,7 +3367,7 @@ def confirmation_blocks(refs):
 	# IBAN and a paste-ready transfer note have to be one tap away.
 	raast_copy = block(
 		"div",
-		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "10px", "width": "100%"},
+		styles={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "gap": "10px", "marginTop": "auto", "width": "100%"},
 		children=[
 			payment_button(
 				"Copy IBAN",
@@ -3462,7 +3462,7 @@ def confirmation_blocks(refs):
 					"width": "100%",
 				},
 				children=[
-					block("p", text="Raast payment", styles=mono(size="10px", color=refs["paper"], spacing="0.18em")),
+					block("p", text="Advance payment", styles=mono(size="10px", color=refs["paper"], spacing="0.18em")),
 					block(
 						"p",
 						text="Unpaid",
@@ -3484,7 +3484,7 @@ def confirmation_blocks(refs):
 				"div",
 				name="Payment Columns",
 				styles={
-					"alignItems": "start",
+					"alignItems": "stretch",
 					"display": "grid",
 					"gap": "28px",
 					"gridTemplateColumns": "minmax(0, 1fr) minmax(0, 288px)",
@@ -3569,6 +3569,7 @@ def confirmation_blocks(refs):
 							"display": "flex",
 							"flexDirection": "column",
 							"gap": "12px",
+							"justifyContent": "flex-end",
 							"width": "100%",
 						},
 						children=[
@@ -3581,12 +3582,12 @@ def confirmation_blocks(refs):
 									"display": "flex",
 									"justifyContent": "center",
 									"padding": "12px",
-									"width": "fit-content",
+									"width": "100%",
 								},
 								children=[
 									block(
 										"img",
-										attrs={"alt": "Raast payment QR code"},
+										attrs={"alt": "Raast QR code"},
 										styles={
 											"borderRadius": "6px",
 											"display": "block",
@@ -3602,6 +3603,15 @@ def confirmation_blocks(refs):
 										visibilityCondition={"key": "order.raast.qr_plain_url", "comesFrom": "dataScript"},
 									),
 								],
+							),
+							# The scan instruction sits with the code it describes, so
+							# the copy above is free to carry the balance instead of
+							# repeating the same "point your banking app at this" twice.
+							block(
+								"p",
+								text="Raast QR code — scan with banking app",
+								styles={**soft(0.6), "fontSize": "11px", "letterSpacing": "0.06em", "textAlign": "center"},
+								visibilityCondition={"key": "order.raast.qr_plain_url", "comesFrom": "dataScript"},
 							),
 							raast_download,
 						],

@@ -409,7 +409,14 @@ def payment_context(order, settings=None) -> dict | None:
 	payload = build_payload(iban_raw, outstanding) if valid else ""
 	account_title = (settings.raast_account_title or "").strip()
 	instructions = (settings.raast_payment_instructions or "").strip() or None
-	bank = bank_name(iban_raw) or bank_code(iban_raw)
+	# Whichever bank the money is heading for: Settings → Payments wins when
+	# a name has been typed there, otherwise the IBAN names it itself — the
+	# four characters after the PK and check digits are assigned to one bank
+	# by the State Bank, so the number cannot disagree with the label. Only
+	# when the code is one this table has never heard of does the identifier
+	# stand in for a name, which is still true even if it is terse.
+	named = (getattr(settings, "raast_bank_name", None) or "").strip() or bank_name(iban_raw)
+	bank = named or bank_code(iban_raw)
 
 	if not valid:
 		# No usable account to point at (the detail rows below are hidden, and
@@ -440,12 +447,13 @@ def payment_context(order, settings=None) -> dict | None:
 		)
 	elif balance > 0:
 		line = _(
-			"Scan the code to pay {0} now: your order ships once it lands, and the courier collects {1} on delivery."
-		).format(_format_amount(outstanding), _format_amount(balance))
+			"Your order ships once this transfer lands — the courier collects {0} on delivery."
+		).format(_format_amount(balance))
 	else:
-		# The amount is the headline of the payment panel, so this line says
-		# what to do with the code instead of repeating the figure above it.
-		line = _("Scan the code with your banking app to pay in full. Your order ships once the transfer lands.")
+		# The how-to-scan instruction lives under the QR itself now, so this
+		# line carries the only thing the headline amount cannot: what the
+		# customer gets once the money has moved.
+		line = _("Pay in full — your order ships once the transfer lands.")
 
 	return {
 		"configured": 1 if valid else 0,
@@ -453,8 +461,9 @@ def payment_context(order, settings=None) -> dict | None:
 		"amount": amount,
 		"formatted_amount": formatted_amount,
 		"account_title": account_title,
-		# The bank is named from the IBAN itself, so the panel, the caption
-		# under the QR and the number they are both read from cannot disagree.
+		# One name wherever it appears: the panel row, the caption under the
+		# QR and the copy block all read this, so a settings override cannot
+		# leave the page telling the customer two different banks.
 		"bank": bank,
 		"iban": format_iban(iban_raw),
 		"iban_raw": iban_raw,
@@ -468,7 +477,7 @@ def payment_context(order, settings=None) -> dict | None:
 				part
 				for part in (
 					account_title,
-					bank_name(iban_raw) or f"{_('Bank')} {bank_code(iban_raw)}",
+					named or f"{_('Bank')} {bank_code(iban_raw)}",
 					format_iban(iban_raw),
 					f"{_('Order')} {order.name}",
 				)
@@ -493,7 +502,7 @@ def payment_context(order, settings=None) -> dict | None:
 				part
 				for part in (
 					account_title,
-					bank_name(iban_raw) or "",
+					named,
 					format_iban(iban_raw),
 					f"{_('Amount')}: {formatted_amount}",
 					f"{_('Order')}: {order.name}",
