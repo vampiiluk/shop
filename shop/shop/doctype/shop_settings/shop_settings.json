@@ -344,7 +344,7 @@
   },
   {
    "depends_on": "eval:doc.enable_raast_qr",
-   "description": "Shown under the QR on the order confirmation page, and at checkout when the customer picks Advance payment.",
+   "description": "Shown at checkout only, before the order exists: say here that the QR code is generated once the order is placed. It is not repeated on the confirmation page or in the receipt email — by then the code is on screen.",
    "fieldname": "raast_payment_instructions",
    "fieldtype": "Small Text",
    "label": "Advance Payment Instructions",

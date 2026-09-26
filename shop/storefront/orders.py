@@ -133,11 +133,6 @@ def advance_payment_info(order) -> dict | None:
 	# milestone (the recorded advance, or the promised advance if not yet received).
 	courier = max(total - max(received, min(advance, total)), 0.0)
 	due_now = max(advance - received, 0.0)
-	settings = frappe.get_cached_doc("Shop Settings")
-	# One instructions field now: Settings labels it "Advance payment
-	# instructions" and the same text serves whichever way the customer is
-	# paying the advance — by QR, or by transfer when no QR can be built.
-	instructions = (settings.raast_payment_instructions or "").strip() or None
 	if received <= 0:
 		line = _(
 			"Advance due: {0} — pay to the account below and your order ships. The courier collects {1} on delivery."
@@ -148,7 +143,6 @@ def advance_payment_info(order) -> dict | None:
 		)
 	return {
 		"line": line,
-		"instructions": instructions,
 		"advance_amount": advance,
 		"formatted_advance_amount": pricing.format_amount(advance),
 		"due": due_now,

@@ -577,21 +577,10 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		left.append(detail(_("Account title"), raast.get("account_title")))
 		left.append(detail(_("Bank"), raast.get("bank")))
 		left.append(detail(_("Raast IBAN"), raast.get("iban"), mono=True))
-		if raast.get("copy_details"):
-			# What the page's two Copy buttons would have put on the
-			# clipboard, laid out to be selected in one long press instead.
-			transfer_label = _email_style(
-				margin="18px 0 0", font_family=_EMAIL_MONO, font_size="9px", font_weight="600",
-				letter_spacing="0.16em", text_transform="uppercase", color="rgba(255,255,255,0.6)",
-			)
-			transfer_css = _email_style(
-				margin="6px 0 0", padding="12px 14px", border_radius="10px",
-				background_color="rgba(255,255,255,0.07)",
-				border="1px solid rgba(255,255,255,0.18)", font_family=_EMAIL_MONO,
-				font_size="12px", line_height="1.75", white_space="pre-wrap", color="#ffffff",
-			)
-			left.append(f"<p style='{transfer_label}'>{escape(_('Transfer details'))}</p>")
-			left.append(f"<div style='{transfer_css}'>{escape(raast['copy_details'])}</div>")
+		# No transfer block here: the panel repeats what the three rows above
+		# it already say — title, bank, IBAN, with the amount heading the box
+		# and the order number in the headline. The page's paste-ready note
+		# stays where it can be pasted from, behind its Copy buttons.
 		right = []
 		qr_image = ""
 		if raast.get("qr_data_url"):
@@ -623,11 +612,9 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 					f"<p style='{valid_css}'>{escape(_('Valid until {0}').format(raast['valid_until']))}</p>"
 				)
 		foot = []
-		if raast.get("instructions"):
-			foot.append(
-				f"<p style='{_email_style(margin='0', font_size='12px', line_height='1.6', color='rgba(255,255,255,0.72)')}'>"
-				f"{escape(raast['instructions'])}</p>"
-			)
+		# No instructions note here either: that text is checkout's, for the
+		# moment before the order exists. Above this line sits the code it
+		# would be talking about.
 		foot.append(
 			f"<p style='{_email_style(margin='12px 0 0', font_size='12px', line_height='1.6', color='rgba(255,255,255,0.72)')}'>"
 			f"{escape(_('Open your order to copy the account details in one tap or save the QR to your phone.'))}</p>"
@@ -665,11 +652,6 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		line_css = _email_style(margin="6px 0 0", font_size="13px", line_height="1.6", color=_EMAIL_MUTED)
 		parts = [pay_head(title, dark=False), f"<p style='{figure_css}'>{escape(figure)}</p>",
 			f"<p style='{line_css}'>{escape(line)}</p>"]
-		if advance.get("instructions"):
-			parts.append(
-				f"<p style='{_email_style(margin='12px 0 0', font_size='12px', font_weight='600', line_height='1.6', color=_EMAIL_INK)}'>"
-				f"{escape(advance['instructions'])}</p>"
-			)
 		frame = _email_style(
 			background_color=_EMAIL_SOFT, border=f"1px solid {_EMAIL_LINE}",
 			border_radius="16px", padding="18px 20px",
@@ -687,20 +669,25 @@ def confirmation_email(sales_order, confirmation_url: str) -> tuple[str, list[di
 		text_css = _email_style(margin="4px 0 0", font_size="13px", line_height="1.65", color=_EMAIL_MUTED)
 		if location.get("address"):
 			body.append(f"<p style='{text_css}'>{escape(location['address'])}</p>")
-		controls = []
+		# The number reads as a line of the address — under it, not beside
+		# the buttons — and the buttons take the row beneath, the order the
+		# page lists them in: where, how to reach it, how to get there.
 		if location.get("phone"):
-			phone_css = _email_style(display="inline-block", margin="0 14px 10px 0",
-				padding="10px 0", line_height="1.2", font_size="13px", color=_EMAIL_INK,
-				text_decoration="underline")
+			phone_row = _email_style(margin="8px 0 0", font_size="13px", line_height="1.5")
+			phone_css = _email_style(color=_EMAIL_INK, text_decoration="underline")
 			dial = location.get("phone_dial") or f"tel:{location['phone']}"
-			controls.append(f"<a href='{escape(dial)}' style='{phone_css}'>{escape(location['phone'])}</a>")
+			body.append(
+				f"<p style='{phone_row}'><a href='{escape(dial)}' style='{phone_css}'>"
+				f"{escape(location['phone'])}</a></p>"
+			)
+		controls = []
 		if location.get("directions_url"):
 			controls.append(button(_("Get directions"), location["directions_url"], solid=True, small=True))
 		if location.get("whatsapp_url"):
 			controls.append(button(_("WhatsApp"), location["whatsapp_url"], solid=False, small=True))
 		if controls:
 			body.append(
-				f"<p style='{_email_style(margin='12px 0 0', font_size='0')}'>{''.join(controls)}</p>"
+				f"<p style='{_email_style(margin='14px 0 0', font_size='0')}'>{''.join(controls)}</p>"
 			)
 		frame = _email_style(background_color=_EMAIL_SOFT, border=f"1px solid {_EMAIL_LINE}",
 			border_radius="12px", padding="16px 18px")

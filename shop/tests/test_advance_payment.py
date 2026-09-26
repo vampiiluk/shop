@@ -136,13 +136,18 @@ class TestAdvancePayment(IntegrationTestCase):
 		order = frappe.get_doc("Sales Order", result["sales_order"])
 		self.assertEqual(order.custom_payment_method, "advance")
 		self.assertGreater(flt(order.custom_advance_amount), 0)
-		# confirmation page carries the advance block + account instructions
+		# confirmation page carries the advance block, but not the
+		# instructions: that note is checkout's, for the moment before the
+		# order exists — by the time this page is drawn the account details
+		# are already on it. Checkout still gets the note.
 		from shop.storefront import orders as store_orders
+		from shop.storefront import page_data
 
 		token = frappe.db.get_value("Shop Cart", {"sales_order": order.name}, "token")
 		page = store_orders.get_order_summary(order.name, token)
 		self.assertTrue(page["advance_payment"])
-		self.assertIn("Meezan", page["advance_payment"]["instructions"])
+		self.assertNotIn("instructions", page["advance_payment"])
+		self.assertIn("Meezan", page_data.store_details()["advance_instructions"])
 		self.assertAlmostEqual(
 			page["advance_payment"]["balance"],
 			flt(order.grand_total) - flt(order.custom_advance_amount),

@@ -430,7 +430,11 @@ def payment_context(order, settings=None) -> dict | None:
 	expiry = qr_expiry() if valid else None
 	payload = build_payload(iban_raw, outstanding, expiry) if valid else ""
 	account_title = (settings.raast_account_title or "").strip()
-	instructions = (settings.raast_payment_instructions or "").strip() or None
+	# No instructions here: that note belongs to checkout, where the order
+	# does not exist yet and the customer needs to be told the code comes
+	# next. By the time this panel is drawn the code is on screen, and the
+	# page it would be repeating itself to is the one showing it.
+
 	# Whichever bank the money is heading for: Settings → Payments wins when
 	# a name has been typed there, otherwise the IBAN names it itself — the
 	# four characters after the PK and check digits are assigned to one bank
@@ -541,7 +545,6 @@ def payment_context(order, settings=None) -> dict | None:
 		# The day the code stops being payable: printed under the code on its
 		# card and quoted in the receipt email, both off the same stamp.
 		"valid_until": expiry.strftime("%d %b %Y") if expiry else "",
-		"instructions": instructions,
 	}
 
 

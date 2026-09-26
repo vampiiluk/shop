@@ -177,7 +177,7 @@
 						type="textarea"
 						:rows="3"
 						label="Advance payment instructions"
-						description="Shown under the QR on the order confirmation page, and at checkout when this option is picked."
+						description="Shown at checkout only, before the order exists: say here that the QR code is generated once the order is placed. It is not repeated on the confirmation page or in the receipt email — by then the code is on screen."
 						class="max-w-md"
 					/>
 				</template>
