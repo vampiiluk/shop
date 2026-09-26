@@ -1,10 +1,14 @@
 """Raast P2P QR: payload encoding, the QR image, and the checkout/confirmation context.
 
-A customer who picks Raast pays the whole order by scanning a QR with their
-banking app — a push payment straight into the store's account. Nothing comes
-back to us afterwards (P2P has no callback), so the transfer is reconciled the
-same way the advance-payment account already is: by amount, against the order
-the customer was shown.
+A customer who picks Raast pays by scanning a QR with their banking app — a
+push payment straight into the store's account, for the whole order or for
+the advance an Advance Payment setup asks up front, with the courier
+collecting any balance on delivery. Advance Payment and Raast QR are one
+option at the checkout for exactly that reason: both are the same transfer
+to the same IBAN, one just names a smaller figure. Nothing comes back to us
+afterwards (P2P has no callback), so the transfer is reconciled the same way
+the advance-payment account already is: by amount, against the order the
+customer was shown.
 
 The payload is the SBP P2P template from "Standard for Interoperable QR Code"
 (DI&SD Circular Letter No. 01 of 2022, section 3.1)::
@@ -99,6 +103,55 @@ def bank_code(value) -> str:
 	"""
 	iban = normalize_iban(value)
 	return iban[4:8] if len(iban) >= 8 else ""
+
+
+# Bank names for the identifiers Pakistani IBANs carry. The four characters in
+# the number stay the authority: this table only spells out the banks a
+# customer recognises, and any code it does not know is shown as its code
+# rather than guessed at. Taken from the IBAN bank code list published at
+# iban.pk (the State Bank's list of participating institutions).
+BANK_NAMES = {
+	"ABPA": "Allied Bank Limited",
+	"AIIN": "Albaraka Bank (Pakistan) Limited",
+	"ALFH": "Bank Alfalah Limited",
+	"ASCM": "Askari Bank Limited",
+	"BAHL": "Bank Al Habib Limited",
+	"BKIP": "BankIslami Pakistan Limited",
+	"BPUN": "The Bank of Punjab",
+	"BURJ": "Burj Bank Limited",
+	"CITI": "Citibank N.A., Pakistan",
+	"DUIB": "Dubai Islamic Bank Pakistan Limited",
+	"FAYS": "Faysal Bank Limited",
+	"FWOM": "First Women Bank Limited",
+	"HABB": "Habib Bank Limited",
+	"IFBL": "IFIC Bank Limited",
+	"JSBL": "JS Bank Limited",
+	"KHYB": "The Bank of Khyber",
+	"MBPL": "Samba Bank Limited",
+	"MCIB": "MCB Islamic Bank",
+	"MEZN": "Meezan Bank Limited",
+	"MPBL": "Habib Metropolitan Bank Limited",
+	"MUCB": "MCB Bank Limited",
+	"NBPA": "National Bank of Pakistan",
+	"NIBP": "NIB Bank Limited",
+	"RUPB": "Rupali Bank Limited",
+	"SBPP": "State Bank of Pakistan",
+	"SCBL": "Standard Chartered Bank (Pakistan) Limited",
+	"SIND": "Sindh Bank Limited",
+	"SONE": "Soneri Bank Limited",
+	"UNIL": "United Bank Limited",
+}
+
+
+def bank_name(value) -> str:
+	"""The bank an IBAN belongs to in words, or '' when we cannot name it.
+
+	Empty rather than the bare code so callers can decide whether a code is
+	better than nothing — the confirmation panel wants a name (falling back
+	to the code), the caption printed under the QR wants a bank to have been
+	named or the word "Bank" in front of the identifier.
+	"""
+	return BANK_NAMES.get(bank_code(value), "")
 
 
 def normalize_amount(value) -> str:
@@ -322,34 +375,77 @@ def configured(settings=None) -> bool:
 def payment_context(order, settings=None) -> dict | None:
 	"""Confirmation-page block for a Raast payment; None for other methods.
 
-	Degrades rather than fails: an IBAN cleared after the order was placed
-	leaves the amount and instructions visible with no QR, so the customer is
-	still told what they owe instead of finding an empty panel.
+	Advance Payment and Raast QR are one option at checkout now, so this
+	covers both shapes of order: the whole total, or the advance the customer
+	agreed to with the balance left for the courier to collect. Degrades
+	rather than fails: an IBAN cleared after the order was placed leaves the
+	amount and instructions visible with no QR, so the customer is still told
+	what they owe instead of finding an empty panel.
 	"""
 	if (order.get("custom_payment_method") or "cod") != "raast":
 		return None
 
 	settings = settings or frappe.get_cached_doc("Shop Settings")
-	amount = flt(order.grand_total)
+	from shop.api.orders import payments_received
+
+	# What this stage of the payment is worth. An advance is recorded on the
+	# order at checkout whenever Advance Payment is switched on; with no
+	# advance recorded the stage is the whole total. Whatever the ledger has
+	# already been paid comes off it, because a QR for an amount that is
+	# settled is a second payment waiting to happen.
+	total = flt(order.grand_total)
+	advance = flt(order.custom_advance_amount or 0)
+	promised = advance if 0 < advance <= total else total
+	balance = max(total - promised, 0.0)
+	received = min(flt(payments_received([order.name]).get(order.name) or 0.0), promised)
+	outstanding = max(promised - received, 0.0)
+	# The headline is what is left to pay, or the stage's own figure once it
+	# has been settled — "nothing due" is not a figure worth heading a panel
+	# with, the status chip already says Paid.
+	amount = outstanding or promised
 	formatted_amount = _format_amount(amount)
 	iban_raw = normalize_iban(settings.raast_iban)
 	valid = is_valid_iban(iban_raw)
-	payload = build_payload(iban_raw, amount) if valid else ""
+	payload = build_payload(iban_raw, outstanding) if valid else ""
 	account_title = (settings.raast_account_title or "").strip()
 	instructions = (settings.raast_payment_instructions or "").strip() or None
+	bank = bank_name(iban_raw) or bank_code(iban_raw)
 
-	if valid:
-		# The amount is the headline of the payment panel now, so this line
-		# says what to do with the code instead of repeating the figure
-		# directly above it.
-		line = _("Scan the code with your banking app to pay in full. Your order ships once the transfer lands.")
-	else:
-		# No usable account to point at (the IBAN row is hidden below, and a
-		# bad one must never be shown), so do not promise an account the page
+	if not valid:
+		# No usable account to point at (the detail rows below are hidden, and
+		# a bad one must never be shown), so do not promise an account the page
 		# cannot name — send the customer to us instead.
 		line = _("Raast payment is unavailable right now. Please contact us to pay {0} by bank transfer.").format(
 			formatted_amount
 		)
+	elif not outstanding:
+		# Settled: naming a QR now would only be offering a second payment.
+		line = (
+			_("Advance received: {0} — the courier collects {1} on delivery.").format(
+				_format_amount(promised), _format_amount(balance)
+			)
+			if balance > 0
+			else _("Paid in full — there is nothing left to pay on this order.")
+		)
+	elif received > 0:
+		# Part of the advance is in, so the code is for what is left of it.
+		line = (
+			_(
+				"{0} of the {1} advance is still due — scan to settle it, then the courier collects {2} on delivery."
+			).format(_format_amount(outstanding), _format_amount(promised), _format_amount(balance))
+			if balance > 0
+			else _("{0} of the {1} is still due — scan the code to settle it.").format(
+				_format_amount(outstanding), _format_amount(promised)
+			)
+		)
+	elif balance > 0:
+		line = _(
+			"Scan the code to pay {0} now: your order ships once it lands, and the courier collects {1} on delivery."
+		).format(_format_amount(outstanding), _format_amount(balance))
+	else:
+		# The amount is the headline of the payment panel, so this line says
+		# what to do with the code instead of repeating the figure above it.
+		line = _("Scan the code with your banking app to pay in full. Your order ships once the transfer lands.")
 
 	return {
 		"configured": 1 if valid else 0,
@@ -357,6 +453,9 @@ def payment_context(order, settings=None) -> dict | None:
 		"amount": amount,
 		"formatted_amount": formatted_amount,
 		"account_title": account_title,
+		# The bank is named from the IBAN itself, so the panel, the caption
+		# under the QR and the number they are both read from cannot disagree.
+		"bank": bank,
 		"iban": format_iban(iban_raw),
 		"iban_raw": iban_raw,
 		"payload": payload,
@@ -369,7 +468,7 @@ def payment_context(order, settings=None) -> dict | None:
 				part
 				for part in (
 					account_title,
-					f"{_('Bank')} {bank_code(iban_raw)}",
+					bank_name(iban_raw) or f"{_('Bank')} {bank_code(iban_raw)}",
 					format_iban(iban_raw),
 					f"{_('Order')} {order.name}",
 				)
@@ -383,22 +482,25 @@ def payment_context(order, settings=None) -> dict | None:
 		# "Copy IBAN" is the raw value so a bank app's paste field accepts it
 		# without stray spaces; "Copy details" is the block a person pastes
 		# into a transfer note, order reference last so it stays visible.
-		# Without a valid account there is nothing to transfer to, so neither
-		# is offered: an amount and an order number with no destination would
-		# just send the customer chasing for details the page could show.
-		"copy_iban": iban_raw if valid else "",
+		# Nothing is offered without a valid account to transfer to, nor once
+		# the amount is settled — an order that is paid should not be handed
+		# the means to pay it twice. An amount and an order number with no
+		# destination would just send the customer chasing for details the
+		# page could show.
+		"copy_iban": iban_raw if valid and outstanding else "",
 		"copy_details": (
 			"\n".join(
 				part
 				for part in (
 					account_title,
+					bank_name(iban_raw) or "",
 					format_iban(iban_raw),
 					f"{_('Amount')}: {formatted_amount}",
 					f"{_('Order')}: {order.name}",
 				)
 				if part
 			)
-			if valid
+			if valid and outstanding
 			else ""
 		),
 		"download_name": f"raast-{order.name}.png",

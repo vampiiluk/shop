@@ -3906,6 +3906,14 @@ def confirmation_blocks(refs):
 								{"color": refs["paper"], "fontSize": "15px", "fontWeight": "600", "height": "fit-content", "width": "100%"},
 								"order.raast.account_title",
 							),
+							# The bank is read off the IBAN itself, so the panel
+							# names the destination without the customer having
+							# to work out which four characters mean which bank.
+							payment_detail(
+								"Bank",
+								{"color": refs["paper"], "fontSize": "15px", "fontWeight": "600", "height": "fit-content", "width": "100%"},
+								"order.raast.bank",
+							),
 							payment_detail(
 								"IBAN",
 								{

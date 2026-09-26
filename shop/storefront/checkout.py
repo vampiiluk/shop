@@ -23,6 +23,23 @@ def advance_amount_for(total, settings) -> float:
 	return max(0.0, min(amount, total))
 
 
+def advance_due_for(payment_method, total, settings) -> float:
+	"""Advance to record up front for an order placed with this method.
+
+	Advance Payment and Raast QR are one option at checkout — the QR settles
+	what is due today and the courier takes the balance — so a Raast order
+	carries an advance figure whenever Advance Payment is switched on, and
+	that figure is what the QR is drawn for. Orders placed before the merge
+	still arrive as "advance" and keep theirs; every other method pays
+	nothing up front.
+	"""
+	if payment_method == "advance":
+		return advance_amount_for(total, settings)
+	if payment_method == "raast" and cint(settings.enable_advance_payment):
+		return advance_amount_for(total, settings)
+	return 0.0
+
+
 @frappe.whitelist(allow_guest=True)
 def get_checkout_summary() -> dict:
 	cart = cart_module.resolve_cart()
@@ -33,9 +50,32 @@ def get_checkout_summary() -> dict:
 		methods.append({"method": "cod", "label": _("Cash on Delivery")})
 	if settings.payment_gateway_account:
 		methods.append({"method": "gateway", "label": _("Pay Online")})
-	if settings.enable_advance_payment and flt(payload.get("total")) > 0:
-		advance = advance_amount_for(payload["total"], settings)
-		balance = max(flt(payload["total"]) - advance, 0.0)
+	total = flt(payload.get("total"))
+	# Advance Payment and Raast QR were two rows asking for the same IBAN and
+	# the same transfer, so they are one row now: the QR settles what is due
+	# today — the advance when Advance Payment is switched on, the whole total
+	# when it is not — and the courier collects any balance on delivery, which
+	# is exactly what the advance basis and percent already decide. The plain
+	# Advance row survives only where there is no QR to show for it.
+	advance_on = bool(cint(settings.enable_advance_payment)) and total > 0
+	advance = advance_amount_for(total, settings) if advance_on else 0.0
+	balance = max(total - advance, 0.0)
+	if raast_module.configured(settings) and total > 0:
+		if advance > 0 and balance > 0:
+			label = _("Raast QR — {0} now by QR · {1} on delivery").format(
+				pricing.format_amount(advance), pricing.format_amount(balance)
+			)
+		else:
+			label = _("Raast QR — pay {0} in full now").format(pricing.format_amount(total))
+		methods.append(
+			{
+				"method": "raast",
+				"label": label,
+				"advance_amount": advance,
+				"balance_amount": balance,
+			}
+		)
+	elif advance_on:
 		formatted_advance = pricing.format_amount(advance)
 		if balance > 0:
 			label = _("Advance Payment — {0} now · {1} on delivery").format(
@@ -51,10 +91,6 @@ def get_checkout_summary() -> dict:
 				"balance_amount": balance,
 			}
 		)
-	# Full-order payment by QR: offered only when it is switched on and the
-	# IBAN would actually encode, and only when there is an amount to pay.
-	if raast_module.configured(settings) and flt(payload.get("total")) > 0:
-		methods.append({"method": "raast", "label": _("Raast QR — pay the full amount now")})
 	pickup_locations = pickup_module.configured(settings)
 	if pickup_locations:
 		methods.append({"method": "pickup", "label": _("Store Pickup — pay when you collect")})
@@ -232,10 +268,11 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		if device_fingerprint:
 			frappe.db.set_value("Customer", party, "custom_device_fingerprint", device_fingerprint)
 		shipping_address = create_address(party, customer, address)
-		advance_amount = (
-			advance_amount_for(cart_module.cart_payload(cart)["total"], settings)
-			if payment_method == "advance"
-			else 0.0
+		# Recorded for the merged Raast option as well as the old advance one:
+		# it is the figure the QR is drawn for and the one the courier is
+		# short of on delivery.
+		advance_amount = advance_due_for(
+			payment_method, cart_module.cart_payload(cart)["total"], settings
 		)
 		sales_order = create_sales_order(
 			cart,
@@ -376,10 +413,14 @@ def validate_order(cart, customer: dict, address: dict, payment_method: str, pic
 		allowed = cod_cities(settings)
 		city = (address.get("city") or "").strip()
 		if allowed and city.lower() not in allowed:
+			# Name a method the checkout is actually offering: the Advance row
+			# only exists where there is no QR to show for it, because the two
+			# are one option wherever a QR can be built.
+			alternative = _("Raast QR") if raast_module.configured(settings) else _("Advance Payment")
 			frappe.throw(
-				_(
-					"Cash on Delivery is not offered in {0}. Please choose Advance Payment or pay online."
-				).format(city or _("this city"))
+				_("Cash on Delivery is not offered in {0}. Please choose {1} or pay online.").format(
+					city or _("this city"), alternative
+				)
 			)
 	if payment_method == "gateway" and not settings.payment_gateway_account:
 		frappe.throw(_("Online payment is not available"))
@@ -572,7 +613,9 @@ def create_sales_order(
 			"custom_device_fingerprint": device_fingerprint or None,
 			"custom_fingerprint_provider": fingerprint_provider or None,
 			"custom_payment_method": payment_method or "cod",
-			"custom_advance_amount": flt(advance_amount) if payment_method == "advance" else 0,
+			"custom_advance_amount": flt(advance_amount)
+			if payment_method in ("advance", "raast")
+			else 0,
 			"custom_pickup_location": pickup_location or None,
 			"contact_email": (customer_data or {}).get("email"),
 			"contact_phone": (customer_data or {}).get("phone"),
