@@ -62,6 +62,22 @@ def discount_for(coupon: dict, subtotal: float) -> float:
 
 
 def redeem(name: str):
-	frappe.db.set_value(
-		"Coupon Code", name, "used", frappe.db.get_value("Coupon Code", name, "used") + 1
+	"""Count one redemption — atomically against the cap.
+
+	resolve() is a friendly answer for the apply button; it is not the guard.
+	Two requests that both read used=9 < 10 both pass it, which used to let a
+	last-chance coupon redeem twice — with the decision and the write sharing
+	one locked row, exactly maximum_use redemptions can ever succeed and every
+	late one throws here, before the request commits its just-created order.
+	"""
+	frappe.db.sql(
+		"""
+		UPDATE `tabCoupon Code`
+		   SET used = COALESCE(used, 0) + 1
+		 WHERE name = %s
+		   AND (COALESCE(maximum_use, 0) = 0 OR COALESCE(used, 0) < maximum_use)
+		""",
+		name,
 	)
+	if frappe.db.sql("SELECT ROW_COUNT() AS n", as_dict=True)[0]["n"] != 1:
+		frappe.throw(_("That coupon has been fully redeemed"))
