@@ -3,9 +3,12 @@ import json
 import frappe
 from frappe.utils import cint, flt
 
+from shop.api import only_managers
+
 @frappe.whitelist()
 def get_customer_fraud_profile(customer: str):
 	"""Returns fingerprint matches and other fraud details for a customer."""
+	only_managers()
 	orders = frappe.db.sql("""
 		SELECT custom_device_fingerprint, shipping_address_name
 		FROM `tabSales Order`
@@ -136,6 +139,7 @@ def get_order_fraud_profile(order: str):
 
 	The placement snapshot is immutable evidence — this endpoint NEVER
 	writes to the Sales Order."""
+	only_managers()
 	so = frappe.db.get_value("Sales Order", order,
 		["customer", "contact_email", "contact_mobile", "custom_device_fingerprint", "custom_fingerprint_provider", "custom_fraud_score", "custom_fraud_verdict", "custom_fraud_signals", "shipping_address_name", "creation"],
 		as_dict=True)
@@ -234,6 +238,7 @@ def get_order_fraud_profile(order: str):
 @frappe.whitelist()
 def get_full_fp_event(order: str):
 	"""Complete raw Fingerprint Identification event stored at placement."""
+	only_managers()
 	import json
 
 	raw = frappe.db.get_value("Sales Order", order, "custom_fp_event")
@@ -249,6 +254,7 @@ def get_full_fp_event(order: str):
 def get_live_check(order: str):
 	"""Current-risk view computed on open. Anchored to the order's placement
 	time for velocity; everything else reflects NOW. Read-only."""
+	only_managers()
 	from shop.integrations.fraud import (
 		blacklist_hit,
 		city_rto_rate,
@@ -348,6 +354,7 @@ def run_ai_risk_analysis(order: str) -> dict:
 @frappe.whitelist()
 def recalculate_order_fraud(order: str):
 	"""Manually recalculates the fraud score for a sales order."""
+	only_managers()
 	import json
 	from shop.integrations.fraud import evaluate_risk
 	
@@ -400,6 +407,7 @@ def recalculate_order_fraud(order: str):
 @frappe.whitelist()
 def get_related_orders(order: str):
 	"""Finds related orders based on fingerprint, email, phone, and address."""
+	only_managers()
 	so = frappe.db.get_value("Sales Order", order, 
 		["customer", "contact_email", "contact_mobile", "shipping_address_name", "custom_device_fingerprint"], 
 		as_dict=True)
@@ -501,6 +509,7 @@ def get_overview() -> dict:
 	Reads from Sales Order (every scored order carries a verdict, including
 	"Pass") so the overview reflects ALL orders, not just flagged ones.
 	"""
+	only_managers()
 	from frappe.utils import add_days, nowdate
 
 	def bucket(days: int) -> dict:
@@ -589,6 +598,7 @@ def get_overview() -> dict:
 @frappe.whitelist()
 def get_customer_live(customer: str) -> dict:
 	"""Current-risk snapshot for a customer, computed on open."""
+	only_managers()
 	from shop.integrations.fraud import (
 		blacklist_hit,
 		city_rto_rate,
