@@ -15,9 +15,17 @@ def get_reviews(product: str, start: int = 0, limit: int = 10) -> dict:
 		start=cint(start),
 		limit=min(cint(limit) or 10, 50),
 	)
+	# Review text is written by signed-in shoppers and bound into innerHTML
+	# on the product page, which renders it unescaped — a review containing
+	# markup would execute in every visitor's page, staff included. Escape
+	# once here so the store can hold raw text without any template ever
+	# saying it out loud.
 	for row in rows:
 		row.posted_on = format_date(row.creation, "MMM yyyy")
 		row.stars = "★" * row.rating + "☆" * (5 - row.rating)
+		row["reviewer_name"] = frappe.utils.escape_html(row.reviewer_name or "")
+		row["title"] = frappe.utils.escape_html(row.title or "")
+		row["review"] = frappe.utils.escape_html(row.review or "")
 		del row["creation"]
 	return {"reviews": rows, **summary(product)}
 

@@ -18,6 +18,12 @@ def home() -> dict:
 @frappe.whitelist(allow_guest=True)
 def listing() -> dict:
 	form = frappe.form_dict
+	# The shopper's search is echoed into the page twice — the results
+	# heading is bound to innerHTML and the input's value to a raw attribute
+	# — and Builder renders both unescaped, so the echoed copies are escaped
+	# here, once, before either sink can meet them. Queries still take the
+	# raw string.
+	safe_search = frappe.utils.escape_html(form.get("search") or "")
 	page = max(cint(form.get("page")) or 1, 1)
 	price_min, price_max = parse_price_bucket(form.get("price"))
 	collections = catalog.get_collections()
@@ -41,8 +47,8 @@ def listing() -> dict:
 		"filters": listing_filters(form, collections, facets=result["facets"]),
 		"filters_applied": "true" if applied else None,
 		"filter_count": str(len(applied)) if applied else None,
-		"search": form.get("search") or "",
-		"search_label": f'Results for "{form.get("search")}"' if form.get("search") else None,
+		"search": safe_search,
+		"search_label": f'Results for "{safe_search}"' if safe_search else None,
 		"no_results": None if result["products"] else "true",
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
@@ -247,6 +253,8 @@ def related_products(detail: dict) -> list:
 @frappe.whitelist(allow_guest=True)
 def collection_page() -> dict:
 	form = frappe.form_dict
+	# See listing(): the echoed search must never carry markup into the page.
+	safe_search = frappe.utils.escape_html(form.get("search") or "")
 	slug = form.slug
 	collection = frappe.db.get_value(
 		"Shop Collection",
@@ -290,7 +298,7 @@ def collection_page() -> dict:
 		"filters_applied": "true" if applied else None,
 		"filter_count": str(len(applied)) if applied else None,
 		"clear_url": path,
-		"search": form.get("search") or "",
+		"search": safe_search,
 		"no_results": None if result["products"] else "true",
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
