@@ -234,14 +234,20 @@ def last_shipping_address(customers: list[str]) -> dict | None:
 
 
 def _get_client_ip() -> str:
-	"""Extract the real client IP from the current request."""
+	"""Extract the real client IP from the current request.
+
+	nginx owns this answer: X-Real-IP is stamped from $remote_addr, which
+	the real_ip config compiles from the caller's socket by default and
+	from CF-Connecting-IP only when the caller really is Cloudflare.
+	Reading any client-supplied header here instead — CF-Connecting-IP or
+	X-Forwarded-For (a text field every requester fills out themselves) —
+	lets fraud intel be filed under whatever IP someone claims to be.
+	"""
 	try:
-		ip = frappe.request.headers.get("CF-Connecting-IP") or frappe.request.headers.get("X-Forwarded-For") or ""
+		ip = frappe.request.headers.get("X-Real-IP") or ""
 		if not ip and frappe.request:
 			ip = getattr(frappe.request, "remote_addr", "") or ""
-		# CF-Connecting-IP is the first IP; X-Forwarded-For may have commas
-		ip = (ip.split(",")[0]).strip() if ip else ""
-		return ip
+		return ip.strip()
 	except Exception:
 		return ""
 
