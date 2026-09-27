@@ -980,9 +980,14 @@ def elevated():
 	session = frappe.local.session
 	original = (session.user, session.sid, session.data)
 	frappe.set_user("Administrator")
+	# _session_owns_customer answers ownership questions; inside this block the
+	# session is the Administrator's, so the shopper's own principal travels
+	# here or every ownership question would come back answered by the store.
+	frappe.local.checkout_user = original[0]
 	try:
 		yield
 	finally:
+		frappe.local.checkout_user = None
 		session.user, session.sid, session.data = original
 		frappe.local.cache = {}
 		frappe.local.role_permissions = {}
@@ -1049,18 +1054,24 @@ def validate_stock(cart):
 def get_or_create_customer(customer: dict) -> str:
 	email = customer["email"].strip().lower()
 	phone = (customer.get("phone") or "").strip()
-	
+
 	existing = None
 	if phone:
 		contact_by_phone = frappe.db.get_value("Contact Phone", {"phone": phone}, "parent")
 		if contact_by_phone:
 			existing = frappe.db.get_value("Dynamic Link", {"parent": contact_by_phone, "link_doctype": "Customer"}, "link_name")
-			
+
 	if not existing:
 		existing = find_customer_by_email(email)
-		
+
 	if existing:
-		if phone:
+		# Linking the order to the existing customer is the dedup this
+		# function exists for — but a checkout form offers no proof of who is
+		# holding it: an email or phone number you typed is exactly the claim
+		# under test. Rewriting an identity record on someone's own claim lets
+		# any shopper graft their number onto yours, so the graft is reserved
+		# for the session the customer arrives with.
+		if phone and _session_owns_customer(existing):
 			contact = frappe.db.get_value("Dynamic Link", {"link_doctype": "Customer", "link_name": existing, "parenttype": "Contact"}, "parent")
 			if contact and not frappe.db.exists("Contact Phone", {"parent": contact, "phone": phone}):
 				contact_doc = frappe.get_doc("Contact", contact)
@@ -1090,6 +1101,20 @@ def find_customer_by_email(email: str) -> str | None:
 	)
 
 
+def _session_owns_customer(customer: str) -> bool:
+	"""Whether the shopper maps to this customer by their own account email —
+	the only possession proof a checkout request can offer. Guests (auth-free
+	checkout) never own a customer record, no matter which email or phone
+	their form claims. During elevated() the session speaks as Administrator,
+	so the shopper's principal is read off the checkout marker instead."""
+	from shop.storefront.orders import session_customers
+
+	user = getattr(frappe.local, "checkout_user", None) or frappe.session.user
+	if user in ("Guest", None, "Administrator"):
+		return False
+	return customer in session_customers(user)
+
+
 def create_contact(party: str, customer: dict, email: str):
 	contact = frappe.get_doc(
 		{
@@ -1110,6 +1135,13 @@ def create_address(party: str, customer: dict, address: dict):
 	hkey = address_hash(address)
 	existing = find_address(party, address)
 	if existing:
+		# Same rule as the customer match above: the address stays owned. An
+		# anonymous request that knows address_line1, city and pincode must not
+		# rewrite the delivery hints on it or wipe its verification — which is
+		# exactly what the old hash-reset branch did. That write stays for the
+		# owner themselves when they are signed in.
+		if not _session_owns_customer(party):
+			return frappe.get_doc("Address", existing)
 		# bump modified so saved addresses stay ordered by last use
 		old_hash = frappe.db.get_value("Address", existing, "custom_address_hash")
 		updates = {"custom_address_hash": hkey}

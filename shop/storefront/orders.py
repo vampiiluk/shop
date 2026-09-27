@@ -282,11 +282,12 @@ def shipping_label(order) -> str:
 	return pricing.format_amount(charge) if charge else "Free"
 
 
-def session_customers() -> list[str]:
-	if frappe.session.user in ("Guest", None):
+def session_customers(user: str | None = None) -> list[str]:
+	user = user or frappe.session.user
+	if user in ("Guest", None):
 		return []
 	contacts = frappe.get_all(
-		"Contact Email", filters={"email_id": frappe.session.user}, pluck="parent"
+		"Contact Email", filters={"email_id": user}, pluck="parent"
 	)
 	if not contacts:
 		return []
