@@ -1075,7 +1075,14 @@ def get_or_create_customer(customer: dict) -> str:
 			contact = frappe.db.get_value("Dynamic Link", {"link_doctype": "Customer", "link_name": existing, "parenttype": "Contact"}, "parent")
 			if contact and not frappe.db.exists("Contact Phone", {"parent": contact, "phone": phone}):
 				contact_doc = frappe.get_doc("Contact", contact)
-				contact_doc.add_phone(phone, is_primary_mobile_no=True)
+				# A contact may hold at most one primary mobile; claiming it
+				# again throws and the returning customer's order dies with it.
+				# The number still belongs on the record — primary only when
+				# the record has none.
+				has_primary = frappe.db.exists(
+					"Contact Phone", {"parent": contact, "is_primary_mobile_no": 1}
+				)
+				contact_doc.add_phone(phone, is_primary_mobile_no=0 if has_primary else 1)
 				contact_doc.save(ignore_permissions=True)
 		return existing
 		
