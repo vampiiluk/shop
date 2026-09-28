@@ -29,6 +29,14 @@ from shop.api import variants as variants_api
 # Google Maps Scraper helpers
 # ---------------------------------------------------------------------------
 
+def _temp_file(suffix: str) -> str:
+	"""A uniquely created temp file (mktemp's names are predictable, so a local
+	process could pre-create or symlink them; this is the atomic version)."""
+	fd, path = _tempfile.mkstemp(suffix=suffix)
+	os.close(fd)
+	return path
+
+
 def _get_gms_bin() -> str:
 	"""Return GMS binary path, auto-downloading if missing."""
 	from shop.integrations.gms import get_gms_binary, ensure_gms
@@ -64,8 +72,8 @@ def _search_google_maps_batch_by_id(
 def _run_gms_batch_once(
 	items: list[tuple[str, str]], depth: int = 5, concurrency: int = 0
 ) -> dict[str, list[dict]] | None:
-	query_file = _tempfile.mktemp(suffix=".txt")
-	results_file = _tempfile.mktemp(suffix=".csv")
+	query_file = _temp_file(suffix=".txt")
+	results_file = _temp_file(suffix=".csv")
 
 	try:
 		with open(query_file, "w") as f:
@@ -149,8 +157,8 @@ def _search_google_maps_batch(queries: list[str], depth: int = 5, max_results: i
 
 def _search_google_maps(query: str, depth: int = 5, max_results: int = 5) -> list[dict]:
 	"""Search Google Maps via local GMS scraper. Returns top N closest matches."""
-	query_file = _tempfile.mktemp(suffix=".txt")
-	results_file = _tempfile.mktemp(suffix=".csv")
+	query_file = _temp_file(suffix=".txt")
+	results_file = _temp_file(suffix=".csv")
 
 	try:
 		with open(query_file, "w") as f:

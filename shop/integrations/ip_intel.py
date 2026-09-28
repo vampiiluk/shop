@@ -184,7 +184,13 @@ def _refresh_tor_list() -> set[str]:
 
 
 def _get_tor_nodes() -> set[str]:
-	"""Get the cached Tor exit node list, refreshing if older than 1 hour."""
+	"""The cached Tor exit list, refreshed by a background pass when stale.
+
+	A web request never performs the refresh: "recalculate fraud" in the desk
+	should not block on a 10-second download (and a commit) before it answers.
+	Inside a request we fall back to whatever list is already stored rather
+	than declaring every order clean.
+	"""
 	refreshed = frappe.db.get_default("_tor_refreshed")
 	if refreshed:
 		try:
@@ -195,6 +201,15 @@ def _get_tor_nodes() -> set[str]:
 					return set(json.loads(raw))
 		except Exception:
 			pass
+	if getattr(frappe.local, "request", None) is not None:
+		stale = frappe.db.get_default("_tor_exit_nodes")
+		if stale:
+			try:
+				return set(json.loads(stale))
+			except Exception:
+				pass
+		frappe.logger("fraud").info("tor list refresh deferred: a request should not download it")
+		return set()
 	return _refresh_tor_list()
 
 
