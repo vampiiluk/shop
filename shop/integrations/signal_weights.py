@@ -6,6 +6,10 @@
 import frappe
 
 DEFAULT_SIGNAL_WEIGHTS = {
+	# --- identity trust (who is this, as far as the server can prove) ---
+	# Raised when phone, email and device are all unproven claims: not proof of
+	# fraud, but the reason a clean lookup must not be read as "known good".
+	"identity_unverified": 15,
 	# --- repeat fraud history ---
 	"history_failed_rto_per": 15,
 	"history_failed_rto_cap": 30,
@@ -13,25 +17,29 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	# --- blacklist / velocity / time ---
 	"blacklist_hit": 40,
 	"velocity_block": 40,
-	"velocity_extra_per_order": 15,
-	"velocity_extra_cap": 30,
+	"velocity_extra_per_order": 8,
+	"velocity_extra_cap": 16,
 	"fp_multiple_phones": 25,
-	"risky_hour": 15,
+	"risky_hour": 10,
 	# --- fingerprint verification (Identification API) ---
 	"fp_bot_tamper_replay": 40,
 	"fp_suspect_high": 30,       # >= 0.8
 	"fp_suspect_medium": 15,     # >= 0.5
 	"fp_verify_failed": 30,
-	"missing_fingerprint": 10,
+	# A hardened or privacy-respecting browser is a customer preference, not
+	# evidence; it is recorded in the signals but barely moves the score.
+	"missing_fingerprint": 5,
 	"ip_blocklist_hit": 20,
-	"proxy_detected": 15,
-	"incognito_privacy": 5,
+	"proxy_detected": 10,
+	"incognito_privacy": 0,
 	# --- fingerprint advanced signals ---
-	"fp_high_activity_device": 25,   # FP: high_activity_device=true
+	"fp_high_activity_device": 25,
 	"fp_vpn": 15,                    # FP: vpn=true
 	"fp_virtual_machine": 15,        # FP: virtual_machine=true
 	"fp_datacenter_ip": 15,          # FP: ip_info.v4.datacenter_result=true
-	"fp_rare_device": 10,            # FP: rare_device=true
+	# A first-time customer is by definition a rare device: scoring it punishes
+	# exactly the shoppers the store wants. Kept as a visible knob at 0.
+	"fp_rare_device": 0,
 	"fp_velocity_high": 15,          # FP: velocity.events.1_hour > 10
 	"fp_velocity_rapid_fire": 20,    # FP: velocity.events.5_minutes > 5
 	"fp_velocity_multi_ip": 20,      # FP: velocity.distinct_ip.1_hour > 1
@@ -42,7 +50,14 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	"address_bad_pincode": 5,
 	"address_unknown_city": 10,
 	"address_missing_landmark": 15,
-	"address_prior_failure": 30,
+	# Prior failure at the same address, ramping with the number of failures:
+	# one is a bad day, five is somewhere people keep getting parcels.
+	"address_prior_failure_per": 10,
+	"address_prior_failure_cap": 30,
+	# Many different customers ordering the same address in a day is the
+	# classic drop-point pattern, and it survives identity rotation because the
+	# address is what the attacker cannot cheaply change.
+	"address_velocity": 20,
 	"user_country_mismatch": 25,
 	"province_mismatch": 10,
 	# --- geocoding (ORS) ---
@@ -50,22 +65,25 @@ DEFAULT_SIGNAL_WEIGHTS = {
 	"geo_wrong_country": 30,
 	"geo_city_mismatch": 20,
 	"geo_no_house_number": 5,
-	"geo_exact_match_bonus": -15,
+	# Bonuses for a "nice" address are removed: they rewarded the most
+	# attacker-chosen input with negative points, letting a real business
+	# address used as a drop point mask real risk. Recorded, weight 0.
+	"geo_exact_match_bonus": 0,
 	"geo_fallback_vague": 5,
 	# --- landmark (validated as part of the address via GMS) ---
-	"landmark_gms_hit_bonus": -5,
+	"landmark_gms_hit_bonus": 0,
 	"landmark_gms_miss": 3,
 	# --- Google Maps Scraper (GMS) ---
 	"gms_no_results": 15,
 	"gms_coords_mismatch_ors": 10,
-	"gms_results_bonus": -10,
+	"gms_results_bonus": 0,
 	"gms_residential_area": 5,
 	# --- city RTO rate ---
 	"city_rto_high": 30,         # >= fraud_rto_high_pct
 	"city_rto_medium": 15,       # >= fraud_rto_medium_pct
 	# --- IP intelligence (ip-api.com + AbuseIPDB + Tor) ---
 	"ip_proxy_detected": 15,        # ip-api.com proxy=true
-	"ip_hosting_detected": 10,      # ip-api.com hosting=true (datacenter/cloud)
+	"ip_hosting_detected": 5,      # ip-api.com hosting=true (datacenter/cloud)
 	"ip_abuse_high": 25,            # AbuseIPDB abuse_score >= 50
 	"ip_abuse_medium": 10,          # AbuseIPDB abuse_score >= 20
 	"ip_tor_exit": 30,              # Tor exit node detected
@@ -75,15 +93,18 @@ DEFAULT_SIGNAL_WEIGHTS = {
 
 # UI metadata: group -> ordered [(key, label)]
 WEIGHT_SCHEMA = [
+	("Identity trust", [
+		("identity_unverified", "Nothing about this order is proven yet"),
+	]),
 	("Repeat history", [
-		("history_failed_rto_per", "Per failed/RTO order"),
+		("history_failed_rto_per", "Per failed/RTO order (90d)"),
 		("history_failed_rto_cap", "…capped at"),
 		("history_cancelled_ratio_pts", ">50% cancelled bonus"),
 	]),
 	("Blacklist & velocity", [
 		("blacklist_hit", "Blacklist hit"),
-		("velocity_block", "Velocity limit reached"),
-		("velocity_extra_per_order", "Per extra order/hour"),
+		("velocity_block", "Velocity limit reached (24h)"),
+		("velocity_extra_per_order", "Per extra order/24h"),
 		("velocity_extra_cap", "…capped at"),
 		("fp_multiple_phones", "One device, many phones"),
 	]),
@@ -92,7 +113,7 @@ WEIGHT_SCHEMA = [
 		("fp_suspect_high", "Suspect score >= 0.8"),
 		("fp_suspect_medium", "Suspect score >= 0.5"),
 		("fp_verify_failed", "Verification failed"),
-		("missing_fingerprint", "COD order without fingerprint"),
+		("missing_fingerprint", "Order without a device fingerprint"),
 		("ip_blocklist_hit", "IP blocklist hit"),
 		("proxy_detected", "Proxy detected"),
 		("incognito_privacy", "Incognito / privacy mode"),
@@ -114,7 +135,9 @@ WEIGHT_SCHEMA = [
 		("address_bad_pincode", "Malformed pincode"),
 		("address_unknown_city", "City not in canonical list"),
 		("address_missing_landmark", "Landmark missing"),
-		("address_prior_failure", "Failed delivery at this address before"),
+		("address_prior_failure_per", "Per failed delivery at this address"),
+		("address_prior_failure_cap", "…capped at"),
+		("address_velocity", "Many customers, one address, 24h"),
 		("user_country_mismatch", "Country mismatch (user input)"),
 		("province_mismatch", "Province/state mismatch"),
 	]),
@@ -124,14 +147,14 @@ WEIGHT_SCHEMA = [
 		("geo_city_mismatch", "Stated city ≠ resolved area"),
 		("geo_no_house_number", "No house number in match"),
 		("geo_fallback_vague", "Vague/fallback match"),
-		("geo_exact_match_bonus", "Exact match bonus (negative)"),
+		("geo_exact_match_bonus", "Exact match bonus (was -15, now 0)"),
 	]),
 	("Google Maps Scraper (GMS)", [
 		("gms_no_results", "No Maps results for address+landmark"),
 		("gms_coords_mismatch_ors", "Maps result far from ORS coords"),
-		("gms_results_bonus", "Maps results found bonus (negative)"),
+		("gms_results_bonus", "Maps results found bonus (now 0)"),
 		("gms_residential_area", "Only non-business results"),
-		("landmark_gms_hit_bonus", "Landmark found in GMS results (negative)"),
+		("landmark_gms_hit_bonus", "Landmark found in GMS results (now 0)"),
 		("landmark_gms_miss", "Landmark not found in GMS results"),
 	]),
 	("City RTO & time", [

@@ -498,6 +498,23 @@ def get_related_orders(order: str):
 
 
 @frappe.whitelist()
+def get_calibration(days: int = 90, buckets: int = 5) -> dict:
+	"""How the fraud score has actually performed, from data already stored.
+
+	The store records a score, a verdict and a delivery outcome for every
+	order, so the model's confusion matrix is available without collecting
+nything new - read this before changing a weight, and after, to see whether
+	the change helped. Buckets are score bands; false_positive_rate is the
+	share of flagged orders that delivered, detection_rate the share of failed
+	orders the model had already marked.
+	"""
+	only_managers()
+	from shop.integrations.fraud import calibration_report
+
+	return calibration_report(days=days, buckets=buckets)
+
+
+@frappe.whitelist()
 def get_overview() -> dict:
 	"""Aggregated fraud intelligence for the overview page.
 

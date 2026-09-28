@@ -294,9 +294,11 @@ def place_order(customer: dict, address: dict, payment_method: str = "cod", devi
 		# Store client IP for fraud intel
 		if client_ip:
 			frappe.db.set_value("Sales Order", sales_order.name, "custom_client_ip", client_ip)
-		# Store raw browser signals from fingerprint provider
-		if fp_signals:
-			frappe.db.set_value("Sales Order", sales_order.name, "custom_fp_event", fp_signals)
+		# The browser's own signal blob is deliberately NOT stored: custom_fp_event
+		# is the column staff read as the device's raw FingerprintJS event, and a
+		# client-supplied string there would be presented as if the server had
+		# captured it. Only the verified identification, fetched by
+		# stamp_order, ever lands there.
 		# stamp initial fast_risk verdict immediately
 		if fraud:
 			fraud_module.stamp_order(sales_order.name, device_fingerprint or "", fp_request_id or "", fraud, fingerprint_provider)

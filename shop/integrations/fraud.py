@@ -161,6 +161,177 @@ def province_for_city(city: str, settings_doc=None) -> str | None:
 	return None
 
 
+# --- scoring-model constants ---------------------------------------------
+# The old velocity control counted orders in the last 60 minutes, so a
+# customer ordering once an hour was never "fast" and the cap never applied.
+# Velocity is now a decaying count over a full day: an order counts fully for
+# its first hour, then loses half its weight every VELOCITY_HALF_LIFE_HOURS.
+VELOCITY_WINDOW_HOURS = 24
+VELOCITY_HALF_LIFE_HOURS = 6.0
+# fraud_velocity_max used to mean "orders per hour". It now means "orders per
+# day", multiplied before it blocks: two or three orders in a day is normal for
+# this store, and blocking that would cost more than the abuse it stops.
+VELOCITY_BLOCK_MULTIPLIER = 3
+# One input class must not own the score. The address model reaches 80 on its
+# own, entirely from text the customer typed, so its contribution to the order
+# score is capped here; the raw 0-80 scale stays on the verification record.
+ADDRESS_SCORE_CAP = 35
+# A Block on the total score, allowed only when at least one signal was
+# actually verified - otherwise the score is built from the customer's typing.
+BLOCK_SCORE_THRESHOLD = 92
+# Correlation needs enough digits to mean something. Below this a claim is not
+# evidence of anything, and matching it against every contact invents history.
+MIN_PHONE_DIGITS_FOR_CORRELATION = 7
+# Hard ceiling on the customer list fed into history lookups, so a fuzzy match
+# cannot turn into a runaway IN (...) list.
+MAX_CORRELATED_CUSTOMERS = 50
+# Address-level ordering: the signal that survives identity rotation, because
+# the address is not what a fraudster changes for free.
+ADDRESS_VELOCITY_WINDOW_HOURS = 24
+ADDRESS_VELOCITY_CUSTOMERS = 3
+# Re-evaluating every order that ever shared one address in a single pass is
+# what exhausted the free IP-intel quotas; the rest waits for the next pass.
+MAX_REEVALUATE_PER_RUN = 50
+
+
+def decay_factor(age_hours: float) -> float:
+	"""Weight of an order that happened `age_hours` ago (1.0 -> 0.5 -> 0.25)."""
+	if age_hours <= 0:
+		return 1.0
+	return 0.5 ** (age_hours / VELOCITY_HALF_LIFE_HOURS)
+
+
+def normalize_city(city: str | None) -> str:
+	"""One key per place: case, padding and inner spacing collapsed.
+
+	City stats are looked up by whatever the customer typed, so "Rahimyar Yar
+	Khan" and "Rahim Yar Khan" were two rows with two rates and half the
+	lookups missed.
+	"""
+	return " ".join(str(city or "").split()).lower()
+
+
+def _velocity_clauses(phone: str, fingerprint: str, address: dict) -> tuple[list[str], list[str]]:
+	"""OR-clauses matching anything this order can be recognised by."""
+	clauses: list[str] = []
+	values: list = []
+	customers = customers_for_phone(phone)
+	if customers:
+		clauses.append("`customer` in %s")
+		values.append(tuple(customers))
+	if fingerprint:
+		clauses.append("`custom_device_fingerprint` = %s")
+		values.append(fingerprint)
+	from shop.integrations.geocoding import address_hash
+
+	hkey = address_hash(address)
+	clauses.append("`custom_address_hash` = %s")
+	values.append(hkey)
+	return clauses, values, hkey
+
+
+def velocity_profile(
+	phone: str,
+	fingerprint: str,
+	address: dict,
+	as_of=None,
+	exclude_order: str = "",
+) -> dict:
+	"""Order pressure over the last day, decaying, across phone, device and
+	address together - so a customer cannot walk past the cap simply by waiting
+	an hour, and rotating the phone no longer resets the picture.
+	"""
+	now = as_of or now_datetime()
+	since = now - timedelta(hours=VELOCITY_WINDOW_HOURS)
+	clauses, values, hkey = _velocity_clauses(phone, fingerprint, address)
+	not_self = " and `name` != %s" if exclude_order else ""
+	sql = f"""
+		SELECT `name`, `creation`, `custom_address_hash`
+		FROM `tabSales Order`
+		WHERE ({' or '.join(clauses)}) and `docstatus` in (0, 1, 2)
+		{not_self} and `creation` >= %s
+	"""
+	rows = frappe.db.sql(
+		sql, tuple(values) + ((exclude_order,) if exclude_order else ()) + (since,), as_dict=True
+	)
+	decayed = 0.0
+	by_address = 0
+	last_hour = 0
+	for row in rows:
+		age = (now - row.creation).total_seconds() / 3600.0
+		decayed += decay_factor(age)
+		if age <= 1:
+			last_hour += 1
+		if row.custom_address_hash == hkey:
+			by_address += 1
+	return {
+		"orders_24h": len(rows),
+		"decayed": round(decayed, 2),
+		"by_address_24h": by_address,
+		# Kept for the admin panel, which has always shown the last hour; the
+		# score itself uses the decayed day count above.
+		"last_hour": last_hour,
+	}
+
+
+def address_activity(address: dict, exclude_order: str = "") -> dict:
+	"""How busy one address is, how many different customers used it, and how
+	many of its deliveries have already failed.
+	"""
+	line1 = (address.get("address_line1") or "").strip()
+	city = (address.get("city") or "").strip()
+	pincode = (address.get("pincode") or "").strip()
+	if not line1 or not city:
+		return {"orders_24h": 0, "customers_24h": 0, "failures": 0}
+	since = now_datetime() - timedelta(hours=ADDRESS_VELOCITY_WINDOW_HOURS)
+	rows = frappe.db.sql(
+		"""
+		SELECT so.name, so.customer, so.creation, so.custom_delivery_outcome
+		FROM `tabSales Order` so
+		JOIN `tabAddress` a ON a.name = so.shipping_address_name
+		WHERE so.docstatus in (1, 2)
+		  AND a.address_line1 = %s AND a.city = %s AND a.pincode = %s
+		"""
+		+ (" AND so.name != %s" if exclude_order else "")
+		+ " ORDER BY so.creation DESC LIMIT 200",
+		((line1, city, pincode) + ((exclude_order,) if exclude_order else ())),
+		as_dict=True,
+	)
+	recent = [r for r in rows if r.creation >= since]
+	return {
+		"orders_24h": len(recent),
+		"customers_24h": len({r.customer for r in recent}),
+		"failures": sum(1 for r in rows if (r.custom_delivery_outcome or "") in FAILED_OUTCOMES),
+	}
+
+
+def identity_trust(phone: str, fingerprint: str, fp_verified: bool = False, ip_flagged: bool = False) -> dict:
+	"""How much of this order's identity the server can stand behind.
+
+	`unverified` means every identifier is a self-declared value: the phone
+	matches no contact, the device was never identified server-side, and the IP
+	carries no reputation. That is not proof of fraud - it is the reason a clean
+	lookup must never be read as a known-good customer.
+	"""
+	known_phone = bool(customers_for_phone(phone))
+	known_device = False
+	if fingerprint:
+		known_device = bool(
+			frappe.db.exists(
+				"Sales Order",
+				{
+					"custom_device_fingerprint": fingerprint,
+					"custom_fraud_signals": ["like", "%fp_visitor_id%"],
+				},
+			)
+		)
+	return {
+		"known_phone": known_phone,
+		"known_device": known_device,
+		"unverified": not (known_phone or known_device or fp_verified or ip_flagged),
+	}
+
+
 def pk_hour() -> int:
 	"""Current hour in Asia/Karachi."""
 	return now_datetime().astimezone(ZoneInfo("Asia/Karachi")).hour
@@ -177,28 +348,47 @@ def in_risky_window(settings_doc=None) -> bool:
 
 
 def customers_for_phone(phone: str) -> list[str]:
+	"""Customers reachable from a claimed phone number.
+
+	Two corrections over the previous contains-match. A claim shorter than
+	MIN_PHONE_DIGITS_FOR_CORRELATION is not evidence of anything: "0300" used
+	to match every contact whose number contained those digits, which handed
+	the order somebody else's delivery history and a customer list large
+	enough to slow checkout down. The SQL pattern is now only a pre-filter -
+	every candidate is re-checked against its own normalised number, so a
+	longer number that merely contains the claim no longer counts - and the
+	list is capped so one fuzzy hit cannot become a runaway IN (...) clause.
+	"""
 	normalized = normalize_phone(phone)
-	if not normalized:
+	if len(normalized) < MIN_PHONE_DIGITS_FOR_CORRELATION:
 		return []
-	# Use SQL LIKE to avoid loading every Contact into Python
-	contacts = frappe.db.sql(
-		"""SELECT name FROM `tabContact`
+	candidates = frappe.db.sql(
+		"""SELECT name, mobile_no FROM `tabContact`
 		WHERE mobile_no IS NOT NULL
-		AND REPLACE(REPLACE(REPLACE(REPLACE(mobile_no, ' ', ''), '-', ''), '+', ''), '(', '') LIKE %s""",
-		(f"%{normalized}",),
-		pluck="name",
+		AND REPLACE(REPLACE(REPLACE(REPLACE(mobile_no, ' ', ''), '-', ''), '+', ''), '(', '') LIKE %s
+		LIMIT 500""",
+		(f"%{normalized}%",),
+		as_dict=True,
 	)
-	if not contacts:
+	exact = [row.name for row in candidates if normalize_phone(row.mobile_no) == normalized]
+	if not exact:
 		return []
-	return frappe.get_all(
+	customers = frappe.get_all(
 		"Dynamic Link",
 		filters={
 			"parenttype": "Contact",
-			"parent": ["in", contacts],
+			"parent": ["in", exact],
 			"link_doctype": "Customer",
 		},
 		pluck="link_name",
 	)
+	seen: set[str] = set()
+	unique: list[str] = []
+	for customer in customers or []:
+		if customer not in seen:
+			seen.add(customer)
+			unique.append(customer)
+	return unique[:MAX_CORRELATED_CUSTOMERS]
 
 
 def customer_phone(customer: str) -> str:
@@ -243,62 +433,47 @@ def order_stats(phone: str, email: str, since_days: int = 90) -> dict:
 	}
 
 
-def velocity_count(phone: str, fingerprint: str, window_minutes: int = 60, as_of=None,
-	exclude_order: str = "") -> tuple[int, int]:
-	"""OTHER orders in the last window from this phone and (separately) this
-	device. The order being scored is excluded so a first-ever order shows 0."""
-	now = as_of or now_datetime()
-	since = now - timedelta(minutes=window_minutes)
-	not_self = {"name": ["!=", exclude_order]} if exclude_order else {}
-	customers = customers_for_phone(phone)
-	phone_count = 0
-	if customers:
-		phone_count = frappe.db.count(
-			"Sales Order",
-			{**not_self, "docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "customer": ["in", customers]},
-		)
-	fp_count = 0
-	if fingerprint:
-		fp_count = frappe.db.count(
-			"Sales Order",
-			{**not_self, "docstatus": ["in", [0, 1, 2]], "creation": (">=", since), "custom_device_fingerprint": fingerprint},
-		)
-	return phone_count, fp_count
-
-
-def _order_phone(order) -> str:
-	"""Get the best available phone from a Sales Order."""
-	return order.contact_phone or order.contact_mobile or ""
-
-
 def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
+	"""Active blacklist entry for this phone or email, or None.
+
+	The comparison runs in SQL against the same normalisation the Python helper
+	uses, so this is one query instead of loading every active row into Python
+	and looping over it twice per order.
+	"""
 	normalized = normalize_phone(phone)
-	if not normalized and not email:
+	email_clean = (email or "").strip()
+	if len(normalized) < MIN_PHONE_DIGITS_FOR_CORRELATION and not email_clean:
 		return None
-	for row in frappe.get_all("Shop Blacklist", filters={"active": 1}, fields=["name", "phone", "email", "hit_count"]):
-		if normalized and normalize_phone(row.phone) == normalized:
-			return row
-	if email:
-		email_clean = email.strip().lower()
-		# Check both exact match and case-insensitive via SQL
-		hit = frappe.db.get_value(
-			"Shop Blacklist",
-			{"active": 1, "email": email_clean},
-			["name", "phone", "email", "hit_count"],
-			as_dict=True,
-		)
-		if hit:
-			return hit
-		# Case-insensitive fallback
-		hit = frappe.db.sql(
-			"""SELECT name, phone, email, hit_count FROM `tabShop Blacklist`
-			WHERE active=1 AND LOWER(email)=LOWER(%s) LIMIT 1""",
-			(email_clean,),
-			as_dict=True,
-		)
-		if hit:
-			return hit[0]
-	return None
+	clauses: list[str] = []
+	values: list = []
+	if len(normalized) >= MIN_PHONE_DIGITS_FOR_CORRELATION:
+		clauses.append(f"({_NORMALISE_PHONE_SQL.format(col='phone')}) = %s")
+		values.append(normalized)
+	if email_clean:
+		clauses.append("LOWER(email) = LOWER(%s)")
+		values.append(email_clean)
+	if not clauses:
+		return None
+	rows = frappe.db.sql(
+		f"SELECT {_BLACKLIST_FIELDS} FROM `tabShop Blacklist` "
+		f"WHERE active = 1 AND ({' OR '.join(clauses)}) ORDER BY creation DESC LIMIT 1",
+		tuple(values),
+		as_dict=True,
+	)
+	return rows[0] if rows else None
+
+
+def record_blacklist_hit(name: str) -> None:
+	"""Count a blacklist hit atomically, once per scoring run.
+
+	The old read-then-write lost updates when two orders landed together, and
+	the placement path counted a single order up to three times (placement,
+	background evaluation, verification re-evaluation), overstating the evidence
+	a manager reads beside the reason.
+	"""
+	frappe.db.sql(
+		"UPDATE `tabShop Blacklist` SET hit_count = COALESCE(hit_count, 0) + 1 WHERE name = %s", name
+	)
 
 
 def address_key(address: dict) -> str:
@@ -310,25 +485,37 @@ def address_key(address: dict) -> str:
 	return " | ".join(parts)
 
 
-def previous_address_failed(address: dict) -> bool:
+def address_failure_count(address: dict) -> int:
+	"""How many deliveries have already failed at this address.
+
+	A count rather than a yes/no: one failed parcel is a bad day, six is a
+	drop point, and the weight should be able to say so. Compared against the
+	Address rows directly, so it does not depend on which customer's record the
+	address happens to be linked to.
+	"""
 	a1 = (address.get("address_line1") or "").strip()
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
 	if not a1 or not city:
-		return False
-	addr = frappe.db.get_value(
-		"Address",
-		{"address_line1": a1, "city": city, "pincode": pincode},
-		"name",
+		return 0
+	return cint(
+		frappe.db.sql(
+			"""
+			SELECT COUNT(*)
+			FROM `tabSales Order` so
+			JOIN `tabAddress` a ON a.name = so.shipping_address_name
+			WHERE so.docstatus in (1, 2)
+			  AND a.address_line1 = %s AND a.city = %s AND a.pincode = %s
+			  AND so.custom_delivery_outcome IN %s
+			""",
+			(a1, city, pincode, tuple(FAILED_OUTCOMES)),
+		)[0][0]
 	)
-	if not addr:
-		return False
-	return bool(
-		frappe.db.exists(
-			"Sales Order",
-			{"shipping_address_name": addr, "custom_delivery_outcome": ["in", list(FAILED_OUTCOMES)]},
-		)
-	)
+
+
+def previous_address_failed(address: dict) -> bool:
+	"""Kept for callers that want the boolean; the score itself wants the count."""
+	return address_failure_count(address) > 0
 
 
 def compute_verification_risk(
@@ -374,8 +561,10 @@ def compute_verification_risk(
 		score += w["address_bad_pincode"]
 	if city and city.lower() not in _canonical_cities():
 		score += w["address_unknown_city"]
-	if _previous_address_failed(address):
-		score += w["address_prior_failure"]
+	failures = address_failure_count(address)
+	if failures:
+		result["address_prior_failures"] = failures
+		score += min(failures * w["address_prior_failure_per"], w["address_prior_failure_cap"])
 
 	# --- ORS signals ---
 	if ors_result and ors_result.get("found"):
@@ -476,7 +665,7 @@ def compute_verification_risk(
 			"matched": hits > 0,
 		}
 		if hits > 0:
-			score += w.get("landmark_gms_hit_bonus", -5)
+			score += w.get("landmark_gms_hit_bonus", 0)
 		else:
 			score += w.get("landmark_gms_miss", 3)
 
@@ -511,8 +700,11 @@ def _previous_address_failed(address):
 def city_rto_rate(city: str) -> float:
 	if not city:
 		return 0
+	# One key per place: the stats table is written with the same normalisation
+	# (update_city_stats), so "Rahimyar Yar Khan" and "Rahim Yar Khan" can no
+	# longer be two rows where a lookup finds neither.
 	row = frappe.db.get_value(
-		"Shop City Stats", {"city": city}, ["orders_30d", "failed_30d", "rto_rate"], as_dict=True
+		"Shop City Stats", {"city": normalize_city(city)}, ["orders_30d", "failed_30d", "rto_rate"], as_dict=True
 	)
 	if not row or not row.orders_30d:
 		return 0
@@ -583,62 +775,30 @@ def _normalized_score(value) -> float:
 	return min(max(v, 0.0), 1.0)
 
 
-def fast_risk(
-	customer: dict,
-	address: dict,
-	payment_method: str = "cod",
-	device_fingerprint: str = "",
-	as_of=None,
-	exclude_order=None,
-) -> FraudResult:
-	"""DB-only fraud checks (~10ms). Runs synchronously in place_order.
-	Only blocks on blacklist + velocity. Everything else defers to background."""
-	from shop.integrations.signal_weights import get_weights as _get_weights
+def _address_text_score(address: dict, w: dict, settings_doc) -> tuple[int, dict]:
+	"""Address quality read from the customer's own text.
 
-	w = _get_weights()
-	settings_doc = settings()
-	phone = customer.get("phone") or ""
-	email = (customer.get("email") or "").strip().lower()
-	city = (address.get("city") or "").strip()
-	signals: dict = {}
+	Cheap (no HTTP, one indexed count) and therefore available on both passes:
+	the background evaluation used to skip these entirely and score the same
+	order lower than the provisional pass had, purely because verification had
+	not finished yet.
+	"""
+	facts: dict = {}
 	score = 0
-	hit = None
-
-	# ---- missing fingerprint (instant check, no HTTP) ----
-	if payment_method in ("cod", "pickup") and not device_fingerprint:
-		score += w["missing_fingerprint"]
-		signals["missing_fingerprint"] = True
-
-	# ---- repeat fraud history (DB only) ----
-	stats = order_stats(phone, email)
-	signals["repeat_history"] = stats
-	failed_rto = stats["failed"] + stats["rto"]
-	if failed_rto:
-		score += min(failed_rto * w["history_failed_rto_per"], w["history_failed_rto_cap"])
-	if stats["total"] and flt(stats["cancelled"]) / stats["total"] > 0.5:
-		score += w["history_cancelled_ratio_pts"]
-		signals["history_cancelled"] = True
-
-	# ---- phone blacklist (DB only) ----
-	hit = blacklist_hit(phone, email)
-	if hit:
-		signals["blacklisted"] = hit.name
-		score += w["blacklist_hit"]
-
-	# ---- address heuristics only (no geocode HTTP) ----
 	a1 = (address.get("address_line1") or "").strip()
+	city = (address.get("city") or "").strip()
 	stated_province = (address.get("state") or "").strip()
 	stated_country = (address.get("country") or "").strip()
-	landmark_val = (address.get("landmark") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
+	landmark = (address.get("landmark") or "").strip()
 
 	if stated_country and stated_country.lower() not in home_country_codes(settings_doc):
-		signals["address_country_mismatch"] = stated_country
+		facts["address_country_mismatch"] = stated_country
 		score += w["user_country_mismatch"]
 	if stated_province:
-		expected_province = province_for_city(city, settings_doc)
-		if expected_province and stated_province.lower() != expected_province.lower():
-			signals["address_province_mismatch"] = stated_province
+		expected = province_for_city(city, settings_doc)
+		if expected and stated_province.lower() != expected.lower():
+			facts["address_province_mismatch"] = stated_province
 			score += w["province_mismatch"]
 	if len(a1) < 5:
 		score += w["address_short_line1"]
@@ -648,52 +808,338 @@ def fast_risk(
 		score += w["address_bad_pincode"]
 	if city and city.lower() not in canonical_cities():
 		score += w["address_unknown_city"]
-	if not landmark_val:
+	if not landmark:
+		facts["landmark_missing"] = True
 		score += w["address_missing_landmark"]
-	if previous_address_failed(address):
-		score += w["address_prior_failure"]
 
-	# ---- order velocity (DB only) ----
-	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of,
-		exclude_order=exclude_order)
-	signals["orders_last_60m"] = orders_1hr
-	signals["fp_orders_last_60m"] = fp_1hr
-	max_per_hour = cint(settings_doc.fraud_velocity_max)
-	if max_per_hour and orders_1hr >= max_per_hour:
+	failures = address_failure_count(address)
+	if failures:
+		facts["address_prior_failures"] = failures
+		score += min(failures * w["address_prior_failure_per"], w["address_prior_failure_cap"])
+
+	# Address pressure: several different customers ordering one address in a
+	# day is the drop-point pattern, and it is the one signal that survives a
+	# shopper rotating phone numbers, because the address is not free to change.
+	activity = address_activity(address)
+	if activity["orders_24h"] >= ADDRESS_VELOCITY_CUSTOMERS and activity["customers_24h"] >= 2:
+		facts["address_activity_24h"] = activity
+		score += w["address_velocity"]
+	return score, facts
+
+
+def _score_order(inputs: dict, w: dict, settings_doc, as_of=None, exclude_order: str = "") -> tuple[dict, int]:
+	"""The one scoring model. Both passes call it.
+
+	`inputs` carries only what this caller could actually resolve: the cheap
+	DB facts are resolved by whichever pass runs, the verified facts (fingerprint
+	identification, IP reputation, geocoded address) appear only when the
+	background pass has them. Anything absent is simply not scored - and is
+	never read as "clean", which is what identity_unverified exists to say out
+	loud.
+	"""
+	from shop.integrations.signal_weights import get_weights as _weights
+
+	settings_doc = settings_doc or settings()
+	w = w or _weights(settings_doc)
+	signals: dict = {}
+	score = 0
+	address = inputs.get("address") or {}
+	phone = inputs.get("phone") or ""
+	email = (inputs.get("email") or "").strip().lower()
+	city = (address.get("city") or "").strip()
+	payment_method = inputs.get("payment_method") or "cod"
+	fingerprint = inputs.get("device_fingerprint") or ""
+	collecting = payment_method in ("cod", "pickup")
+
+	# --- 1. how much of this identity the server can stand behind ----------
+	identity = inputs.get("identity") or {}
+	if identity.get("unverified"):
+		signals["identity_unverified"] = True
+		score += w["identity_unverified"]
+	if identity.get("known_phone"):
+		signals["identity_known_phone"] = True
+	if identity.get("known_device"):
+		signals["identity_known_device"] = True
+
+	# --- 2. repeat history (always available) -----------------------------
+	stats = order_stats(phone, email)
+	signals["repeat_history"] = stats
+	failed_rto = stats["failed"] + stats["rto"]
+	if failed_rto:
+		score += min(failed_rto * w["history_failed_rto_per"], w["history_failed_rto_cap"])
+	if stats["total"] and flt(stats["cancelled"]) / stats["total"] > 0.5:
+		score += w["history_cancelled_ratio_pts"]
+		signals["history_cancelled"] = True
+
+	# --- 3. blacklist ------------------------------------------------------
+	if inputs.get("blacklisted"):
+		signals["blacklisted"] = inputs["blacklisted"]
+		score += w["blacklist_hit"]
+
+	# --- 4. address: text now, verification when it exists ------------------
+	address_delta, address_facts = _address_text_score(address, w, settings_doc)
+	score += address_delta
+	signals.update(address_facts)
+	addr = inputs.get("addr_risk")
+	if addr:
+		# The verification model can reach 80 on its own and every point of it
+		# comes from text the customer typed, so it contributes a capped share
+		# rather than owning the score.
+		contribution = min(cint(addr.get("score") or 0), ADDRESS_SCORE_CAP)
+		signals["address_score"] = cint(addr.get("score") or 0)
+		signals["address_score_capped_to"] = ADDRESS_SCORE_CAP
+		score += contribution
+		for key in (
+			"geo_not_found", "city_mismatch", "wrong_country", "geo_unavailable",
+			"verification_unavailable", "geo_city_mismatch", "user_country_mismatch",
+			"province_mismatch",
+		):
+			if addr.get(key):
+				signals[f"address_{key}"] = addr[key] if not isinstance(addr[key], bool) else True
+		if (addr.get("gms_landmark") or {}).get("matched"):
+			signals["landmark_gms"] = addr["gms_landmark"]
+	elif inputs.get("addr_risk") is None and inputs.get("verification_pending"):
+		signals["address_verification_pending"] = True
+
+	# --- 5. velocity, decaying over a day --------------------------------
+	profile = velocity_profile(
+		phone, fingerprint, address, as_of=as_of, exclude_order=exclude_order
+	)
+	signals["orders_last_24h"] = profile["orders_24h"]
+	signals["orders_last_60m"] = profile["last_hour"]
+	signals["velocity_decayed_24h"] = profile["decayed"]
+	max_per_day = cint(settings_doc.fraud_velocity_max)
+	block_at = max_per_day * VELOCITY_BLOCK_MULTIPLIER
+	if max_per_day and profile["orders_24h"] >= block_at:
 		signals["velocity_block"] = True
 		score += w["velocity_block"]
-	elif orders_1hr > 1:
-		score += min((orders_1hr - 1) * w["velocity_extra_per_order"], w["velocity_extra_cap"])
-	if device_fingerprint and fp_1hr > orders_1hr:
+	elif profile["decayed"] > 1:
+		score += min((profile["decayed"] - 1) * w["velocity_extra_per_order"], w["velocity_extra_cap"])
+	if fingerprint and profile["orders_24h"] > 1 and not inputs.get("identity", {}).get("known_device"):
 		signals["fp_multiple_phones"] = True
 		score += w["fp_multiple_phones"]
 
-	# ---- city RTO rate (DB only) ----
-	rto_high_pct = cint(settings_doc.fraud_rto_high_pct) or 40
-	rto_medium_pct = cint(settings_doc.fraud_rto_medium_pct) or 20
+	# --- 6. city RTO rate -------------------------------------------------
 	rate = city_rto_rate(city)
 	signals["city_rto_rate"] = rate
-	if rate >= rto_high_pct:
+	if rate >= (cint(settings_doc.fraud_rto_high_pct) or 40):
 		score += w["city_rto_high"]
-	elif rate >= rto_medium_pct:
+	elif rate >= (cint(settings_doc.fraud_rto_medium_pct) or 20):
 		score += w["city_rto_medium"]
 
-	# ---- time-of-day pattern ----
-	if payment_method in ("cod", "pickup") and in_risky_window(settings_doc):
+	# --- 7. time of day ---------------------------------------------------
+	if collecting and in_risky_window(settings_doc):
 		signals["risky_hour"] = True
 		score += w["risky_hour"]
 
-	score = min(score, 100)
-	# fast_risk can only Block on blacklist or velocity (instant DB checks)
-	if hit and (payment_method in ("cod", "pickup") or cint(settings_doc.fraud_blacklist_blocks_all)):
-		verdict = "Block"
-	elif signals.get("velocity_block") and payment_method in ("cod", "pickup"):
-		verdict = "Block"
-	else:
-		verdict = "Pass"
+	# --- 8. device fingerprint, when the server could verify it -----------
+	if collecting and not fingerprint:
+		signals["missing_fingerprint"] = True
+		score += w["missing_fingerprint"]
+	ident = inputs.get("fp_identification")
+	if ident:
+		score += _fingerprint_signals(ident, w, signals)
+	elif inputs.get("fp_verify_failed"):
+		# A request id that came back unverifiable is not a neutral event.
+		signals["fp_verify_failed"] = True
+		score += w["fp_verify_failed"]
 
-	if hit:
-		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
+	# --- 9. IP reputation, with "unavailable" kept distinct from "clean" ---
+	ip_intel = inputs.get("ip_intel")
+	if ip_intel is None:
+		if inputs.get("ip_intel_enabled") and inputs.get("ip_address"):
+			signals["ip_intel_unavailable"] = True
+	else:
+		signals["ip_intel"] = {
+			"ip": inputs.get("ip_address"),
+			"available": True,
+			"proxy": bool(ip_intel.get("proxy")),
+			"hosting": bool(ip_intel.get("hosting")),
+			"abuse_score": ip_intel.get("abuse_score", 0),
+			"total_reports": ip_intel.get("total_reports", 0),
+			"is_tor": bool(ip_intel.get("is_tor")),
+			"is_whitelisted": bool(ip_intel.get("is_whitelisted")),
+			"usage_type": ip_intel.get("usage_type", ""),
+		}
+		if ip_intel.get("proxy"):
+			score += w["ip_proxy_detected"]
+		if ip_intel.get("hosting"):
+			score += w["ip_hosting_detected"]
+		abuse = cint(ip_intel.get("abuse_score"))
+		if abuse >= 50:
+			score += w["ip_abuse_high"]
+		elif abuse >= 20:
+			score += w["ip_abuse_medium"]
+		if ip_intel.get("is_tor"):
+			score += w["ip_tor_exit"]
+		if cint(ip_intel.get("total_reports")) > 100:
+			score += w["ip_blacklisted"]
+
+	return signals, max(0, min(score, 100))
+
+
+def _fingerprint_signals(ident: dict, w: dict, signals: dict) -> int:
+	"""Verified device signals from the FingerprintJS identification payload."""
+	score = 0
+	bot = _fp_signal(ident, "bot")
+	tampered = bool(_fp_signal(ident, "tampering") or _fp_signal(ident, "browserTampering"))
+	replayed = bool(_fp_signal(ident, "replayed"))
+	suspect = _normalized_score(
+		_fp_signal(ident, "suspect_score") or _fp_signal(ident, "suspectScore")
+	)
+	blocklist = _fp_signal(ident, "ip_blocklist") or {}
+	ipinfo = (_fp_signal(ident, "ip_info") or {}).get("v4") or {}
+	geo = ipinfo.get("geolocation") or {}
+	signals["fp_suspect_score"] = suspect
+	signals["fp_bot"] = bot
+	signals["fp_tampered"] = tampered
+	signals["fp_replayed"] = replayed
+	signals["fp_visitor_id"] = (ident.get("identification") or {}).get("visitor_id")
+	signals["fp_proxy"] = bool(_fp_signal(ident, "proxy"))
+	signals["fp_vpn"] = bool(_fp_signal(ident, "vpn"))
+	signals["fp_virtual_machine"] = bool(_fp_signal(ident, "virtual_machine"))
+	signals["fp_incognito"] = bool(_fp_signal(ident, "incognito"))
+	signals["fp_network"] = {
+		"city": geo.get("city_name"),
+		"country": geo.get("country_name"),
+		"isp": ipinfo.get("asn_name"),
+		"datacenter": bool(ipinfo.get("datacenter_result")),
+	}
+	if bot in ("bad", "all") or tampered or replayed:
+		score += w["fp_bot_tamper_replay"]
+	elif suspect >= 0.8:
+		score += w["fp_suspect_high"]
+	elif suspect >= 0.5:
+		score += w["fp_suspect_medium"]
+	if blocklist.get("attack_source") or blocklist.get("tor_node") or blocklist.get("email_spam"):
+		score += w["ip_blocklist_hit"]
+	if _fp_signal(ident, "proxy"):
+		score += w["proxy_detected"]
+	if _fp_signal(ident, "incognito") or _fp_signal(ident, "privacy_settings"):
+		score += w["incognito_privacy"]
+
+	# Advanced device signals
+	if _fp_signal(ident, "high_activity_device"):
+		signals["fp_high_activity_device"] = True
+		score += w["fp_high_activity_device"]
+	if _fp_signal(ident, "rare_device"):
+		# A first-time customer is a rare device by definition; recorded for the
+		# merchant, weighted 0 unless they turn it on.
+		signals["fp_rare_device"] = True
+		score += w["fp_rare_device"]
+	if ipinfo.get("datacenter_result"):
+		signals["fp_datacenter"] = True
+		score += w["fp_datacenter_ip"]
+	if _fp_signal(ident, "vpn"):
+		score += w["fp_vpn"]
+	if _fp_signal(ident, "virtual_machine"):
+		score += w["fp_virtual_machine"]
+	velocity = _fp_signal(ident, "velocity") or {}
+	events = velocity.get("events") or {}
+	distinct_ip = velocity.get("distinct_ip") or {}
+	distinct_country = velocity.get("distinct_country") or {}
+	events_5m = cint(events.get("5_minutes"))
+	events_1h = cint(events.get("1_hour"))
+	dc_24h = cint(distinct_country.get("24_hours"))
+	signals["fp_velocity"] = {
+		"events_5m": events_5m,
+		"events_1h": events_1h,
+		"distinct_ip_1h": cint(distinct_ip.get("1_hour")),
+		"distinct_country_24h": dc_24h,
+	}
+	if events_1h > 10:
+		score += w["fp_velocity_high"]
+	if events_5m > 5:
+		score += w["fp_velocity_rapid_fire"]
+	if cint(distinct_ip.get("1_hour")) > 1:
+		score += w["fp_velocity_multi_ip"]
+	if dc_24h > 1:
+		score += w["fp_velocity_multi_country"]
+	return score
+
+
+def _verdict(
+	score: int,
+	signals: dict,
+	hit: dict | None,
+	settings_doc,
+	payment_method: str,
+	verified_evidence: bool = False,
+) -> str:
+	"""The ladder, in one place so both passes agree on it.
+
+	A score alone never blocks: the score is mostly built from what the
+	customer typed, so blocking on it without corroboration would punish
+	privacy-conscious first-time buyers. A high score plus at least one
+	server-verified signal does block.
+	"""
+	collecting = payment_method in ("cod", "pickup")
+	advance_at = cint(settings_doc.fraud_advance_threshold) or 70
+	# Optional merchant knob: readable before the field exists, effective the
+	# moment Shop Settings grows it.
+	flag_at = cint(settings_doc.get("fraud_flag_threshold")) or 40
+	if hit and (collecting or cint(settings_doc.fraud_blacklist_blocks_all)):
+		return "Block"
+	if collecting and signals.get("velocity_block"):
+		return "Block"
+	if collecting and verified_evidence and score >= BLOCK_SCORE_THRESHOLD:
+		signals["block_on_score_with_evidence"] = score
+		return "Block"
+	if collecting and score >= advance_at:
+		return "Advance Required"
+	if score >= flag_at:
+		# Flag is a queue, not a decoration: the order is written to the fraud
+		# event log and marked here so the admin list can triage it before the
+		# parcel moves.
+		signals["requires_manual_review"] = True
+		return "Flag"
+	return "Pass"
+
+
+def fast_risk(
+	customer: dict,
+	address: dict,
+	payment_method: str = "cod",
+	device_fingerprint: str = "",
+	as_of=None,
+	exclude_order=None,
+) -> FraudResult:
+	"""Placement-time scoring: the shared model over the cheap, DB-only facts.
+
+	This pass cannot verify anything about the shopper, so it does not pretend
+	to: the model records identity_unverified when the claimed phone and device
+	match nothing the server knows, and only the two conditions that can
+	refuse an order (blacklist, velocity) can produce a Block here.
+	"""
+	settings_doc = settings()
+	phone = (customer.get("phone") or "").strip()
+	email = (customer.get("email") or "").strip().lower()
+	hit = blacklist_hit(phone, email)
+	identity = identity_trust(phone, device_fingerprint)
+	inputs = {
+		"phone": phone,
+		"email": email,
+		"address": address,
+		"payment_method": payment_method,
+		"device_fingerprint": device_fingerprint,
+		"blacklisted": hit.name if hit else None,
+		"identity": identity,
+		"verification_pending": True,
+	}
+	signals, score = _score_order(
+		inputs, None, settings_doc, as_of=as_of, exclude_order=exclude_order or ""
+	)
+	verdict = _verdict(
+		score,
+		signals,
+		hit,
+		settings_doc,
+		payment_method,
+		verified_evidence=bool(identity.get("known_device")),
+	)
+	# hit_count is deliberately not touched here: the background evaluation
+	# counts a hit once, and counting at placement as well inflated the same
+	# order's evidence up to three times.
 	return FraudResult(score, verdict, signals, False, None)
 
 
@@ -791,16 +1237,34 @@ def reevaluate_order_for_verification(ver_name: str) -> None:
 		"country": row.country or "",
 		"pincode": row.pincode or "",
 	}
-	for order_name in names:
+	# Bounded: one address can carry hundreds of orders (an office, a mall),
+	# and each re-evaluation costs external calls. The rest are picked up by a
+	# later queue pass rather than all at once.
+	batch = names[:MAX_REEVALUATE_PER_RUN]
+	if len(names) > len(batch):
+		frappe.logger("fraud").info(
+			"fraud re-evaluation for %s capped at %s of %s linked orders",
+			ver_name, len(batch), len(names),
+		)
+	ip_cache: dict[str, dict] = {}
+	for order_name in batch:
 		try:
 			so = frappe.db.get_value(
 				"Sales Order", order_name,
 				["contact_phone", "contact_email", "custom_device_fingerprint",
-				 "custom_fp_request_id", "custom_payment_method"],
+				 "custom_fp_request_id", "custom_payment_method", "custom_fp_event"],
 				as_dict=True,
 			)
 			if not so:
 				continue
+			reuse = None
+			if so.custom_fp_event:
+				# The stored event is the server's own verification result, so a
+				# re-evaluation can reuse it instead of asking the API again.
+				try:
+					reuse = frappe.parse_json(so.custom_fp_event)
+				except Exception:
+					reuse = None
 			customer = {
 				"phone": so.contact_phone or "",
 				"email": so.contact_email or "",
@@ -810,7 +1274,8 @@ def reevaluate_order_for_verification(ver_name: str) -> None:
 			payment_method = so.custom_payment_method or "cod"
 			ip_address = frappe.db.get_value("Sales Order", order_name, "custom_client_ip") or ""
 			result = evaluate_risk(customer, address, payment_method,
-				fingerprint, fp_request_id, exclude_order=order_name, ip_address=ip_address)
+				fingerprint, fp_request_id, exclude_order=order_name,
+				ip_address=ip_address, reuse_event=reuse)
 			stamp_order(order_name, fingerprint, fp_request_id, result)
 			log_fraud_event(order_name, customer, address, payment_method,
 				fingerprint, result)
@@ -833,259 +1298,177 @@ def evaluate_risk(
 	as_of=None,
 	exclude_order: str = "",
 	ip_address: str = "",
+	reuse_event: dict | None = None,
 ) -> FraudResult:
-	from shop.integrations.signal_weights import get_weights as _get_weights
+	"""Full evaluation: the same model, with the verified facts resolved.
 
-	w = _get_weights()
-	rto_high_pct = cint(settings().fraud_rto_high_pct) or 40
-	rto_medium_pct = cint(settings().fraud_rto_medium_pct) or 20
-	settings_doc = settings()
-	phone = customer.get("phone") or ""
-	email = (customer.get("email") or "").strip().lower()
-	city = (address.get("city") or "").strip()
-	signals: dict = {}
-	score = 0
-	fp_verified = False
-
-	# ---- 7. device fingerprint (verified server-side via Fingerprint Identification) ----
-	raw_event = None
-	secret = settings_doc.get_password('fingerprint_secret_key', raise_exception=False)
-	if fp_request_id and secret:
-		ident = verify_fingerprint(fp_request_id, secret, settings_doc)
-		fp_verified = bool(ident)
-		if ident:
-			raw_event = ident
-			bot = _fp_signal(ident, "bot")
-			tampered = bool(_fp_signal(ident, "tampering") or _fp_signal(ident, "browserTampering"))
-			incognito = bool(_fp_signal(ident, "incognito"))
-			privacy = bool(_fp_signal(ident, "privacy_settings"))
-			replayed = bool(_fp_signal(ident, "replayed"))
-			suspect = _normalized_score(_fp_signal(ident, "suspect_score") or _fp_signal(ident, "suspectScore"))
-			proxy = bool(_fp_signal(ident, "proxy"))
-			vpn = bool(_fp_signal(ident, "vpn"))
-			vm = bool(_fp_signal(ident, "virtual_machine"))
-			blocklist = _fp_signal(ident, "ip_blocklist") or {}
-			ipinfo = (_fp_signal(ident, "ip_info") or {}).get("v4") or {}
-			geo = ipinfo.get("geolocation") or {}
-
-			signals["fp_suspect_score"] = suspect
-			signals["fp_bot"] = bot
-			signals["fp_tampered"] = tampered
-			signals["fp_incognito"] = incognito
-			signals["fp_replayed"] = replayed
-			signals["fp_visitor_id"] = (ident.get("identification") or {}).get("visitor_id")
-			signals["fp_proxy"] = proxy
-			signals["fp_vpn"] = vpn
-			signals["fp_virtual_machine"] = vm
-			signals["fp_ip_blocklist"] = blocklist
-			signals["fp_network"] = {
-				"ip": ipinfo.get("address"),
-				"city": geo.get("city_name"),
-				"country": geo.get("country_name"),
-				"isp": ipinfo.get("asn_name"),
-				"datacenter": bool(ipinfo.get("datacenter_result")),
-			}
-
-			if bot in ("bad", "all") or tampered or replayed:
-				score += w["fp_bot_tamper_replay"]
-			elif suspect >= 0.8:
-				score += w["fp_suspect_high"]
-			elif suspect >= 0.5:
-				score += w["fp_suspect_medium"]
-			if blocklist.get("attack_source") or blocklist.get("tor_node") or blocklist.get("email_spam"):
-				score += w["ip_blocklist_hit"]
-			if proxy:
-				score += w["proxy_detected"]
-			if incognito or privacy:
-				score += w["incognito_privacy"]
-
-			# --- new: advanced FP signals ---
-			high_activity = bool(_fp_signal(ident, "high_activity_device"))
-			rare_device = bool(_fp_signal(ident, "rare_device"))
-			datacenter = bool(ipinfo.get("datacenter_result"))
-			fp_velocity = _fp_signal(ident, "velocity") or {}
-			events = fp_velocity.get("events") or {}
-			distinct_ip = fp_velocity.get("distinct_ip") or {}
-			distinct_country = fp_velocity.get("distinct_country") or {}
-			events_5m = int(events.get("5_minutes") or 0)
-			events_1h = int(events.get("1_hour") or 0)
-			events_24h = int(events.get("24_hours") or 0)
-			dip_1h = int(distinct_ip.get("1_hour") or 0)
-			dcountry_24h = int(distinct_country.get("24_hours") or 0)
-
-			signals["fp_high_activity_device"] = high_activity
-			signals["fp_rare_device"] = rare_device
-			signals["fp_datacenter"] = datacenter
-			signals["fp_velocity"] = {
-				"events_5m": events_5m,
-				"events_1h": events_1h,
-				"events_24h": events_24h,
-				"distinct_ip_1h": dip_1h,
-				"distinct_country_24h": dcountry_24h,
-			}
-
-			if high_activity:
-				score += w["fp_high_activity_device"]
-			if rare_device:
-				score += w["fp_rare_device"]
-			if datacenter:
-				score += w["fp_datacenter_ip"]
-			if vpn:
-				score += w["fp_vpn"]
-			if vm:
-				score += w["fp_virtual_machine"]
-			if events_1h > 10:
-				score += w["fp_velocity_high"]
-			if events_5m > 5:
-				score += w["fp_velocity_rapid_fire"]
-			if dip_1h > 1:
-				score += w["fp_velocity_multi_ip"]
-			if dcountry_24h > 1:
-				score += w["fp_velocity_multi_country"]
-		else:
-			# request id sent but verification failed -> tampered/replayed id
-			signals["fp_verify_failed"] = True
-			score += w["fp_verify_failed"]
-	elif payment_method == "cod" and not device_fingerprint:
-		score += w["missing_fingerprint"]
-		signals["missing_fingerprint"] = True
-
-	# ---- IP Intelligence (ip-api.com + AbuseIPDB + Tor) ----
-	if ip_address and cint(settings_doc.get("ip_intel_enabled", 1)):
-		try:
-			from shop.integrations.ip_intel import check_ip as _check_ip
-			ip_intel = _check_ip(ip_address)
-			if ip_intel:
-				signals["ip_intel"] = {
-					"ip": ip_address,
-					"proxy": ip_intel.get("proxy", False),
-					"hosting": ip_intel.get("hosting", False),
-					"isp": ip_intel.get("isp", ""),
-					"country_code": ip_intel.get("country_code", ""),
-					"abuse_score": ip_intel.get("abuse_score", 0),
-					"total_reports": ip_intel.get("total_reports", 0),
-					"is_tor": ip_intel.get("is_tor", False),
-					"is_whitelisted": ip_intel.get("is_whitelisted", False),
-					"usage_type": ip_intel.get("usage_type", ""),
-				}
-				if ip_intel.get("proxy"):
-					score += w["ip_proxy_detected"]
-				if ip_intel.get("hosting"):
-					score += w["ip_hosting_detected"]
-				abuse = ip_intel.get("abuse_score", 0)
-				if abuse >= 50:
-					score += w["ip_abuse_high"]
-				elif abuse >= 20:
-					score += w["ip_abuse_medium"]
-				if ip_intel.get("is_tor"):
-					score += w["ip_tor_exit"]
-				if ip_intel.get("total_reports", 0) > 100:
-					score += w["ip_blacklisted"]
-		except Exception:
-			pass  # IP intel is best-effort, don't break the fraud flow
-
-	# ---- 1. repeat fraud history ----
-	stats = order_stats(phone, email)
-	signals["repeat_history"] = stats
-	failed_rto = stats["failed"] + stats["rto"]
-	if failed_rto:
-		score += min(failed_rto * w["history_failed_rto_per"], w["history_failed_rto_cap"])
-	if stats["total"] and flt(stats["cancelled"]) / stats["total"] > 0.5:
-		score += w["history_cancelled_ratio_pts"]
-		signals["history_cancelled"] = True
-
-	# ---- 2. phone blacklist ----
-	hit = blacklist_hit(phone, email)
-	if hit:
-		signals["blacklisted"] = hit.name
-		score += w["blacklist_hit"]
-
-	# ---- 3. address verification risk (single record incl. landmark) ----
-	from shop.integrations.geocoding import address_hash as _addr_hash
+	`reuse_event` lets a re-evaluation work from the verification already
+	snapshotted on the order instead of calling the fingerprint API again for
+	an event whose answer has not changed.
+	"""
 	import json as _json
 
-	addr = {"score": 0}
+	settings_doc = settings()
+	phone = (customer.get("phone") or "").strip()
+	email = (customer.get("email") or "").strip().lower()
 
-	ahkey = _addr_hash(address)
+	# --- verified device identity ---
+	raw_event = None
+	fp_verified = False
+	ident = None
+	fp_verify_failed = False
+	secret = settings_doc.get_password("fingerprint_secret_key", raise_exception=False)
+	if reuse_event:
+		ident = reuse_event
+		raw_event = reuse_event
+		fp_verified = True
+	elif fp_request_id and secret:
+		ident = verify_fingerprint(fp_request_id, secret, settings_doc)
+		fp_verified = bool(ident)
+		raw_event = ident
+	elif fp_request_id:
+		fp_verify_failed = True
+
+	# --- IP reputation: unavailable is now its own answer ---
+	ip_intel = None
+	ip_enabled = bool(cint(settings_doc.get("ip_intel_enabled", 1)))
+	if ip_address and ip_enabled:
+		try:
+			from shop.integrations.ip_intel import check_ip as _check_ip
+
+			ip_intel = _check_ip(ip_address) or None
+		except Exception:
+			ip_intel = None
+
+	# --- address verification, when the record has it ---
+	from shop.integrations.geocoding import address_hash as _addr_hash
+
 	ver = frappe.db.get_value(
 		"Shop Address Verification",
-		{"address_hash": ahkey},
+		{"address_hash": _addr_hash(address)},
 		["address_risk_status", "address_risk_score", "address_risk_json"],
 		as_dict=True,
 	)
+	addr = None
 	if ver and ver.address_risk_status in ("Complete", "Partial") and ver.address_risk_json is not None:
 		try:
 			addr = _json.loads(ver.address_risk_json)
 			addr["score"] = ver.address_risk_score or 0
 		except Exception:
-			addr = {"score": 0}
-	else:
-		addr = {"score": 0, "geo_unavailable": True, "verification_unavailable": True}
+			addr = None
+	if addr is None and ver:
+		# The record exists but has not produced a risk score yet.
+		addr = {"score": 0, "verification_unavailable": True}
 
-	addr_risk = addr.get("score") or 0
-	signals["address_score"] = addr_risk
-	if addr.get("geo_not_found"):
-		signals["address_geo_not_found"] = True
-	if addr.get("city_mismatch"):
-		signals["address_city_mismatch"] = True
-	if addr.get("user_country_mismatch"):
-		signals["address_country_mismatch"] = addr["user_country_mismatch"]
-	if addr.get("province_mismatch"):
-		signals["address_province_mismatch"] = addr["province_mismatch"]
-	if addr.get("wrong_country"):
-		signals["address_wrong_country"] = addr["wrong_country"]
-	if addr.get("geo_unavailable"):
-		signals["address_geo_unavailable"] = True
-	if addr.get("missing_landmark"):
-		signals["landmark_missing"] = True
-	gms_lm = addr.get("gms_landmark") or {}
-	if gms_lm.get("matched"):
-		signals["landmark_gms"] = gms_lm
-	score += addr_risk
-
-	# ---- 4. order velocity ----
-	orders_1hr, fp_1hr = velocity_count(phone, device_fingerprint, 60, as_of=as_of,
-		exclude_order=exclude_order)
-	signals["orders_last_60m"] = orders_1hr
-	signals["fp_orders_last_60m"] = fp_1hr
-	max_per_hour = cint(settings_doc.fraud_velocity_max)
-	if max_per_hour and orders_1hr >= max_per_hour:
-		signals["velocity_block"] = True
-		score += w["velocity_block"]
-	elif orders_1hr > 1:
-		score += min((orders_1hr - 1) * w["velocity_extra_per_order"], w["velocity_extra_cap"])
-	if device_fingerprint and fp_1hr > orders_1hr:
-		signals["fp_multiple_phones"] = True
-		score += w["fp_multiple_phones"]
-
-	# ---- 5. city RTO rate ----
-	rate = city_rto_rate(city)
-	signals["city_rto_rate"] = rate
-	if rate >= rto_high_pct:
-		score += w["city_rto_high"]
-	elif rate >= rto_medium_pct:
-		score += w["city_rto_medium"]
-
-	# ---- 6. time-of-day pattern ----
-	if payment_method in ("cod", "pickup") and in_risky_window(settings_doc):
-		signals["risky_hour"] = True
-		score += w["risky_hour"]
-
-	score = min(score, 100)
-	if hit and (payment_method in ("cod", "pickup") or cint(settings_doc.fraud_blacklist_blocks_all)):
-		verdict = "Block"
-	elif signals.get("velocity_block") and payment_method in ("cod", "pickup"):
-		verdict = "Block"
-	elif score >= cint(settings_doc.fraud_advance_threshold) and payment_method in ("cod", "pickup"):
-		verdict = "Advance Required"
-	elif score >= 40:
-		verdict = "Flag"
-	else:
-		verdict = "Pass"
-	# Increment blacklist hit count after scoring is complete (avoids write lock during read)
+	ip_flagged = bool(
+		ip_intel
+		and (ip_intel.get("proxy") or ip_intel.get("hosting") or ip_intel.get("is_tor") or cint(ip_intel.get("abuse_score")) >= 20)
+	)
+	hit = blacklist_hit(phone, email)
+	inputs = {
+		"phone": phone,
+		"email": email,
+		"address": address,
+		"payment_method": payment_method,
+		"device_fingerprint": device_fingerprint,
+		"blacklisted": hit.name if hit else None,
+		"identity": identity_trust(phone, device_fingerprint, fp_verified=fp_verified, ip_flagged=ip_flagged),
+		"fp_identification": ident,
+		"fp_verify_failed": fp_verify_failed,
+		"ip_intel": ip_intel,
+		"ip_intel_enabled": ip_enabled,
+		"ip_address": ip_address,
+		"addr_risk": addr,
+	}
+	signals, score = _score_order(inputs, None, settings_doc, as_of=as_of, exclude_order=exclude_order)
+	verdict = _verdict(
+		score,
+		signals,
+		hit,
+		settings_doc,
+		payment_method,
+		verified_evidence=bool(fp_verified or ip_flagged),
+	)
 	if hit:
-		frappe.db.set_value("Shop Blacklist", hit.name, "hit_count", cint(hit.hit_count) + 1)
+		record_blacklist_hit(hit.name)
 	return FraudResult(score, verdict, signals, fp_verified, raw_event)
+
+
+def calibration_report(days: int = 90, buckets: int = 5) -> dict:
+	"""How the score has actually behaved, measured from what the store recorded.
+
+	Every order already stores its score, its verdict and (once delivery
+	happened) its outcome, so the confusion matrix of the current model is one
+	query - no new data, no retraining, just the numbers needed before anyone
+	changes a weight. Buckets are score bands; `false_positive_rate` is the
+	share of Flag/Advance/Block orders that delivered successfully (the cost of
+	scaring honest customers), and `detection_rate` the share of failed or
+	returned orders that the model had already marked.
+	"""
+	since = now_datetime() - timedelta(days=max(1, min(cint(days) or 90, 365)))
+	rows = frappe.db.sql(
+		"""
+		SELECT COALESCE(custom_fraud_score, 0) AS score,
+			custom_fraud_verdict AS verdict,
+			custom_delivery_outcome AS outcome
+		FROM `tabSales Order`
+		WHERE docstatus = 1 AND custom_fraud_verdict IS NOT NULL AND custom_fraud_verdict != ''
+			AND creation >= %s
+		""",
+		(since,),
+		as_dict=True,
+	)
+	buckets = max(2, min(cint(buckets) or 5, 10))
+	span = 100 / buckets
+	aggregated = [
+		{
+			"bucket": f"{int(index * span)}-{int((index + 1) * span)}",
+			"orders": 0,
+			"verdicts": {"Pass": 0, "Flag": 0, "Advance Required": 0, "Block": 0},
+			"delivered": 0,
+			"failed_or_rto": 0,
+			"pending": 0,
+			"scored_high": 0,
+			"bad_high": 0,
+		}
+		for index in range(buckets)
+	]
+	for row in rows:
+		slot = min(buckets - 1, int(flt(row.score) / span))
+		bucket = aggregated[slot]
+		bucket["orders"] += 1
+		if row.verdict in bucket["verdicts"]:
+			bucket["verdicts"][row.verdict] += 1
+		high = row.verdict != "Pass"
+		if (row.outcome or "") in FAILED_OUTCOMES:
+			bucket["failed_or_rto"] += 1
+			if high:
+				bucket["bad_high"] += 1
+		elif row.outcome == "Delivered":
+			bucket["delivered"] += 1
+			if high:
+				bucket["scored_high"] += 1
+		else:
+			bucket["pending"] += 1
+	for bucket in aggregated:
+		settled = bucket["delivered"] + bucket["failed_or_rto"]
+		bucket["false_positive_rate"] = (
+			round(bucket["scored_high"] / bucket["delivered"] * 100, 1) if bucket["delivered"] else None
+		)
+		bucket["detection_rate"] = (
+			round(bucket["bad_high"] / bucket["failed_or_rto"] * 100, 1) if bucket["failed_or_rto"] else None
+		)
+		bucket["settled"] = settled
+	return {
+		"days": cint(days) or 90,
+		"orders_scored": len(rows),
+		"buckets": aggregated,
+		"note": _(
+			"Measured from the scores the store already stored. A bucket with many "
+			"orders, a high false_positive_rate and no failures is a band that costs "
+			"good customers more than it catches."
+		),
+	}
 
 
 def log_fraud_event(order: str | None, customer: dict, address: dict, payment_method: str, fingerprint: str, result: FraudResult):
@@ -1161,18 +1544,18 @@ def update_city_stats(city: str):
 		"""
 		SELECT COUNT(*) FROM `tabSales Order` so
 		JOIN `tabAddress` a ON a.name = so.shipping_address_name
-		WHERE so.docstatus = 1 AND a.city = %s AND so.creation >= %s
+		WHERE so.docstatus = 1 AND LOWER(TRIM(a.city)) = %s AND so.creation >= %s
 		""",
-		(city, since),
+		(normalize_city(city), since),
 	)[0][0]
 	failed = frappe.db.sql(
 		"""
 		SELECT COUNT(*) FROM `tabSales Order` so
 		JOIN `tabAddress` a ON a.name = so.shipping_address_name
-		WHERE so.docstatus = 1 AND a.city = %s AND so.creation >= %s
+		WHERE so.docstatus = 1 AND LOWER(TRIM(a.city)) = %s AND so.creation >= %s
 		AND so.custom_delivery_outcome IN ('Failed', 'RTO')
 		""",
-		(city, since),
+		(normalize_city(city), since),
 	)[0][0]
 	rate = flt(failed) / orders * 100 if orders else 0
 	existing = frappe.db.get_value("Shop City Stats", {"city": city})
@@ -1186,7 +1569,7 @@ def update_city_stats(city: str):
 		frappe.get_doc(
 			{
 				"doctype": "Shop City Stats",
-				"city": city,
+				"city": normalize_city(city),
 				"orders_30d": orders,
 				"failed_30d": failed,
 				"rto_rate": rate,
@@ -1204,7 +1587,9 @@ def record_delivery_outcome(order: str, outcome: str):
 	city = frappe.db.get_value("Address", so.shipping_address_name, "city") or ""
 	so.db_set("custom_delivery_outcome", outcome)
 	if outcome in FAILED_OUTCOMES:
-		phone = customer_phone(so.customer)
+		# The number the courier actually dialled is the one to block - not the
+		# contact's current primary, which may since have been corrected.
+		phone = _order_phone(so) or customer_phone(so.customer)
 		failures = cint(frappe.db.get_value("Customer", so.customer, "custom_failed_deliveries")) + 1
 		frappe.db.set_value("Customer", so.customer, "custom_failed_deliveries", failures)
 		threshold = cint(settings().fraud_auto_blacklist_failures)

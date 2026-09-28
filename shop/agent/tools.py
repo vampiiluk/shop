@@ -885,7 +885,7 @@ def _do_score_order_risk(order_id: str) -> dict:
 	# --- Deep evidence: customer history, live velocity, city stats, blacklist ---
 	from shop.integrations.fraud import (
 		order_stats,
-		velocity_count,
+		velocity_profile,
 		city_rto_rate,
 		blacklist_hit,
 	)
@@ -896,8 +896,13 @@ def _do_score_order_risk(order_id: str) -> dict:
 	history["failed_deliveries_on_customer"] = frappe.utils.cint(
 		frappe.db.get_value("Customer", order.customer, "custom_failed_deliveries"))
 
-	orders_60m, fp_60m = velocity_count(
-		phone, order.custom_device_fingerprint or "", 60, exclude_order=order.name)
+	# The engine now measures a decaying 24h window; the panel shows the same
+	# numbers the score is actually built from.
+	velocity = velocity_profile(
+		phone, order.custom_device_fingerprint or "", address, exclude_order=order.name
+	)
+	orders_60m = velocity["last_hour"]
+	fp_60m = 0
 
 	bl = blacklist_hit(phone, email)
 
