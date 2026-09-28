@@ -531,45 +531,53 @@ def get_flagged_orders(
 	else:
 		verdicts = reviewable
 
-	filters = {
-		"docstatus": 1,
-		"custom_fraud_verdict": ["in", verdicts],
-		# A verdict still being recomputed by the verification queue is not
-		# ready to review; it is on the "Processing" list instead.
-		"custom_fraud_state": ["!=", "Processing"],
-	}
+	# Explicit SQL rather than a Frappe filter object. Two of the three
+	# conditions here cannot be expressed as a filter dict: the fraud state has
+	# to be compared after COALESCE (it is only written once the verification
+	# queue reaches the order, so a plain "!=" compares against NULL and drops
+	# every untouched order), and an "in" list needs to vary per call for the
+	# per-verdict counts. The other reason is quieter: a condition list that
+	# includes ["is", "not set"] does not mean NULL here - it compares the
+	# column to the literal string 'not set' and matches nothing.
+	base_where = """
+		so.docstatus = 1
+		AND COALESCE(NULLIF(so.custom_fraud_state, ''), 'Done') != 'Processing'
+	"""
 	if include_outcome:
-		filters["custom_delivery_outcome"] = include_outcome
+		base_where += " AND so.custom_delivery_outcome = %s"
+
+	def where_for(one_verdict: str = "") -> tuple[str, tuple]:
+		clause = base_where + (
+			" AND so.custom_fraud_verdict = %s" if one_verdict else " AND so.custom_fraud_verdict in %s"
+		)
+		params = []
+		if include_outcome:
+			params.append(include_outcome)
+		params.append(one_verdict if one_verdict else tuple(verdicts))
+		return clause, tuple(params)
 
 	limit = max(1, min(cint(limit) or 25, 200))
 	offset = max(0, cint(offset) or 0)
 
-	rows = frappe.get_all(
-		"Sales Order",
-		filters=filters,
-		fields=[
-			"name",
-			"customer",
-			"customer_name",
-			"contact_phone",
-			"contact_mobile",
-			"transaction_date",
-			"grand_total",
-			"custom_fraud_score",
-			"custom_fraud_verdict",
-			"custom_fraud_state",
-			"custom_fraud_signals",
-			"custom_payment_method",
-			"custom_advance_amount",
-			"delivery_status",
-			"custom_delivery_outcome",
-			"custom_device_fingerprint",
-		],
-		order_by="creation desc",
-		limit=limit,
-		offset=offset,
+	where, params = where_for()
+	total = cint(
+		frappe.db.sql(f"SELECT COUNT(*) FROM `tabSales Order` so WHERE {where}", params)[0][0]
 	)
-	total = frappe.db.count("Sales Order", filters)
+	rows = frappe.db.sql(
+		f"""
+		SELECT so.name, so.customer, so.customer_name,
+			so.contact_phone, so.contact_mobile, so.transaction_date, so.grand_total,
+			so.custom_fraud_score, so.custom_fraud_verdict, so.custom_fraud_state,
+			so.custom_fraud_signals, so.custom_payment_method, so.custom_advance_amount,
+			so.delivery_status, so.custom_delivery_outcome, so.creation
+		FROM `tabSales Order` so
+		WHERE {where}
+		ORDER BY so.creation DESC
+		LIMIT %s OFFSET %s
+		""",
+		params + (limit, offset),
+		as_dict=True,
+	)
 
 	# The signal names are what a reviewer actually needs - "Flag, score 45"
 	# tells you nothing, "identity unverified, landmark missing" tells you
@@ -583,10 +591,10 @@ def get_flagged_orders(
 		row["signals"] = signals
 		row.pop("custom_device_fingerprint", None)
 
-	counts = {
-		one: frappe.db.count("Sales Order", {**filters, "custom_fraud_verdict": one})
-		for one in reviewable
-	}
+	counts = {}
+	for one in reviewable:
+		clause, params = where_for(one_verdict=one)
+		counts[one] = cint(frappe.db.sql(f"SELECT COUNT(*) FROM `tabSales Order` so WHERE {clause}", params)[0][0])
 	return {
 		"orders": rows,
 		"total": total,
@@ -603,6 +611,10 @@ def get_flagged_orders(
 # Signal names a reviewer cares about, in the order they should be read. The
 # scoring weights live in signal_weights; this is the human-readable subset.
 _REVIEW_REASON_LABELS = {
+	"advance_withheld_no_server_evidence": (
+		"Past the deposit line, but only on details the customer typed - "
+		"review instead of asking for money"
+	),
 	"identity_unverified": "Nothing about this order is proven yet",
 	"blacklisted": "Phone/email is on the blacklist",
 	"velocity_block": "Ordering rate limit reached in 24h",
@@ -645,6 +657,19 @@ _REVIEW_REASON_LABELS = {
 }
 
 
+def _is_meaningless(value) -> bool:
+	"""True for a signal that carries no accusation.
+
+	A count of zero or a rate of zero is as uninformative as a False, and
+	"Orders in the last 24h: 0" is not a reason to review anybody.
+	"""
+	if value is False or value is None:
+		return True
+	if isinstance(value, (int, float)) and value == 0:
+		return True
+	return value in ("", [], {})
+
+
 def _review_reasons(signals: dict, limit: int = 6) -> list[str]:
 	"""Human sentences from a signal blob, most serious first."""
 	reasons = []
@@ -652,9 +677,7 @@ def _review_reasons(signals: dict, limit: int = 6) -> list[str]:
 		if key not in signals:
 			continue
 		value = signals[key]
-		if isinstance(value, bool) and not value:
-			continue
-		if value in (None, 0, "", [], {}):
+		if _is_meaningless(value):
 			continue
 		if key in ("repeat_history", "city_rto_rate", "address_score") and isinstance(value, (int, float)):
 			reasons.append(f"{label}: {value}")
@@ -663,8 +686,15 @@ def _review_reasons(signals: dict, limit: int = 6) -> list[str]:
 		else:
 			reasons.append(label)
 	if not reasons and signals:
-		# Never hand back an empty list for a flagged order: say what is there.
-		reasons = [key for key in list(signals)[:limit]]
+		# Never hand a reviewer an empty list for a flagged order: name the
+		# signals that are actually set, even when this module has no wording
+		# for them yet. Signals that are false or empty are still omitted -
+		# listing "no landmark given" for an order that did give one would be
+		# worse than saying nothing.
+		for key, value in signals.items():
+			if _is_meaningless(value):
+				continue
+			reasons.append(key)
 	return reasons[:limit]
 
 

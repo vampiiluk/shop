@@ -85,9 +85,10 @@ class TestVerdictLadder(unittest.TestCase):
 	def test_high_score_alone_never_blocks(self):
 		from shop.integrations.fraud import _verdict
 
-		# It still escalates a collecting order (advance threshold), but only
-		# verified evidence may turn a score into a refusal.
-		self.assertEqual(_verdict(95, {}, None, self.SETTINGS, "cod"), "Advance Required")
+		# Nothing but the score: a review, never a refusal and never a demand
+		# for money, because every point behind it was something the customer
+		# typed.
+		self.assertEqual(_verdict(95, {}, None, self.SETTINGS, "cod"), "Flag")
 		self.assertEqual(_verdict(95, {}, None, self.SETTINGS, "raast"), "Flag")
 
 	def test_high_score_with_verified_evidence_blocks_collecting_orders(self):
@@ -100,6 +101,37 @@ class TestVerdictLadder(unittest.TestCase):
 		self.assertEqual(
 			_verdict(95, {}, None, self.SETTINGS, "raast", verified_evidence=True), "Flag"
 		)
+
+	def test_advance_payment_needs_something_the_server_looked_up(self):
+		"""A deposit is a decision about a person, and most of the score is
+		the person's own typing. That alone must not demand money."""
+		from shop.integrations.fraud import _verdict
+
+		typed_only = {
+			"landmark_missing": True,
+			"address_short_line1": True,
+			"address_unknown_city": True,
+			"risky_hour": True,
+			"missing_fingerprint": True,
+			"identity_unverified": True,
+		}
+		signals = dict(typed_only)
+		self.assertEqual(_verdict(80, signals, None, self.SETTINGS, "cod"), "Flag")
+		self.assertEqual(signals.get("advance_withheld_no_server_evidence"), 80)
+		self.assertTrue(signals.get("requires_manual_review"))
+
+	def test_advance_payment_fires_on_server_evidence(self):
+		from shop.integrations.fraud import _verdict
+
+		for evidence in (
+			{"address_prior_failures": 3},
+			{"address_activity_24h": {"orders_24h": 4, "customers_24h": 3}},
+			{"repeat_history": {"total": 6, "failed": 3, "rto": 1}},
+			{"fp_bot": "bad"},
+			{"ip_intel": {"proxy": False, "is_tor": True, "abuse_score": 0}},
+		):
+			with self.subTest(evidence=evidence):
+				self.assertEqual(_verdict(75, dict(evidence), None, self.SETTINGS, "cod"), "Advance Required")
 
 	def test_blacklist_and_velocity_still_block_cod(self):
 		from shop.integrations.fraud import _verdict
@@ -122,7 +154,9 @@ class TestVerdictLadder(unittest.TestCase):
 		from shop.integrations.fraud import _verdict
 
 		loose = self._Settings({**self.SETTINGS, "fraud_advance_threshold": 50})
-		self.assertEqual(_verdict(55, {}, None, loose, "cod"), "Advance Required")
+		evidence = {"velocity_block": False, "address_prior_failures": 2}
+		self.assertEqual(_verdict(55, dict(evidence), None, loose, "cod"), "Advance Required")
+		self.assertEqual(_verdict(45, dict(evidence), None, loose, "cod"), "Flag")
 
 	def test_flag_threshold_is_configurable_once_the_field_exists(self):
 		from shop.integrations.fraud import _verdict
@@ -131,17 +165,38 @@ class TestVerdictLadder(unittest.TestCase):
 		self.assertEqual(_verdict(25, {}, None, strict, "raast"), "Flag")
 		self.assertEqual(_verdict(15, {}, None, strict, "raast"), "Pass")
 
+	def test_unset_flag_threshold_falls_back_to_40(self):
+		from shop.integrations.fraud import _verdict
+
+		unset = self._Settings(self.SETTINGS)
+		self.assertEqual(_verdict(40, {}, None, unset, "raast"), "Flag")
+		self.assertEqual(_verdict(39, {}, None, unset, "raast"), "Pass")
+
+	def test_a_deliberate_zero_flag_threshold_is_honoured(self):
+		"""Review every order is a legitimate choice, not a typo to overwrite."""
+		from shop.integrations.fraud import _verdict
+
+		paranoid = self._Settings({**self.SETTINGS, "fraud_flag_threshold": 0})
+		self.assertEqual(_verdict(1, {}, None, paranoid, "raast"), "Flag")
+		self.assertEqual(_verdict(0, {}, None, paranoid, "raast"), "Flag")
+
 	def test_flag_line_and_advance_line_are_different_questions(self):
 		"""Flag asks a human to look; Advance asks the customer for money."""
 		from shop.integrations.fraud import _verdict
 
+		evidence = {"address_prior_failures": 3}
 		# 40-69: internal review only, and free of charge to the customer.
-		self.assertEqual(_verdict(45, {}, None, self.SETTINGS, "cod"), "Flag")
-		# 70+: the customer is switched to paying an advance up front.
-		self.assertEqual(_verdict(75, {}, None, self.SETTINGS, "cod"), "Advance Required")
+		self.assertEqual(_verdict(45, dict(evidence), None, self.SETTINGS, "cod"), "Flag")
+		# 70+ with something the server found: the customer pays an advance.
+		self.assertEqual(_verdict(75, dict(evidence), None, self.SETTINGS, "cod"), "Advance Required")
 		# Moving the flag line must not drag the advance line with it.
 		loose = self._Settings({**self.SETTINGS, "fraud_flag_threshold": 20})
-		self.assertEqual(_verdict(75, {}, None, loose, "cod"), "Advance Required")
+		self.assertEqual(_verdict(75, dict(evidence), None, loose, "cod"), "Advance Required")
+
+	def test_evidence_gate_does_not_gate_prepaid_orders(self):
+		from shop.integrations.fraud import _verdict
+
+		self.assertEqual(_verdict(90, {}, None, self.SETTINGS, "raast"), "Flag")
 
 
 class TestSettingsKnobsExist(unittest.TestCase):
@@ -188,6 +243,107 @@ class TestSettingsKnobsExist(unittest.TestCase):
 			int(fields["fraud_flag_threshold"]["default"]),
 			int(fields["fraud_advance_threshold"]["default"]),
 		)
+
+
+class TestBlacklistPhoneEquivalence(unittest.TestCase):
+	"""Every spelling of a number must hit the same blacklist row.
+
+	The stored side is written by a human in whatever format they type, so a
+	comparison that only normalises the claim - as an earlier version did -
+	silently stops matching "03001234567" and friends. That is the one control
+	that can refuse an order, so it has to agree with normalize_phone().
+	"""
+
+	def test_variants_cover_the_prefix_spellings(self):
+		from shop.integrations.fraud import _blacklist_phone_variants
+
+		variants = _blacklist_phone_variants("3001234567")
+		self.assertIn("3001234567", variants)
+		self.assertIn("03001234567", variants)
+		self.assertIn("923001234567", variants)
+
+	def test_variants_are_the_same_whatever_spelling_arrives(self):
+		"""The function normalises its own input, so a caller that forgets to
+		normalise first cannot quietly match nothing."""
+		from shop.integrations.fraud import _blacklist_phone_variants
+
+		expected = ["03001234567", "3001234567", "923001234567"]
+		for spelling in ("03001234567", "3001234567", "923001234567", "+92 (300) 123-4567"):
+			with self.subTest(spelling=spelling):
+				self.assertEqual(_blacklist_phone_variants(spelling), expected)
+
+	def test_variants_of_nothing_are_empty(self):
+		from shop.integrations.fraud import _blacklist_phone_variants
+
+		self.assertEqual(_blacklist_phone_variants(""), [])
+		self.assertEqual(_blacklist_phone_variants(None), [])
+
+	def test_variants_ignore_formatting_in_the_claim(self):
+		from shop.integrations.fraud import _blacklist_phone_variants, normalize_phone
+
+		typed = normalize_phone("+92 (300) 123-4567")
+		self.assertIn(typed, _blacklist_phone_variants(typed))
+
+	def test_the_stored_side_is_normalised_in_sql(self):
+		"""Guards the regression: a digits-only REPLACE, or a REPLACE of
+		spaces and dashes, cannot match a stored number with a leading zero."""
+		import inspect
+
+		from shop.integrations.fraud import _BLACKLIST_PHONE_SQL
+
+		self.assertIn("REGEXP_REPLACE", _BLACKLIST_PHONE_SQL)
+		self.assertIn("[^0-9]", _BLACKLIST_PHONE_SQL)
+		# and the query must compare against the variant list, not one spelling
+		from shop.integrations.fraud import blacklist_hit
+
+		self.assertIn("_blacklist_phone_variants", inspect.getsource(blacklist_hit))
+
+
+class TestReviewReasons(unittest.TestCase):
+	"""A reviewer needs to read why, not just how high."""
+
+	def test_named_signals_become_sentences(self):
+		from shop.api.fraud import _review_reasons
+
+		reasons = _review_reasons(
+			{
+				"identity_unverified": True,
+				"landmark_missing": True,
+				"address_geo_not_found": "Address not found by geocoding",
+				"city_rto_rate": 0.44,
+			}
+		)
+		self.assertIn("Nothing about this order is proven yet", reasons)
+		self.assertIn("No landmark given", reasons)
+		self.assertIn("City return rate: 0.44", reasons)
+
+	def test_false_and_empty_signals_are_not_reported(self):
+		from shop.api.fraud import _review_reasons
+
+		reasons = _review_reasons(
+			{
+				"identity_unverified": False,
+				"landmark_missing": False,
+				"fp_bot": False,
+				"orders_last_24h": 0,
+				"city_rto_rate": 0.0,
+			}
+		)
+		self.assertEqual(reasons, [])
+
+	def test_an_unmapped_signal_still_says_something(self):
+		"""Never hand a reviewer a blank list for a flagged order."""
+		from shop.api.fraud import _review_reasons
+
+		reasons = _review_reasons({"some_signal_added_later": "yes"})
+		self.assertTrue(reasons)
+		self.assertIn("some_signal_added_later", reasons[0])
+
+	def test_reason_list_is_bounded(self):
+		from shop.api.fraud import _review_reasons
+
+		blobby = {f"signal_{n}": True for n in range(40)}
+		self.assertLessEqual(len(_review_reasons(blobby, limit=5)), 5)
 
 
 class TestScoringModelIsSingleSourced(unittest.TestCase):

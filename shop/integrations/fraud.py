@@ -433,20 +433,38 @@ def order_stats(phone: str, email: str, since_days: int = 90) -> dict:
 	}
 
 
-# Blacklist lookup: the same normalisation the Python helper performs, done in
-# SQL so the match is one query instead of loading every active row.
-_NORMALISE_PHONE_SQL = (
-	"REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({col}, ''), ' ', ''), '-', ''), '+', ''), '(', '')"
-)
+# Blacklist lookup: the stored number is normalised in SQL, because the stored
+# side is written by a human in whatever format they type. Stripping only
+# spaces and dashes was not enough - the comparison has to agree with
+# normalize_phone() on the stored value as well as on the claim, or the one
+# control that can refuse an order silently stops matching: "03001234567",
+# "+92 300 1234567" and "0300-1234567" are the same number, and the denylist
+# has to know it.
+_BLACKLIST_PHONE_SQL = "REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '')"
 _BLACKLIST_FIELDS = "name, phone, email, hit_count"
+
+
+def _blacklist_phone_variants(phone: str) -> list[str]:
+	"""Every spelling of one number that a blacklist row may hold.
+
+	Accepts any spelling rather than assuming the caller already normalised:
+	normalize_phone() reduces a number to bare national digits by dropping a 92
+	or a leading 0, so a stored value can still carry either prefix, and a
+	caller that forgets to normalise first would quietly match nothing.
+	"""
+	normalized = normalize_phone(phone)
+	if not normalized:
+		return []
+	variants = {normalized, "0" + normalized, "92" + normalized}
+	return sorted(variants)
 
 
 def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
 	"""Active blacklist entry for this phone or email, or None.
 
-	The comparison runs in SQL against the same normalisation the Python helper
-	uses, so this is one query instead of loading every active row into Python
-	and looping over it twice per order.
+	One query rather than a loop over every active row, but the same answer the
+	Python comparison gave: both sides are reduced to bare digits and the 0/92
+	prefix variants are matched too.
 	"""
 	normalized = normalize_phone(phone)
 	email_clean = (email or "").strip()
@@ -455,8 +473,8 @@ def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
 	clauses: list[str] = []
 	values: list = []
 	if len(normalized) >= MIN_PHONE_DIGITS_FOR_CORRELATION:
-		clauses.append(f"({_NORMALISE_PHONE_SQL.format(col='phone')}) = %s")
-		values.append(normalized)
+		clauses.append(f"({_BLACKLIST_PHONE_SQL}) in %s")
+		values.append(tuple(_blacklist_phone_variants(normalized)))
 	if email_clean:
 		clauses.append("LOWER(email) = LOWER(%s)")
 		values.append(email_clean)
@@ -1066,6 +1084,94 @@ def _fingerprint_signals(ident: dict, w: dict, signals: dict) -> int:
 	return score
 
 
+# Signals that came from something the server owns: a lookup it performed, a
+# fact it recorded, or an external service it asked. These can justify asking a
+# real person for money. Everything else - a short street line, a missing
+# landmark, an unknown city, a 23:00 order, no fingerprint, and the mere fact
+# that we recognise nobody - is a judgement about text the customer typed, and
+# that is not enough to demand a deposit.
+_SERVER_EVIDENCE_FLAGS = (
+	"blacklisted",
+	"velocity_block",
+	"address_activity_24h",
+	"address_prior_failures",
+	"fp_bot",
+	"fp_tampered",
+	"fp_replayed",
+	"fp_verify_failed",
+	"fp_high_activity_device",
+	"fp_vpn",
+	"fp_virtual_machine",
+	"fp_datacenter",
+	"fp_velocity_multi_country",
+	"fp_velocity_rapid_fire",
+	"address_geo_not_found",
+	"address_geo_city_mismatch",
+	"address_geo_wrong_country",
+	"address_geo_unavailable",
+	"address_verification_unavailable",
+)
+
+
+def _signal_is_set(value) -> bool:
+	"""True when a signal value actually asserts something.
+
+	Counters and nested dicts are common here: an address-activity blob of
+	{"orders_24h": 0} is present but says nothing, and a failure count of zero
+	is not a history. Treating "the key exists" as evidence would let an empty
+	report justify a deposit.
+	"""
+	if value is True:
+		return True
+	if value is False or value is None:
+		return False
+	if isinstance(value, dict):
+		return any(_signal_is_set(item) for item in value.values())
+	if isinstance(value, (list, tuple, set)):
+		return any(_signal_is_set(item) for item in value)
+	if isinstance(value, (int, float)):
+		return value != 0
+	return bool(value)
+
+
+def _has_server_evidence(signals: dict) -> bool:
+	"""Did the server find something, or is this all the customer's typing?"""
+	for flag in _SERVER_EVIDENCE_FLAGS:
+		if _signal_is_set(signals.get(flag)):
+			return True
+
+	history = signals.get("repeat_history") or {}
+	if isinstance(history, dict) and (
+		_signal_is_set(history.get("failed")) or _signal_is_set(history.get("rto"))
+	):
+		return True
+	if _signal_is_set(signals.get("history_cancelled")):
+		return True
+
+	# The device identification came back, so something is known about the
+	# hardware rather than guessed from the order.
+	identification = signals.get("fp_visitor_id")
+	if identification:
+		return True
+	if flt(signals.get("fp_suspect_score")) > 0:
+		return True
+
+	# IP reputation: only the flags count, not merely having looked.
+	intel = signals.get("ip_intel") or {}
+	if isinstance(intel, dict):
+		if any(intel.get(key) for key in ("proxy", "hosting", "is_tor", "total_reports")):
+			return True
+		if cint(intel.get("abuse_score")) > 0:
+			return True
+
+	# The address itself was verified and something came back that is not just
+	# a clean bill of health.
+	risk = signals.get("address_score")
+	if risk and flt(risk) > 0:
+		return True
+	return False
+
+
 def _verdict(
 	score: int,
 	signals: dict,
@@ -1076,16 +1182,29 @@ def _verdict(
 ) -> str:
 	"""The ladder, in one place so both passes agree on it.
 
-	A score alone never blocks: the score is mostly built from what the
-	customer typed, so blocking on it without corroboration would punish
-	privacy-conscious first-time buyers. A high score plus at least one
-	server-verified signal does block.
+	Asking the customer for money is a decision about a real person, and most of
+	the score is built from what that person typed: a short street line, no
+	landmark, a city that is not on the list, an order at 23:00. Measured, a
+	first-time shopper with a sloppy address and a privacy-respecting browser
+	crosses the advance threshold on those alone - and the store loses a real
+	order, and the customer's trust, over punctuation.
+
+	So the two money bands need something the server looked up, and the review
+	band does not:
+
+	- Block: blacklist or velocity, or a very high score with verified evidence.
+	- Advance Required: a score past the line *and* server-side evidence.
+	- Flag: any score past the review line, on its own. Costs nothing, so it can
+	  be generous.
 	"""
 	collecting = payment_method in ("cod", "pickup")
 	advance_at = cint(settings_doc.fraud_advance_threshold) or 70
-	# Optional merchant knob: readable before the field exists, effective the
-	# moment Shop Settings grows it.
-	flag_at = cint(settings_doc.get("fraud_flag_threshold")) or 40
+	# Review Flag Score: the line above which a human is asked to look, and
+	# below which nothing happens. Only an unset field falls back - a merchant
+	# who deliberately sets 0 wants every order reviewed, and `or 40` would
+	# have quietly overruled them.
+	flag_setting = settings_doc.get("fraud_flag_threshold")
+	flag_at = 40 if flag_setting in (None, "") else cint(flag_setting)
 	if hit and (collecting or cint(settings_doc.fraud_blacklist_blocks_all)):
 		return "Block"
 	if collecting and signals.get("velocity_block"):
@@ -1093,8 +1212,12 @@ def _verdict(
 	if collecting and verified_evidence and score >= BLOCK_SCORE_THRESHOLD:
 		signals["block_on_score_with_evidence"] = score
 		return "Block"
-	if collecting and score >= advance_at:
+	if collecting and score >= advance_at and _has_server_evidence(signals):
 		return "Advance Required"
+	if collecting and score >= advance_at:
+		# Past the line, but only on what the customer typed: a human looks
+		# instead of a deposit being demanded.
+		signals["advance_withheld_no_server_evidence"] = score
 	if score >= flag_at:
 		# Flag is a queue, not a decoration: the order is written to the fraud
 		# event log and marked here so the admin list can triage it before the
