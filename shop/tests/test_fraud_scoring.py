@@ -346,6 +346,44 @@ class TestReviewReasons(unittest.TestCase):
 		self.assertLessEqual(len(_review_reasons(blobby, limit=5)), 5)
 
 
+class TestTransactionBoundaries(unittest.TestCase):
+	"""A helper that commits takes the caller's transaction away from them.
+
+	frappe.db.commit() ends the transaction and destroys every savepoint, so a
+	caller that took one can no longer undo its own work. It also leaves the
+	helper's row behind when the surrounding operation fails, which is how
+	orphan verification rows appear in the fraud dashboard.
+	"""
+
+	def test_get_or_create_verification_does_not_commit(self):
+		import inspect
+
+		from shop.integrations.verification import get_or_create_verification
+
+		source = inspect.getsource(get_or_create_verification)
+		self.assertNotIn("frappe.db.commit()", source)
+		self.assertNotIn("frappe.db.rollback", source)
+		# and it has to say who owns the boundary instead
+		self.assertIn("does NOT commit", source)
+
+	def test_order_placement_commits_before_the_queue_needs_the_row(self):
+		"""The one caller that needs cross-process durability commits itself.
+
+		background_fraud_task marks the record Queued and commits, which is the
+		point where the verification queue has to be able to see the row.
+		"""
+		import inspect
+
+		from shop.integrations.fraud import background_fraud_task
+
+		source = inspect.getsource(background_fraud_task)
+		self.assertIn("get_or_create_verification", source)
+		self.assertIn("frappe.db.commit()", source)
+		# the commit must come after the create, not before it
+		create_at = source.index("get_or_create_verification")
+		self.assertGreater(source.index("frappe.db.commit()", create_at), create_at)
+
+
 class TestScoringModelIsSingleSourced(unittest.TestCase):
 	def test_both_passes_call_the_same_model(self):
 		import inspect

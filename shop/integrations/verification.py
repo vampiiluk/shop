@@ -37,6 +37,24 @@ def address_hash(address: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def get_or_create_verification(address: dict, source: str = "Order Placement") -> dict:
+	"""Create the verification record for this address, or return the existing one.
+
+	Deliberately does NOT commit. A commit here ends the caller's transaction
+	and destroys any savepoint it took, which means a caller can no longer undo
+	its own work: a bulk import that fails halfway keeps the rows written before
+	the failure, and a test that creates data to score it cannot roll back. The
+	verification row then outlives the thing it was created for, which is how
+	orphan rows appear in the fraud dashboard for addresses no order uses.
+
+	Callers own the boundary, and each one that needs the row visible to another
+	process commits at that point:
+	- order placement and re-evaluation commit immediately after linking the
+	  order, before the verification work is queued;
+	- the Address hook inherits the address save's own commit, so the row lands
+	  with the address and disappears with it if the save is undone;
+	- the queue's own seeding runs in-process, inside the queue job's
+	  transaction.
+	"""
 	"""Lookup verification record by full-address hash (incl. landmark).
 
 	Returns dict with keys: name, ors_status, gms_status, ors_result_json,
@@ -95,7 +113,6 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 		# either copy's risk score; the loser of the insert now re-reads the
 		# winner's record.
 		doc = frappe.get_doc("Shop Address Verification", {"address_hash": hkey})
-	frappe.db.commit()
 
 	return {
 		"name": doc.name,

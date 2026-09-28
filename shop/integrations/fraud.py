@@ -1306,6 +1306,10 @@ def background_fraud_task(
 		ver = get_or_create_verification(address, source="Order Placement")
 		frappe.db.set_value(
 			"Shop Address Verification", ver["name"], {"status": "Queued"})
+		# Committed here, not inside get_or_create_verification: this row has to
+		# be visible to the queue before the order is finished with, and this is
+		# the point where that need begins. A commit inside the helper would
+		# also end the caller's transaction and take any savepoint with it.
 		frappe.db.commit()
 	except Exception:
 		frappe.log_error(title=f"Verification create failed for {order_name}")
