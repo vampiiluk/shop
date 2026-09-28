@@ -1585,6 +1585,26 @@ def update_city_stats(city: str):
 		).insert(ignore_permissions=True)
 
 
+def _order_phone(so) -> str:
+	"""The number this order shipped to, in the order's own words.
+
+	Used for the feedback loop: after a failed delivery the number that has to
+	be blocked is the one the courier dialled. The customer's current primary
+	mobile may since have been corrected to a number that was never the problem,
+	and blocking that one locks out an innocent third party.
+	"""
+	for field in ("contact_phone", "contact_mobile"):
+		value = (so.get(field) or "").strip()
+		if value:
+			return value
+	address_name = so.get("shipping_address_name")
+	if address_name:
+		value = (frappe.db.get_value("Address", address_name, "phone") or "").strip()
+		if value:
+			return value
+	return ""
+
+
 def record_delivery_outcome(order: str, outcome: str):
 	"""Feedback loop: record a delivery result, learn city RTO stats and auto-blacklist."""
 	if outcome not in ("Delivered", "Failed", "RTO"):
