@@ -85,7 +85,15 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 		"gms_status": "Disabled",
 		"source": source,
 	})
-	doc.insert(ignore_permissions=True)
+	try:
+		doc.insert(ignore_permissions=True)
+	except frappe.DuplicateEntryError:
+		# The address hash is unique (patch v4). Two placements at one address
+		# used to race past the lookup above and insert a second row, which
+		# doubled the order counts in the fraud KPIs and let evaluate_risk read
+		# either copy's risk score; the loser of the insert now re-reads the
+		# winner's record.
+		doc = frappe.get_doc("Shop Address Verification", {"address_hash": hkey})
 	frappe.db.commit()
 
 	return {
@@ -110,11 +118,17 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 
 def link_verification_to_order(verification_name: str, order_name: str, phone: str = "", fingerprint: str = "") -> None:
 	"""Append order/phone/fingerprint to linked_* fields (comma-separated, deduped)."""
-	ver = frappe.db.get_value(
-		"Shop Address Verification", verification_name,
-		["linked_orders", "linked_phones", "linked_fingerprints"],
+	# Read under a row lock. Two orders placed to the same address in the same
+	# moment used to read the same list, each append its own, and the second
+	# write silently dropped the first order's link - that order was then never
+	# re-scored and sat in "Processing" for good.
+	locked = frappe.db.sql(
+		"""SELECT linked_orders, linked_phones, linked_fingerprints
+			FROM `tabShop Address Verification` WHERE name = %s FOR UPDATE""",
+		(verification_name,),
 		as_dict=True,
 	)
+	ver = locked[0] if locked else None
 	if not ver:
 		return
 
@@ -286,6 +300,9 @@ def sync_address_summary(verification_name: str) -> int:
 # ---------------------------------------------------------------------------
 
 QUEUE_LOCK_KEY = "shop_verification_queue_running"
+# Long enough for a full batch (draining 50 items with Maps lookups takes
+# minutes), short enough that a dead worker cannot silence the queue for long.
+QUEUE_LOCK_TTL = 30 * 60
 
 
 def queue_status() -> dict:
@@ -338,28 +355,42 @@ def _needs_work(row, ttl_days: int, gms_enabled: bool, ors_enabled: bool = True)
 	return (now_datetime() - get_datetime(row.last_verified_on)).days >= ttl_days
 
 
-def _seed_missing_rows() -> None:
+def _seed_missing_rows(limit: int = 500) -> int:
 	"""Create Pending verification rows for addresses whose hash has none
-	(e.g. after the landmark changed or a new address was saved in Desk)."""
-	covered = set(frappe.get_all("Shop Address Verification", pluck="address_hash") or [])
-	addresses = frappe.get_all(
-		"Address",
-		filters={"disabled": 0},
-		fields=["name", "address_line1", "address_line2", "city", "country", "pincode", "custom_landmark", "custom_address_hash"],
+	(e.g. after the landmark changed or a new address was saved in Desk).
+
+	The old version pulled every Address row - and a Python set of every
+	verification hash - into memory on each queue tick, and again inside the
+	manager's "run queue" click. This asks the database for only the rows with
+	no match, capped at what one pass can actually work through.
+	"""
+	rows = frappe.db.sql(
+		"""
+		SELECT a.address_line1, a.address_line2, a.city, a.country,
+		       a.pincode, a.custom_landmark
+		FROM `tabAddress` a
+		LEFT JOIN `tabShop Address Verification` v ON v.address_hash = a.custom_address_hash
+		WHERE a.disabled = 0 AND a.custom_address_hash IS NOT NULL AND a.custom_address_hash != ''
+		  AND v.name IS NULL
+		ORDER BY a.modified ASC
+		LIMIT %s
+		""",
+		(limit,),
+		as_dict=True,
 	)
-	for addr in addresses:
-		hkey = addr.custom_address_hash
-		if not hkey or hkey in covered:
-			continue
-		get_or_create_verification({
-			"address_line1": addr.address_line1,
-			"address_line2": addr.address_line2,
-			"city": addr.city,
-			"country": addr.country,
-			"pincode": addr.pincode,
-			"landmark": addr.custom_landmark,
-		}, source="Manual")
-		covered.add(hkey)
+	for addr in rows:
+		get_or_create_verification(
+			{
+				"address_line1": addr.address_line1,
+				"address_line2": addr.address_line2,
+				"city": addr.city,
+				"country": addr.country,
+				"pincode": addr.pincode,
+				"landmark": addr.custom_landmark,
+			},
+			source="Manual",
+		)
+	return len(rows)
 
 
 def get_queue_items(limit: int | None = None) -> list[frappe._dict]:
@@ -395,7 +426,11 @@ def run_queue(limit: int | None = None) -> dict:
 	lock = frappe.cache()
 	if lock.get_value(QUEUE_LOCK_KEY):
 		return {"queued": 0, "running": True, "message": "Queue already running"}
-	lock.set_value(QUEUE_LOCK_KEY, 1)
+	# With a TTL: a worker killed mid-run (OOM, restart) used to leave this flag
+	# set forever, after which the cron saw "running" and never enqueued another
+	# pass - the verification queue died quietly and every fraud score stayed
+	# provisional until someone cleared the cache by hand.
+	lock.set_value(QUEUE_LOCK_KEY, 1, expires_in_sec=QUEUE_LOCK_TTL)
 	try:
 		items = [r for r in get_queue_items(limit=limit)]
 		stats = {"queued": len(items), "completed": 0, "partial": 0, "failed": 0}
@@ -729,11 +764,15 @@ def _export_csv_job(filters: dict = None) -> None:
 		as_dict=True,
 	)
 
+	# The risk columns are exported too: without them a round-trip through this
+	# exporter produced rows that looked verified but carried no score, and the
+	# fraud engine had nothing to read from them.
 	headers = [
 		"address_line1", "city", "landmark", "country", "pincode",
 		"latitude", "longitude", "ors_status", "ors_confidence", "ors_match_type",
 		"ors_result_json", "gms_status", "gms_result_count", "gms_result_text",
-		"gms_result_json", "source", "linked_orders", "linked_phones",
+		"gms_result_json", "address_risk_status", "address_risk_score",
+		"address_risk_json", "source", "linked_orders", "linked_phones",
 		"last_verified_on",
 	]
 
@@ -761,8 +800,17 @@ def get_export_status() -> dict:
 
 	latest = files[0]
 	filename = latest.rsplit("/", 1)[-1]
-	url = f"/files/{filename}"
-	return {"status": "complete", "url": url}
+	# The export holds customer addresses, so it is written under private/files
+	# and must not be linked as a public /files/ URL: that path cannot resolve
+	# it, and "fixing" it by moving the file into public/ would publish the
+	# customer addresses. Managers fetch it through the guarded download
+	# endpoint instead.
+	return {
+		"status": "complete",
+		"filename": filename,
+		"url": None,
+		"message": "Use the Download export button (manager-only) to fetch this file.",
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -823,13 +871,40 @@ def import_verified_csv(csv_content: str) -> dict:
 				"last_verified_on": now_datetime(),
 			}
 
+			from shop.integrations.fraud import compute_verification_risk
+			import json as _json
+
+			# An imported record carrying no risk score looks complete and
+			# contributes nothing: evaluate_risk reads a missing address_risk_json
+			# as "verification unavailable" and adds no signal at all. Compute it
+			# from the data the row was imported with, exactly as the queue would.
+			risk = compute_verification_risk(
+				address,
+				ors_result=_safe_json(row.get("ors_result_json")),
+				gms_results=(
+					_safe_json(row.get("gms_result_json")) if (row.get("gms_status") or "") == "Complete" else None
+				),
+			)
+			values["address_risk_status"] = risk["status"]
+			values["address_risk_score"] = risk["score"]
+			values["address_risk_json"] = _json.dumps(risk["details"], default=str)
+
 			if existing:
 				frappe.db.set_value("Shop Address Verification", existing, values, update_modified=False)
 				updated += 1
 			else:
-				doc = frappe.get_doc({"doctype": "Shop Address Verification", **values})
-				doc.insert(ignore_permissions=True)
-				imported += 1
+				try:
+					doc = frappe.get_doc({"doctype": "Shop Address Verification", **values})
+					doc.insert(ignore_permissions=True)
+					imported += 1
+				except frappe.DuplicateEntryError:
+					frappe.db.set_value(
+						"Shop Address Verification",
+						frappe.db.get_value("Shop Address Verification", {"address_hash": hkey}, "name"),
+						values,
+						update_modified=False,
+					)
+					updated += 1
 
 			if (imported + updated) % 100 == 0:
 				frappe.db.commit()
@@ -840,6 +915,16 @@ def import_verified_csv(csv_content: str) -> dict:
 
 	frappe.db.commit()
 	return {"imported": imported, "updated": updated, "skipped": skipped, "errors": errors}
+
+
+def _safe_json(raw):
+	"""Parse a JSON column from a CSV import without aborting the row."""
+	if not raw:
+		return None
+	try:
+		return _json.loads(raw)
+	except Exception:
+		return None
 
 
 def _safe_float(val) -> float | None:

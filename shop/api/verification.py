@@ -143,10 +143,43 @@ def export_csv(filters: dict = None):
 
 @frappe.whitelist()
 def get_export_status():
-	"""Check if most recent export file exists, return URL."""
+	"""Check if the most recent export exists, and name the file to fetch.
+
+	No URL is returned: the file lives under private/files (it contains
+	customer addresses) and a public /files/ link cannot resolve it.
+	Use download_export() below.
+	"""
 	only_managers()
 	from shop.integrations.verification import get_export_status as _status
 	return _status()
+
+
+@frappe.whitelist()
+def download_export(filename: str = ""):
+	"""Serve the verification export to a manager.
+
+	Managers only, and only files this feature itself wrote: the name must
+	match the export pattern, resolve inside private/files, and exist. Anything
+	else is refused, so this cannot be turned into a general file read.
+	"""
+	only_managers()
+	import os
+	import re as _re
+
+	pattern = _re.compile(r"^verifications_export_\d{8}_\d{6}\.csv$")
+	basename = os.path.basename(str(filename or "").strip())
+	if not pattern.match(basename):
+		frappe.throw(_("Not a verification export file"), frappe.PermissionError)
+
+	export_dir = os.path.realpath(frappe.get_site_path("private", "files"))
+	path = os.path.realpath(os.path.join(export_dir, basename))
+	if not path.startswith(export_dir + os.sep) or not os.path.isfile(path):
+		frappe.throw(_("Export file not found"), frappe.DoesNotExistError)
+
+	with open(path, "rb") as handle:
+		frappe.response.filename = basename
+		frappe.response.filecontent = handle.read()
+	frappe.response.type = "download"
 
 
 @frappe.whitelist()

@@ -433,6 +433,14 @@ def order_stats(phone: str, email: str, since_days: int = 90) -> dict:
 	}
 
 
+# Blacklist lookup: the same normalisation the Python helper performs, done in
+# SQL so the match is one query instead of loading every active row.
+_NORMALISE_PHONE_SQL = (
+	"REPLACE(REPLACE(REPLACE(REPLACE(COALESCE({col}, ''), ' ', ''), '-', ''), '+', ''), '(', '')"
+)
+_BLACKLIST_FIELDS = "name, phone, email, hit_count"
+
+
 def blacklist_hit(phone: str, email: str | None = None) -> dict | None:
 	"""Active blacklist entry for this phone or email, or None.
 
