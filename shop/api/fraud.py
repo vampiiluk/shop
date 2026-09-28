@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
@@ -498,6 +499,176 @@ def get_related_orders(order: str):
 
 
 @frappe.whitelist()
+def get_flagged_orders(
+	verdict: str = "",
+	limit: int = 25,
+	offset: int = 0,
+	include_outcome: str = "",
+) -> dict:
+	"""The review queue: orders the engine marked for a human, newest first.
+
+	"Flag" used to be a band with no consequence - the order was stamped and
+	nothing else happened, so nobody ever looked at it. This is the list to look
+	at: what the engine suspected, which signals said so, and what the courier
+	eventually did with the parcel, so a decision can be made from evidence
+	rather than from the score alone.
+
+	`verdict` accepts Flag, Advance Required, Block, "review" (everything the
+	engine objected to) or "" for the lot. `include_outcome` filters on the
+	recorded delivery result, e.g. "RTO", when you are auditing past damage.
+	"""
+	only_managers()
+
+	reviewable = ["Flag", "Advance Required", "Block"]
+	requested = (verdict or "").strip()
+	if requested == "review":
+		verdicts = reviewable
+	elif requested:
+		verdicts = [part.strip() for part in requested.split(",") if part.strip()]
+		for one in verdicts:
+			if one not in reviewable:
+				frappe.throw(_("Unknown verdict: {0}").format(one))
+	else:
+		verdicts = reviewable
+
+	filters = {
+		"docstatus": 1,
+		"custom_fraud_verdict": ["in", verdicts],
+		# A verdict still being recomputed by the verification queue is not
+		# ready to review; it is on the "Processing" list instead.
+		"custom_fraud_state": ["!=", "Processing"],
+	}
+	if include_outcome:
+		filters["custom_delivery_outcome"] = include_outcome
+
+	limit = max(1, min(cint(limit) or 25, 200))
+	offset = max(0, cint(offset) or 0)
+
+	rows = frappe.get_all(
+		"Sales Order",
+		filters=filters,
+		fields=[
+			"name",
+			"customer",
+			"customer_name",
+			"contact_phone",
+			"contact_mobile",
+			"transaction_date",
+			"grand_total",
+			"custom_fraud_score",
+			"custom_fraud_verdict",
+			"custom_fraud_state",
+			"custom_fraud_signals",
+			"custom_payment_method",
+			"custom_advance_amount",
+			"delivery_status",
+			"custom_delivery_outcome",
+			"custom_device_fingerprint",
+		],
+		order_by="creation desc",
+		limit=limit,
+		offset=offset,
+	)
+	total = frappe.db.count("Sales Order", filters)
+
+	# The signal names are what a reviewer actually needs - "Flag, score 45"
+	# tells you nothing, "identity unverified, landmark missing" tells you
+	# what to look at.
+	for row in rows:
+		try:
+			signals = frappe.parse_json(row.get("custom_fraud_signals")) or {}
+		except Exception:
+			signals = {}
+		row["reasons"] = _review_reasons(signals)
+		row["signals"] = signals
+		row.pop("custom_device_fingerprint", None)
+
+	counts = {
+		one: frappe.db.count("Sales Order", {**filters, "custom_fraud_verdict": one})
+		for one in reviewable
+	}
+	return {
+		"orders": rows,
+		"total": total,
+		"limit": limit,
+		"offset": offset,
+		"counts": counts,
+		"threshold_hint": (
+			"Flag from the Review Flag Score up to the Advance Payment Score; "
+			"Advance Required and Block ask the customer for money or refuse outright."
+		),
+	}
+
+
+# Signal names a reviewer cares about, in the order they should be read. The
+# scoring weights live in signal_weights; this is the human-readable subset.
+_REVIEW_REASON_LABELS = {
+	"identity_unverified": "Nothing about this order is proven yet",
+	"blacklisted": "Phone/email is on the blacklist",
+	"velocity_block": "Ordering rate limit reached in 24h",
+	"address_activity_24h": "Many customers, one address, same day",
+	"address_prior_failures": "Deliveries have already failed at this address",
+	"landmark_missing": "No landmark given",
+	"address_country_mismatch": "Country does not match the store's",
+	"address_province_mismatch": "Province does not match the city",
+	"address_verification_pending": "Address verification still running",
+	"verification_unavailable": "Address could not be verified",
+	"address_geo_not_found": "Address not found by geocoding",
+	"address_geo_city_mismatch": "Stated city is not where the address resolves",
+	"address_geo_wrong_country": "Address resolves to another country",
+	"address_gms_no_results": "No Maps results for address + landmark",
+	"address_score": "Address verification score",
+	"fp_bot": "Fingerprint reports a bot",
+	"fp_tampered": "Fingerprint reports tampering",
+	"fp_replayed": "Fingerprint event replayed",
+	"fp_suspect_score": "Fingerprint suspect score",
+	"fp_verify_failed": "Fingerprint could not be verified",
+	"fp_high_activity_device": "High-activity device",
+	"fp_vpn": "VPN in use",
+	"fp_virtual_machine": "Virtual machine",
+	"fp_datacenter": "Datacenter IP",
+	"fp_velocity_multi_country": "Device seen in multiple countries",
+	"fp_velocity_multi_ip": "Device seen on multiple IPs in an hour",
+	"fp_missing_fingerprint": "Order arrived without a device fingerprint",
+	"fp_incorrect_incognito": "Incognito reported inconsistently",
+	"ip_intel_unavailable": "IP reputation lookup unavailable",
+	"ip_proxy_detected": "Proxy/VPN on the IP",
+	"ip_tor_exit": "Tor exit node",
+	"ip_abuse_score": "IP abuse score",
+	"ip_blacklisted": "IP is on an abuse blocklist",
+	"history_cancelled": "Mostly cancelled orders on this number",
+	"repeat_history": "Prior orders on this number",
+	"risky_hour": "Placed between 23:00 and 05:00",
+	"requires_manual_review": "Marked for review",
+	"city_rto_rate": "City return rate",
+	"orders_last_24h": "Orders in the last 24h",
+}
+
+
+def _review_reasons(signals: dict, limit: int = 6) -> list[str]:
+	"""Human sentences from a signal blob, most serious first."""
+	reasons = []
+	for key, label in _REVIEW_REASON_LABELS.items():
+		if key not in signals:
+			continue
+		value = signals[key]
+		if isinstance(value, bool) and not value:
+			continue
+		if value in (None, 0, "", [], {}):
+			continue
+		if key in ("repeat_history", "city_rto_rate", "address_score") and isinstance(value, (int, float)):
+			reasons.append(f"{label}: {value}")
+		elif key in ("orders_last_24h",) and isinstance(value, (int, float)):
+			reasons.append(f"{label}: {value}")
+		else:
+			reasons.append(label)
+	if not reasons and signals:
+		# Never hand back an empty list for a flagged order: say what is there.
+		reasons = [key for key in list(signals)[:limit]]
+	return reasons[:limit]
+
+
+@frappe.whitelist()
 def get_calibration(days: int = 90, buckets: int = 5) -> dict:
 	"""How the fraud score has actually performed, from data already stored.
 
@@ -604,11 +775,21 @@ def get_overview() -> dict:
 		limit=8,
 	)
 
+	# The review queue, on the dashboard itself. Without this the Flag band had
+	# no consequence: the order was stamped "Flag" and then nothing anywhere
+	# asked anyone to look at it.
+	needs_review = get_flagged_orders(limit=10, offset=0)
+
 	return {
 		"kpis": {"today": bucket(1), "week": bucket(7), "month": bucket(30)},
 		"recent_events": recent_events,
 		"blacklist": blacklist,
 		"cities": cities,
+		"needs_review": {
+			"total": needs_review["total"],
+			"counts": needs_review["counts"],
+			"orders": needs_review["orders"],
+		},
 	}
 
 

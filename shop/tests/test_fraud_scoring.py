@@ -129,6 +129,65 @@ class TestVerdictLadder(unittest.TestCase):
 
 		strict = self._Settings({**self.SETTINGS, "fraud_flag_threshold": 20})
 		self.assertEqual(_verdict(25, {}, None, strict, "raast"), "Flag")
+		self.assertEqual(_verdict(15, {}, None, strict, "raast"), "Pass")
+
+	def test_flag_line_and_advance_line_are_different_questions(self):
+		"""Flag asks a human to look; Advance asks the customer for money."""
+		from shop.integrations.fraud import _verdict
+
+		# 40-69: internal review only, and free of charge to the customer.
+		self.assertEqual(_verdict(45, {}, None, self.SETTINGS, "cod"), "Flag")
+		# 70+: the customer is switched to paying an advance up front.
+		self.assertEqual(_verdict(75, {}, None, self.SETTINGS, "cod"), "Advance Required")
+		# Moving the flag line must not drag the advance line with it.
+		loose = self._Settings({**self.SETTINGS, "fraud_flag_threshold": 20})
+		self.assertEqual(_verdict(75, {}, None, loose, "cod"), "Advance Required")
+
+
+class TestSettingsKnobsExist(unittest.TestCase):
+	"""The code reads these fields, so they have to actually be in the doctype."""
+
+	def _settings_fields(self):
+		import json
+		import os
+
+		# Look for the doctype at each level, and one level down inside the
+		# nested module directory this app uses - a test should not have to
+		# know which shape the app was laid out in.
+		here = os.path.dirname(os.path.abspath(__file__))
+		candidate = None
+		for _ in range(6):
+			for prefix in (here, os.path.join(here, "shop")):
+				attempt = os.path.join(prefix, "doctype", "shop_settings", "shop_settings.json")
+				if os.path.isfile(attempt):
+					candidate = attempt
+					break
+			if candidate:
+				break
+			here = os.path.dirname(here)
+		if not candidate:  # pragma: no cover - only if the doctype is moved
+			self.fail("shop_settings.json not found near " + os.path.dirname(os.path.abspath(__file__)))
+		with open(candidate) as handle:
+			doc = json.load(handle)
+		return {field.get("fieldname"): field for field in doc.get("fields", [])}
+
+	def test_review_flag_score_is_a_real_setting(self):
+		fields = self._settings_fields()
+		self.assertIn("fraud_flag_threshold", fields)
+		self.assertEqual(fields["fraud_flag_threshold"]["fieldtype"], "Int")
+		self.assertEqual(str(fields["fraud_flag_threshold"]["default"]), "40")
+
+	def test_velocity_setting_does_not_still_claim_to_be_hourly(self):
+		fields = self._settings_fields()
+		label = (fields["fraud_velocity_max"]["label"] or "").lower()
+		self.assertNotIn("hour", label)
+
+	def test_flag_default_sits_below_the_advance_default(self):
+		fields = self._settings_fields()
+		self.assertLess(
+			int(fields["fraud_flag_threshold"]["default"]),
+			int(fields["fraud_advance_threshold"]["default"]),
+		)
 
 
 class TestScoringModelIsSingleSourced(unittest.TestCase):

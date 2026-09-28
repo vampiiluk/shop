@@ -391,11 +391,19 @@
    "description": "Orders scoring at or above this are switched from COD to online payment."
   },
   {
+   "default": "40",
+   "fieldname": "fraud_flag_threshold",
+   "fieldtype": "Int",
+   "label": "Review Flag Score",
+   "description": "Orders scoring at or above this, but below the Advance Payment Score, are marked for a human to look at before the parcel moves. Nothing is asked of the customer. Work through the flagged orders in the fraud dashboard.",
+   "insert_after": "fraud_advance_threshold"
+  },
+  {
    "default": "2",
    "fieldname": "fraud_velocity_max",
    "fieldtype": "Int",
-   "label": "Max Orders per Hour",
-   "description": "Orders from the same phone faster than this are blocked (COD)."
+   "label": "Max Orders per Day",
+   "description": "Orders from the same phone, device or address within 24 hours, weighted so recent ones count more. Orders past this add points to the score; blocking starts at 3x this number, and only for COD and pickup orders. This was an hourly limit before, which anyone could walk past by ordering once an hour."
   },
   {
    "fieldname": "column_break_fraud",
