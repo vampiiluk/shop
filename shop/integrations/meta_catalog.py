@@ -48,6 +48,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
+from shop.secrets import is_mask
+
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
 # frappe.utils.get_url() wrongly reports http://…:8000 behind this proxy, so
 # absolute storefront links (product pages, images) use this constant instead.
@@ -65,7 +67,13 @@ class MetaAPIError(Exception):
 
 
 def config() -> dict | None:
-	"""Catalogue credentials from Shop Settings, or None when not set up."""
+	"""Catalogue credentials from Shop Settings, or None when not set up.
+
+	A masked token counts as absent. It is truthy, so without this check the
+	scheduler kept pushing asterisks to Meta every twenty minutes and reporting
+	the rejection as a generic sync failure, instead of saying plainly that no
+	usable token is configured.
+	"""
 	settings = frappe.get_doc("Shop Settings")
 	catalog_id = (settings.get("meta_catalog_id") or "").strip()
 	if not catalog_id:
@@ -74,7 +82,7 @@ def config() -> dict | None:
 		token = settings.get_password("meta_access_token", raise_exception=False)
 	except Exception:
 		token = None
-	if not token:
+	if is_mask(token):
 		return None
 	return {
 		"catalog_id": catalog_id,
@@ -193,28 +201,87 @@ def progress_snapshot(run_id: str | None = None) -> dict:
 	return payload
 
 
-def _graph(method: str, url: str, payload: dict | None = None) -> dict:
-	"""One Graph API call; raises MetaAPIError with Meta's own message."""
+# Transient network conditions worth retrying. Name resolution in particular is
+# unreliable on this deployment: the box reaches Meta through a mobile
+# connection, and 11 of 13 recorded sync failures were "Temporary failure in
+# name resolution" against a host that resolves perfectly well moments later.
+# Retrying turns those into ordinary slow syncs instead of error-log noise.
+_RETRYABLE = (
+	"temporary failure in name resolution",
+	"name or service not known",
+	"nodename nor servname",
+	"timed out",
+	"timeout",
+	"connection reset",
+	"connection aborted",
+	"connection refused",
+	"network is unreachable",
+	"ssl",
+	"eof occurred",
+)
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_S = 2
+
+
+def _is_retryable(message: str) -> bool:
+	lowered = (message or "").lower()
+	return any(marker in lowered for marker in _RETRYABLE)
+
+
+def _graph(method: str, url: str, payload: dict | None = None, token: str | None = None) -> dict:
+	"""One Graph API call; raises MetaAPIError with Meta's own message.
+
+	``token`` is passed separately and appended as a query parameter, never
+	placed in ``payload``. A token inside the payload is captured verbatim by
+	the traceback Frappe stores in Error Log, so a failed sync would leave a
+	live access token in the database in clear text.
+
+	Transport failures are retried a few times with a short backoff. Meta's own
+	HTTP errors are not retried: a rejected token or a bad field will fail
+	identically every time, and retrying only delays the report.
+	"""
+	if token:
+		separator = "&" if "?" in url else "?"
+		url = f"{url}{separator}access_token={urllib.parse.quote(token)}"
 	data = json.dumps(payload).encode() if payload is not None else None
-	request = urllib.request.Request(
-		url, data=data, headers={"Content-Type": "application/json"}, method=method
-	)
-	try:
-		with urllib.request.urlopen(request, timeout=60) as response:
-			return json.loads(response.read().decode() or "{}")
-	except urllib.error.HTTPError as exc:
-		body = exc.read().decode(errors="replace")
+
+	last: Exception | None = None
+	for attempt in range(1, RETRY_ATTEMPTS + 1):
+		request = urllib.request.Request(
+			url, data=data, headers={"Content-Type": "application/json"}, method=method
+		)
 		try:
-			message = json.loads(body).get("error", {}).get("message", body)
-		except Exception:
-			message = body
-		raise MetaAPIError(f"HTTP {exc.code}: {message}") from exc
-	except urllib.error.URLError as exc:
-		raise MetaAPIError(str(exc.reason)) from exc
+			with urllib.request.urlopen(request, timeout=60) as response:
+				return json.loads(response.read().decode() or "{}")
+		except urllib.error.HTTPError as exc:
+			body = exc.read().decode(errors="replace")
+			try:
+				message = json.loads(body).get("error", {}).get("message", body)
+			except Exception:
+				message = body
+			# An HTTP error is Meta answering, not the network failing.
+			raise MetaAPIError(f"HTTP {exc.code}: {message}") from exc
+		except (urllib.error.URLError, OSError) as exc:
+			reason = getattr(exc, "reason", exc)
+			last = exc
+			detail = str(reason)
+			if attempt < RETRY_ATTEMPTS and _is_retryable(detail):
+				frappe.log_error(
+					title="Meta catalog retry",
+					message=f"{method} attempt {attempt}/{RETRY_ATTEMPTS} failed: {detail}",
+				)
+				time.sleep(RETRY_BACKOFF_S * attempt)
+				continue
+			raise MetaAPIError(detail) from exc
+	raise MetaAPIError(str(getattr(last, "reason", last))) from last
 
 
 def _post_batch(cfg: dict, requests: list[dict]) -> list[str]:
-	"""Send one items_batch request; returns the status handles to poll."""
+	"""Send one items_batch request; returns the status handles to poll.
+
+	The token is passed as an argument rather than inside the JSON body, so a
+	failure cannot record it in the Error Log traceback.
+	"""
 	result = _graph(
 		"POST",
 		f"{GRAPH_BASE}/{cfg['catalog_id']}/items_batch",
@@ -222,8 +289,8 @@ def _post_batch(cfg: dict, requests: list[dict]) -> list[str]:
 			"requests": requests,
 			"allow_upsert": True,
 			"item_type": "PRODUCT_ITEM",
-			"access_token": cfg["token"],
 		},
+		token=cfg["token"],
 	)
 	return result.get("handles") or []
 
@@ -249,10 +316,12 @@ def _await_batch(
 	key: str | None = None,
 ) -> None:
 	"""Poll a batch until it finishes, collecting per-item errors/warnings."""
-	query = urllib.parse.urlencode({"handle": handle, "access_token": cfg["token"]})
+	query = urllib.parse.urlencode({"handle": handle})
 	for attempt in range(1, STATUS_ATTEMPTS + 1):
 		result = _graph(
-			"GET", f"{GRAPH_BASE}/{cfg['catalog_id']}/check_batch_request_status?{query}"
+			"GET",
+			f"{GRAPH_BASE}/{cfg['catalog_id']}/check_batch_request_status?{query}",
+			token=cfg["token"],
 		)
 		row = (result.get("data") or [{}])[0]
 		if row.get("status") == "finished":
@@ -565,16 +634,18 @@ def _fetch_catalog(cfg: dict) -> dict[str, dict]:
 		{
 			"fields": "id,retailer_id,retailer_product_group_id",
 			"limit": "500",
-			"access_token": cfg["token"],
 		}
 	)
 	entries: dict[str, dict] = {}
 	for _ in range(40):
-		# paging.next is a full URL that already carries its query string (and
-		# the access token) — appending a second "?" to it makes Meta reject
-		# the request with "Invalid cursor provided", so only add one for the
-		# first, hand-built URL.
-		result = _graph("GET", f"{url}?{query}" if query else url)
+		# The first URL is hand-built and needs the token appended. Meta's
+		# paging.next is a full URL that already carries its own query string
+		# and token, and appending a second "?" to it makes Meta reject the
+		# request with "Invalid cursor provided" — so later pages are fetched
+		# exactly as handed back, with nothing added.
+		page_url = f"{url}?{query}" if query else url
+		result = _graph("GET", page_url, token=cfg["token"] if query else None)
+		query = ""
 		for row in result.get("data") or []:
 			if row.get("retailer_id"):
 				entries[row["retailer_id"]] = {
@@ -653,6 +724,37 @@ def _record(status: str) -> None:
 	"""Persist the outcome shown on the Settings page."""
 	frappe.db.set_single_value("Shop Settings", "meta_last_sync", now_datetime())
 	frappe.db.set_single_value("Shop Settings", "meta_sync_status", status)
+
+
+def _explain(exc: Exception) -> str:
+	"""Turn a failure into one actionable line for the Settings page.
+
+	"Sync failed — see Error Log" sent whoever reads it to the log for a name
+	that says nothing. Of thirteen logged failures, eleven were this box failing
+	to resolve graph.facebook.com, which needs a network fix rather than a code
+	fix. The common causes are named here because each has a different remedy.
+	"""
+	message = str(exc)
+	lowered = message.lower()
+
+	if "name or service not known" in lowered or "temporary failure in name resolution" in lowered:
+		return (
+			"this server could not reach graph.facebook.com (DNS). "
+			"Check the network, then use Sync to Meta now"
+		)
+	if "invalid oauth" in lowered or "cannot parse access token" in lowered or "code\":190" in lowered:
+		return (
+			"Meta rejected the access token. Save a current token in "
+			"Settings, then use Sync to Meta now"
+		)
+	if "permission" in lowered or "not authorized" in lowered or "code\":10" in lowered:
+		return "the access token lacks permission for this catalogue"
+	if "timed out" in lowered or "timeout" in lowered:
+		return "the request to Meta timed out"
+	# Fall back to Meta's own message, trimmed, since it is more useful than a
+	# generic pointer at the log.
+	detail = message.split(":", 1)[-1].strip() if message else ""
+	return detail[:80] if detail else type(exc).__name__
 
 
 def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, keep_legacy: bool = False) -> list[str]:
@@ -953,6 +1055,6 @@ def scheduled_reconcile() -> None:
 		return
 	try:
 		sync_all()
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(title="Meta catalog sync failed")
-		_record("Sync failed — see Error Log")
+		_record(f"Sync failed — {_explain(exc)}")
