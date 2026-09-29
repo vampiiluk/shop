@@ -53,8 +53,9 @@ def configured(settings=None) -> list[dict]:
 	return rows
 
 
-# wa.me needs the full international number. The Country doctype only keeps
-# the ISO alpha-2 code, so map the storefront-relevant countries here; an
+# Fallback only: wa.me needs the full international number, and the Country
+# doctype keeps just the ISO alpha-2 code. Used when a location phone has to be
+# promoted from local form and the store has no WhatsApp number of its own. An
 # unknown country drops the WhatsApp half instead of guessing a broken link.
 _DIAL_CODES = {
 	"AF": "93", "AU": "61", "BD": "880", "CA": "1", "CN": "86", "GB": "44",
@@ -66,7 +67,16 @@ _DIAL_CODES = {
 
 
 def whatsapp_url(settings, phone: str) -> str:
-	"""wa.me chat link for a pickup location; '' when it can't be formed."""
+	"""wa.me chat link for a pickup location; '' when it can't be formed.
+
+	The store's WhatsApp business number wins over the location's own phone, so
+	a stale number left on a pickup row cannot keep sending customers to the
+	wrong line. The location phone is used only when the store has not set one.
+	"""
+	store_number = (settings.get("whatsapp_number") or "").strip()
+	if store_number:
+		return f"https://wa.me/{store_number}"
+
 	digits = re.sub(r"\D", "", phone or "")
 	if not digits:
 		return ""

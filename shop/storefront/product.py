@@ -2,6 +2,7 @@ from urllib.parse import quote
 
 import frappe
 
+from shop.phone import chat_url
 from shop.storefront import pricing, stock
 
 
@@ -53,28 +54,33 @@ def get_product(slug: str) -> dict:
 def store_whatsapp_url(doc) -> str:
 	"""wa.me chat about this product with name and link prefilled, or ''.
 
-	The store's WhatsApp number lives on the pickup locations, so prefer
-	the default location and fall back to any row that has a phone. With
-	no usable number the key is '' and the storefront's Buy on WhatsApp
-	button hides itself (its visibility condition is falsy)."""
+	The store's number comes from the WhatsApp business number in Settings,
+	which is where it is meant to be maintained. Pickup locations are only a
+	fallback, for a store that has set the number but left a location phone
+	behind from before. With no number anywhere the key is '' and the
+	storefront's Buy on WhatsApp button hides itself (its visibility condition
+	is falsy)."""
 	from shop.integrations.meta_catalog import SITE_BASE
 	from shop.storefront import pickup
 
 	settings = frappe.get_cached_doc("Shop Settings")
-	default = (settings.get("default_pickup_location") or "").strip()
-	rows = [
-		row
-		for row in pickup.configured(settings)
-		if row.get("whatsapp_url")
-	]
-	chosen = next((row for row in rows if row["name"] == default), None) or (
-		rows[0] if rows else None
-	)
-	if not chosen:
-		return ""
+	number = (settings.get("whatsapp_number") or "").strip()
+	if not number:
+		default = (settings.get("default_pickup_location") or "").strip()
+		rows = [
+			row for row in pickup.configured(settings) if row.get("whatsapp_url")
+		]
+		chosen = next((row for row in rows if row["name"] == default), None) or (
+			rows[0] if rows else None
+		)
+		if not chosen:
+			return ""
+		base = chosen["whatsapp_url"]
+	else:
+		base = chat_url(number)
 	product_url = f"{SITE_BASE}/product/{doc.slug}"
 	message = f"Hi! I'm interested in {doc.product_name or doc.name} — {product_url}"
-	return f"{chosen['whatsapp_url']}?text={quote(message)}"
+	return f"{base}?text={quote(message)}"
 
 
 def product_collections(doc) -> list[dict]:
