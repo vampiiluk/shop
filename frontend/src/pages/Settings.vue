@@ -319,6 +319,27 @@
 					label="Enable catalog sync"
 					description="Push products, prices and stock to your Meta catalogue."
 				/>
+				<div class="max-w-lg space-y-1.5">
+					<FormControl
+						v-model="meta.whatsapp_number"
+						label="WhatsApp business number"
+						placeholder="923106488879"
+						description="The number customers tap to reach you. Type it however you like — 03033322111, +92 303 3322111 or 923106488879 all work."
+					/>
+					<p v-if="data.whatsapp_catalog_url" class="text-xs text-ink-gray-5">
+						Customers will be able to browse and order:
+						<a
+							:href="data.whatsapp_catalog_url"
+							target="_blank"
+							rel="noopener"
+							class="font-mono text-ink-gray-6 underline"
+						>{{ data.whatsapp_catalog_url }}</a>
+					</p>
+					<p v-else class="text-xs text-ink-gray-5">
+						Without a number there is no catalogue link to share, so customers cannot
+						order on WhatsApp while the site is unavailable.
+					</p>
+				</div>
 				<div class="grid max-w-lg grid-cols-2 gap-4">
 					<FormControl
 						v-model="meta.meta_catalog_id"
@@ -730,6 +751,7 @@ const meta = reactive({
 	meta_catalog_id: '',
 	meta_access_token: '',
 	meta_google_product_category: '',
+	whatsapp_number: '',
 })
 const downloadingGms = ref(false)
 
@@ -843,6 +865,7 @@ function hydrate(doc: Record<string, any>) {
 		meta_catalog_id: doc.meta_catalog_id || '',
 		meta_access_token: doc.meta_access_token || '',
 		meta_google_product_category: doc.meta_google_product_category || '',
+		whatsapp_number: doc.whatsapp_number || '',
 	})
 }
 

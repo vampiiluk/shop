@@ -500,7 +500,7 @@
    "fieldname": "fraud_signal_weights",
    "fieldtype": "Code",
    "label": "Fraud Signal Weights",
-   "description": "JSON of per-signal points. Managed from the Fraud Weights page \u2014 leave blank for defaults."
+   "description": "JSON of per-signal points. Managed from the Fraud Weights page — leave blank for defaults."
   },
   {
    "collapsible": 1,
@@ -565,6 +565,21 @@
    "fieldname": "meta_enabled",
    "fieldtype": "Check",
    "label": "Enable Meta Catalog Sync"
+  },
+  {
+   "fieldname": "whatsapp_number",
+   "fieldtype": "Data",
+   "label": "WhatsApp Business Number",
+   "description": "The number customers tap to reach the shop, in international form. Type it however you like - 03033322111, +92 303 3322111 or 923033322111 - and it is stored as 923033322111. This builds the catalogue link, which is the only WhatsApp link that gives customers a cart.",
+   "placeholder": "923106488879",
+   "reqd": 0
+  },
+  {
+   "fieldname": "whatsapp_number_help",
+   "fieldtype": "Small Text",
+   "label": "Catalogue link",
+   "read_only": 1,
+   "depends_on": "eval:doc.whatsapp_number"
   },
   {
    "description": "Catalogue ID from Commerce Manager, e.g. 1805695184000731.",

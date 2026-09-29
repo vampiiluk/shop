@@ -3,6 +3,21 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
+from shop.phone import (
+	DIAL_CODES,
+	InvalidPhoneNumber,
+	catalog_url,
+	chat_url,
+	normalise_whatsapp,
+)
+from shop.secrets import is_mask
+
+
+def _dial_code(settings) -> str:
+	"""Calling code for the store's country, used to promote a local number."""
+	country = (settings.get("address_country") or "").strip()
+	iso = frappe.db.get_value("Country", country, "code") if country else ""
+	return DIAL_CODES.get((iso or "").upper(), "92")
 
 CHECK_FIELDS = frozenset((
 	"enable_cod",
@@ -112,6 +127,7 @@ EDITABLE = (
 	"meta_catalog_id",
 	"meta_access_token",
 	"meta_google_product_category",
+	"whatsapp_number",
 )
 
 
@@ -130,23 +146,37 @@ def get_settings() -> dict:
 			except Exception:
 				value = ""
 		payload[field] = value
+	# A "*_set" flag is what the page renders as "✓ Key stored". It has to mean
+	# a usable key is present, so a masked value counts as not set. Reporting a
+	# mask as stored is how a destroyed API key stayed invisible for so long: the
+	# page looked configured while every call using that key failed.
+	def is_configured(field: str) -> bool:
+		try:
+			return not is_mask(settings.get_password(field, raise_exception=False))
+		except Exception:
+			return False
+
 	payload.update(
 		{
 			"company": settings.company,
 			"currency": settings.currency,
 			"active_theme": settings.active_theme,
-			"ors_api_key_set": bool(settings.get_password("ors_api_key", raise_exception=False)),
-			"fingerprint_secret_key_set": bool(
-				settings.get_password("fingerprint_secret_key", raise_exception=False)
-			),
-			"abuseipdb_api_key_set": bool(
-				settings.get_password("abuseipdb_api_key", raise_exception=False)
-			),
-			"meta_access_token_set": bool(
-				settings.get_password("meta_access_token", raise_exception=False)
-			),
+			"ors_api_key_set": is_configured("ors_api_key"),
+			"fingerprint_secret_key_set": is_configured("fingerprint_secret_key"),
+			"abuseipdb_api_key_set": is_configured("abuseipdb_api_key"),
+			"meta_access_token_set": is_configured("meta_access_token"),
 			"meta_last_sync": settings.meta_last_sync,
 			"meta_sync_status": settings.meta_sync_status or "",
+			# Shown under the number field so the shopkeeper can see the link a
+			# customer will actually tap, rather than having to trust that what
+			# they typed was interpreted correctly.
+			"whatsapp_catalog_url": catalog_url(
+				(settings.get("whatsapp_number") or "").strip()
+			),
+			"whatsapp_chat_url": chat_url(
+				(settings.get("whatsapp_number") or "").strip(),
+				"Hello! I would like to ask about a product.",
+			),
 			"gateway_accounts": frappe.get_all(
 				"Payment Gateway Account", fields=["name", "payment_gateway", "currency"]
 			),
@@ -243,8 +273,12 @@ def save_settings(payload: dict) -> dict:
 		elif field in CURRENCY_FIELDS:
 			value = flt(value)
 		elif field in PASSWORD_FIELDS:
-			# Skip empty/masked values so the existing password is not wiped.
-			if not value or value == "******":
+			# Skip empty and masked values so the existing password is neither
+			# wiped nor overwritten with the mask itself. is_mask() matches any
+			# run of asterisks, not one fixed length: the mask is as long as the
+			# value it hides, so comparing against a six-asterisk string let a
+			# 198-character mask straight through into the database.
+			if is_mask(value):
 				continue
 		elif field == "queue_schedule":
 			if value not in ("Every 10 Minutes", "Every 20 Minutes", "Hourly"):
@@ -253,6 +287,15 @@ def save_settings(payload: dict) -> dict:
 			value = value if value in ("Percent", "Flat") else "Percent"
 		elif field == "map_embed_provider":
 			value = value if value in ("OpenStreetMap", "Google Maps") else "OpenStreetMap"
+		elif field == "whatsapp_number":
+			# Stored in one canonical form so the catalogue link is always
+			# well-formed. A number that cannot become a working wa.me link is
+			# refused here rather than saved and discovered later, when a customer
+			# taps a button that does nothing.
+			try:
+				value = normalise_whatsapp(value, _dial_code(settings))
+			except InvalidPhoneNumber as exc:
+				frappe.throw(_("WhatsApp number: {0}").format(str(exc)), exc=exc)
 		elif field == "fraud_signal_weights":
 			from shop.integrations.signal_weights import validate_weights_json
 
@@ -385,3 +428,23 @@ def get_meta_sync_progress(run_id: str | None = None) -> dict:
 	only_managers()
 	from shop.integrations.meta_catalog import progress_snapshot
 	return progress_snapshot(run_id)
+
+
+@frappe.whitelist()
+def get_whatsapp_link() -> dict:
+	"""The shop's WhatsApp links, readable without manager rights.
+
+	The number lives in one place now, so anything that needs to link to the shop
+	on WhatsApp reads it from here instead of keeping its own copy: the storefront
+	contact button, the maintenance page, and any future message template.
+
+	Safe to expose publicly because it is a link a customer is meant to tap. The
+	access token and every other secret stay behind ``only_managers``.
+	"""
+	digits = (frappe.db.get_single_value("Shop Settings", "whatsapp_number") or "").strip()
+	return {
+		"number": digits,
+		"catalog_url": catalog_url(digits),
+		"chat_url": chat_url(digits, "Hello! I would like to ask about a product."),
+		"configured": bool(digits),
+	}
