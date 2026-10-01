@@ -6,11 +6,11 @@ from frappe.utils import cint
 from shop.storefront import cart, catalog, checkout, orders, product
 
 PAGE_SIZE = 24
-# How many products the hero's right-hand box is given. Two: the box shows one
-# beside the copy and both of them side by side on a phone, so the count cannot
-# be device-specific without making the server answer differently per viewport.
-# Which of them is visible is decided in CSS.
-HERO_PRODUCT_COUNT = 2
+# How many products the hero's carousel is given. Five: the centre one, one
+# either side and one beyond each of those, which is the full set of positions
+# the carousel has a style for. The three either side are drawn behind the
+# centre card and only partly visible.
+HERO_PRODUCT_COUNT = 5
 
 
 @frappe.whitelist(allow_guest=True)

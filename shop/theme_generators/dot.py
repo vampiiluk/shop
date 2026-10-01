@@ -523,14 +523,140 @@ a[data-active="true"] {{
 	.drawer-close {{ padding: 10px; margin: -10px; }}
 	[data-shop="remove"], .drawer-remove {{ padding: 8px 6px; }}
 }}
-/* The hero's box shows one product beside the copy and two side by side on a
-   phone. Both cards are always in the markup - the grid is two columns at the
-   576px breakpoint - so the desktop case is the second one hidden, rather than
-   a second product withheld: withholding it would make what the phone shows
-   depend on the viewport the server happened to answer. 577px is the inverse of
-   the same 576px breakpoint the builder emits for mobileStyles. */
-@media only screen and (min-width: 577px) {{
-	.hero-showcase__grid > a ~ a {{ display: none; }}
+/* The hero's product carousel.
+
+   Structure and behaviour from a CodePen coverflow
+   (codepen.io/frise/pen/mZvKpe): items sit absolutely in a list, and a
+   data-pos of -2..2 drives the transform, so moving one only has to rewrite a
+   few attributes.
+
+   Two deliberate departures. The pen's items are 150x250 gradient tiles with a
+   fixed size; these are the theme's own product cards, which carry a photo, a
+   condition tag, a name and a price - so the card here is the photo and the
+   name and nothing else. And the tags are the builder's, not the pen's
+   <ul>/<li>: the cards come out of the theme's repeater as <a>, so the list is
+   a div and the items are its children. The mechanism is the pen's; the markup
+   is not. */
+.carousel__list {{
+	box-sizing: border-box;
+	display: flex;
+	/* The cards are absolutely positioned, so nothing gives the list a height.
+		This one is the card's whole height - a photo with the name under it - and
+		it steps down with the card width on the smaller breakpoints. */
+	height: 300px;
+	justify-content: center;
+	list-style: none;
+	perspective: 300px;
+	position: relative;
+	width: 100%;
+}}
+.carousel__list > a {{
+	box-sizing: border-box;
+	color: inherit;
+	/* 91% rather than 100%: the centre card is scaled up 10% and 1/1.1 is
+	   90.9%, so after the scale it fills the list exactly instead of hanging 15px
+	   over the top and bottom of it, where the showcase's overflow would cut the
+	   picture off. Every card is laid out at this size and then scaled by its
+	   position, so the sizes stay in proportion. */
+	height: 91%;
+	position: absolute;
+	text-decoration: none;
+	transition: transform 0.3s ease-in, opacity 0.3s ease-in, filter 0.3s ease-in;
+	width: 190px;
+}}
+/* The photo keeps the card's ink-free space to itself: it gives up its aspect
+   ratio and takes the height the name does not need. */
+.carousel__list > a > div:first-child {{
+	aspect-ratio: auto;
+	flex: 1 1 auto;
+	min-height: 0;
+}}
+/* Photo and name only. The condition tag, the stars and the price are still in
+   the card, just not drawn - the carousel is a browse, not a price list. */
+.carousel__list > a > *:not(:first-child):not(h3) {{
+	display: none;
+}}
+.carousel__list > a h3 {{
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	flex: 0 0 auto;
+	overflow: hidden;
+	transition: opacity 0.3s ease-in;
+}}
+/* Only the centre card is named.
+   A card at the side is 171px wide and sits 76px off centre, so its name runs
+   out from under the centre card on both sides and the two names land on top of
+   each other - three products' names stacked into one unreadable block. The
+   photo alone is enough to recognise it by; the name belongs to the card being
+   looked at. */
+.carousel__list > a:not([data-pos="0"]) h3 {{
+	opacity: 0;
+}}
+/* The pen's positions, unchanged. A card at the side is scaled back, dimmed and
+   blurred; the centre one is on top and sharp. */
+/* The card being looked at is a tenth bigger than the ones beside it. */
+.carousel__list > a[data-pos="0"] {{
+	transform: scale(1.1);
+	z-index: 5;
+}}
+.carousel__list > a[data-pos="-1"],
+.carousel__list > a[data-pos="1"] {{
+	filter: blur(1px) grayscale(10%);
+	opacity: 0.7;
+	z-index: 4;
+}}
+.carousel__list > a[data-pos="-1"] {{
+	transform: translateX(-40%) scale(0.9);
+}}
+.carousel__list > a[data-pos="1"] {{
+	transform: translateX(40%) scale(0.9);
+}}
+.carousel__list > a[data-pos="-2"],
+.carousel__list > a[data-pos="2"] {{
+	filter: blur(3px) grayscale(20%);
+	opacity: 0.4;
+	z-index: 3;
+}}
+.carousel__list > a[data-pos="-2"] {{
+	transform: translateX(-70%) scale(0.8);
+}}
+.carousel__list > a[data-pos="2"] {{
+	transform: translateX(70%) scale(0.8);
+}}
+/* Anything further out than the pen's five slots is parked rather than dropped,
+   so with more products in stock the rest are still reachable by arrowing. Off
+   the edge, and untappable, so they cannot be clicked on the way past. */
+.carousel__list > a[data-pos="-3"],
+.carousel__list > a[data-pos="3"] {{
+	opacity: 0;
+	pointer-events: none;
+	transform: translateX(-110%) scale(0.7);
+}}
+.carousel__list > a[data-pos="3"] {{
+	transform: translateX(110%) scale(0.7);
+}}
+/* Not yet placed. Before the script runs every card would sit at the centre on
+   top of the others, which is the one state worth never showing. */
+.carousel__list:not([data-ready]) > a {{
+	opacity: 0;
+}}
+/* While the cards are sliding, a click would land on whichever card happens to
+   be passing under the finger. */
+.carousel__list[data-moving="true"] > a {{
+	pointer-events: none;
+}}
+@media only screen and (max-width: 1023px) {{
+	.carousel__list {{ height: 276px; }}
+	.carousel__list > a {{ width: 170px; }}
+}}
+@media only screen and (max-width: 576px) {{
+	.carousel__list {{ height: 252px; }}
+	.carousel__list > a {{ width: 152px; }}
+}}
+/* The pen's 0.3s slide is exactly the kind of motion this has to drop. The
+   positions still change, they just arrive at once. */
+@media (prefers-reduced-motion: reduce) {{
+	.carousel__list > a {{ transition: none; }}
 }}
 #reviews {{ scroll-margin-top: 100px; }}
 """
@@ -1503,19 +1629,37 @@ def hero(refs):
 		"div",
 		name="Hero Showcase",
 		styles={
-			"backgroundColor": refs["card"],
-			"borderRadius": "16px",
-			"display": "flex",
-			"flexBasis": "260px",
+			# No background and no radius: the box was a grey panel the cards sat
+			# inside, which made the carousel look like a framed widget rather than
+			# the hero's own content. overflow stays, so the cards are still cut
+			# off cleanly at the edge rather than spilling across the headline.
+			# Wider than one card, because the carousel's cards sit outside the
+			# centre one and have to be clipped by the edge of this box. overflow
+			# is what turns them into a coverflow rather than cards spilling
+			# across the hero.
+			"flexBasis": "330px",
 			"flexGrow": 0,
 			"flexShrink": 0,
 			"minWidth": "0",
+			"overflow": "hidden",
 			"padding": "16px",
-			"width": "260px",
+			"width": "330px",
 		},
 		mobile={"flexBasis": "auto", "flexShrink": 1, "width": "100%"},
-		tablet={"flexBasis": "240px", "width": "240px"},
-		children=[product_grid(refs, "hero_products", "hero", columns=1, gap="22px", classes=["hero-showcase__grid"])],
+		tablet={"flexBasis": "300px", "width": "300px"},
+		children=[
+			# repeater() rather than product_grid(): the grid would put
+			# display:grid on the block, which ties with the .carousel__list rule
+			# on specificity and leaves the winner to source order. The carousel's
+			# layout is absolute positioning, so theme_css has to own it outright.
+			repeater(
+				"hero_products",
+				component_ref("dot-product-card"),
+				{"width": "100%"},
+				classes=["hero-showcase__grid", "carousel__list"],
+				name="Grid · hero",
+			)
+		],
 	)
 	return panel(
 		refs,
@@ -1527,7 +1671,7 @@ def hero(refs):
 					"alignItems": "stretch",
 					"display": "flex",
 					"flexDirection": "row",
-					"gap": "40px",
+					"gap": "32px",
 					"width": "100%",
 				},
 				# Stacked, not squeezed: the cards are 4:5 portraits and a narrow

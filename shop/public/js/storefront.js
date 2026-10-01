@@ -1463,8 +1463,110 @@
 		});
 	}
 
+	// The hero's coverflow of products. Structure and behaviour from a CodePen
+	// (codepen.io/frise/pen/mZvKpe): the cards are placed by a data-pos of -2..2
+	// and moving one only rewrites those attributes. What differs is that these
+	// cards are links to their products, so a click cannot mean both "come
+	// forward" and "open": a card at the side comes forward, and only the card
+	// already in the centre opens. Two taps to reach a product, one to browse.
+	function initHeroCarousel() {
+		const list = document.querySelector(".carousel__list");
+		if (!list) return;
+		const cards = Array.from(list.children);
+		if (cards.length < 2) return;
+
+		// Start in the middle, so the first thing shown is a product rather than
+		// the end of a row. With one card there is nothing to choose.
+		let active = Math.floor((cards.length - 1) / 2);
+
+		const SLOTS = 2; // How far either side the pen shows: -2..2.
+
+		function place() {
+			const count = cards.length;
+			cards.forEach((card, index) => {
+				// The distance from the centre, the short way round. Taking it
+				// straight off the index difference sends the carousel walking
+				// instead of cycling: with three cards, centring the last one puts
+				// the others at -1 and -2, and they slide out of sight rather than
+				// coming back round.
+				let offset = (index - active + count) % count;
+				if (offset > count / 2) offset -= count;
+				// Further out than the pen's slots: parked, not dropped, so a shop
+				// with more products in stock can still reach all of them.
+				if (offset > SLOTS) offset = SLOTS + 1;
+				if (offset < -SLOTS) offset = -SLOTS - 1;
+				card.dataset.pos = String(offset);
+			});
+			list.dataset.ready = "true";
+		}
+
+		function moveTo(index) {
+			if (index === active || index < 0 || index >= cards.length) return;
+			active = index;
+			place();
+			schedule();
+			// If the keyboard is in the carousel, take it to the card that just came
+			// forward. Otherwise focus stays on a card that is no longer the one
+			// being read, and the next Tab lands somewhere unrelated.
+			if (list.contains(document.activeElement)) cards[active].focus();
+			// The cards animate for 300ms. A click landing inside that window
+			// would go to whichever card happens to be sliding under the finger,
+			// so the list stops taking clicks until they have settled.
+			list.dataset.moving = "true";
+			clearTimeout(moveTo.timer);
+			moveTo.timer = setTimeout(() => {
+				list.dataset.moving = "false";
+			}, 320);
+		}
+
+		list.addEventListener("click", (event) => {
+			if (list.dataset.moving === "true") {
+				event.preventDefault();
+				return;
+			}
+			const card = event.target.closest("a");
+			if (!card || !list.contains(card)) return;
+			if (Number(card.dataset.pos) === 0) return; // the centre card opens
+			event.preventDefault();
+			moveTo(cards.indexOf(card));
+		});
+
+		// On the list, not the document: the cards are links, so the keyboard
+		// arrives here by bubbling from whichever card is focused. A carousel-wide
+		// handler would steal the arrow keys from every filter and field on the
+		// page.
+		list.addEventListener("keydown", (event) => {
+			if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+			event.preventDefault();
+			moveTo(active + (event.key === "ArrowRight" ? 1 : -1));
+		});
+
+		// It turns itself over every few seconds, which is a change the
+		// shopper did not ask for, so it stands down whenever they are actually
+		// using it: while a pointer is resting on the box, while the keyboard is
+		// in it, and while the tab is in the background. Interacting also
+		// restarts the countdown, so a card never moves away from someone who has
+		// just clicked it.
+		const ROTATE_MS = 4000;
+		let timer = null;
+		function schedule() {
+			clearTimeout(timer);
+			timer = setTimeout(turn, ROTATE_MS);
+		}
+		function turn() {
+			const busy =
+				document.hidden || list.matches(":hover") || list.contains(document.activeElement);
+			if (!busy) moveTo((active + 1) % cards.length);
+			else schedule();
+		}
+
+		place();
+		schedule();
+	}
+
 	document.addEventListener("DOMContentLoaded", () => {
 		initGallery();
+		initHeroCarousel();
 		initPreview();
 		initVariantPicker();
 		refreshCartCount();
