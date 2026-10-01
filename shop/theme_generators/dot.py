@@ -622,6 +622,25 @@ a[data-active="true"] {{
 .carousel__list > a[data-pos="1"] {{
 	transform: translateX(40%) scale(0.9);
 }}
+/* The hero headline on a phone.
+
+   "Collected properly." is 8.57em wide at this typeface - measured, not
+   estimated - so a fixed 36px needs 308px of column and wraps below a 372px
+   viewport. 390px was fine, 360px and 320px were not, and those are the widths
+   most of the shop's customers are actually on.
+
+   So it is sized against the viewport instead of picked once. 9vw is the
+   coefficient that fits at 320px, where the column is 260px and the text needs
+   to be under 30px. The cap is 44px, not 36px: this covers the whole stacked
+   range, which starts at 1024px and not at 576px, and a tablet has room for
+   more than a phone. Above 1024px the hero is two columns and the copy has
+   540px to itself, which 62px fits into. The floor is only reached below about
+   300px, where nothing else on the page is legible either. */
+@media only screen and (max-width: 1023px) {{
+	.hero__title {{
+		font-size: clamp(27px, 9vw, 44px);
+	}}
+}}
 /* Only three cards are ever on show: the one being looked at and the two
    either side of it. The pen has a third tier at 40% opacity, blurred 3px and
    pushed out to 70%, and in a box this size that tier read as a hard vertical
@@ -1581,6 +1600,10 @@ def hero(refs):
 			block(
 				"h1",
 				text="Fewer things.<br>Collected properly.",
+				# The class is what the theme's own CSS sizes this at on a phone.
+				# A fixed mobileStyles font-size here would tie with it on
+				# specificity and leave the winner to source order.
+				classes=["hero__title"],
 				styles={
 					"color": refs["ink"],
 					"fontFamily": HEAD,
@@ -1596,7 +1619,6 @@ def hero(refs):
 					"maxWidth": "620px",
 					"width": "100%",
 				},
-				mobile={"fontSize": "36px"},
 			),
 			prose(
 				refs,
@@ -1661,7 +1683,7 @@ def hero(refs):
 			"width": "330px",
 		},
 		mobile={"flexBasis": "auto", "flexShrink": 1, "width": "100%"},
-		tablet={"flexBasis": "300px", "width": "300px"},
+		tablet={"flexBasis": "auto", "width": "100%"},
 		children=[
 			# repeater() rather than product_grid(): the grid would put
 			# display:grid on the block, which ties with the .carousel__list rule
@@ -1689,9 +1711,14 @@ def hero(refs):
 					"gap": "32px",
 					"width": "100%",
 				},
-				# Stacked, not squeezed: the cards are 4:5 portraits and a narrow
-				# two-column grid of them turns into postage stamps.
+				# Stacked, not squeezed, from the tablet breakpoint up. Two columns
+				# need about 540px of copy beside a 330px carousel, which is a
+				# viewport of roughly 1000px; between 577px and there the copy column
+				# was being squeezed to around 140px and the headline wrapped to six
+				# lines. The cards are 4:5 portraits too, and a narrow two-column
+				# grid of them turns into postage stamps.
 				mobile={"flexDirection": "column", "gap": "26px"},
+				tablet={"flexDirection": "column", "gap": "30px"},
 				children=[copy, showcase],
 			),
 		],
