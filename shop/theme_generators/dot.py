@@ -387,10 +387,17 @@ a[data-active="true"] {{
 	will-change: transform;
 }}
 .lightbox-close {{
-	background: rgba(255, 255, 255, 0.1);
+	/* Same surface as the zoom bar: white pill, dark glyph. It was a translucent
+	   white disc carrying a white ×, which put it in a different visual language
+	   from the one control sitting in the same overlay - and a white glyph on 10%
+	   white over a dark backdrop is thin in both schemes. #0B0B0C on #FFFFFF is
+	   19.67:1. Fixed colours for the same reason the bar uses them: the overlay
+	   pins its own appearance, and the page's light-dark() palette would invert
+	   under it. */
+	background: rgba(255, 255, 255, 0.96);
 	border: 0;
 	border-radius: 999px;
-	color: #FFFFFF;
+	color: #0B0B0C;
 	cursor: pointer;
 	/* Gated on data-open like the backdrop, stage and bar. Without this the ×
 	   paints over the product page at all times: the overlay root only sets
