@@ -622,27 +622,29 @@ a[data-active="true"] {{
 .carousel__list > a[data-pos="1"] {{
 	transform: translateX(40%) scale(0.9);
 }}
+/* Only three cards are ever on show: the one being looked at and the two
+   either side of it. The pen has a third tier at 40% opacity, blurred 3px and
+   pushed out to 70%, and in a box this size that tier read as a hard vertical
+   edge of clipped card at each end rather than a sense of depth. It is parked
+   instead of drawn.
+
+   Parked, not dropped: all five products are still in the rotation and still
+   come round, they are just never on show at the same time. Positions wrap the
+   short way round, so the two cards either side of the centre are always the
+   ones drawn and the row never ends up with a gap on one side. Off the edge, and
+   untappable, so a hidden card cannot be clicked on the way past. */
 .carousel__list > a[data-pos="-2"],
-.carousel__list > a[data-pos="2"] {{
-	filter: blur(3px) grayscale(20%);
-	opacity: 0.4;
-	z-index: 3;
-}}
-.carousel__list > a[data-pos="-2"] {{
-	transform: translateX(-70%) scale(0.8);
-}}
-.carousel__list > a[data-pos="2"] {{
-	transform: translateX(70%) scale(0.8);
-}}
-/* Anything further out than the pen's five slots is parked rather than dropped,
-   so with more products in stock the rest are still reachable by arrowing. Off
-   the edge, and untappable, so they cannot be clicked on the way past. */
+.carousel__list > a[data-pos="2"],
 .carousel__list > a[data-pos="-3"],
 .carousel__list > a[data-pos="3"] {{
 	opacity: 0;
 	pointer-events: none;
+}}
+.carousel__list > a[data-pos="-2"],
+.carousel__list > a[data-pos="-3"] {{
 	transform: translateX(-110%) scale(0.7);
 }}
+.carousel__list > a[data-pos="2"],
 .carousel__list > a[data-pos="3"] {{
 	transform: translateX(110%) scale(0.7);
 }}
