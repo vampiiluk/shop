@@ -327,6 +327,256 @@
 		if (first) first.dataset.selected = "true";
 	}
 
+	// --- Image preview -------------------------------------------------------
+	//
+	// Clicking a product photo opens it fullscreen. Zoom comes from two places
+	// because neither input works everywhere: a slider is precise but fiddly with
+	// a thumb, and a pinch is the gesture a phone already uses for exactly this
+	// but does not exist on a desktop trackpad-less mouse. The slider is offered
+	// on the phone as well and steps aside while two fingers are down, since the
+	// bar sits under the fingers doing the pinching.
+	//
+	// Pan is not in the brief but is what makes zoom usable: at 3x most of the
+	// photo is off screen, so without a drag there is no way to look at any of it.
+	const ZOOM_MIN = 1;
+	const ZOOM_MAX = 5;
+
+	const preview = {
+		scale: ZOOM_MIN,
+		x: 0,
+		y: 0,
+		pointers: new Map(),
+		pinchDistance: 0,
+		pan: null,
+	};
+
+	function previewRoot() {
+		return document.querySelector('[data-shop="lightbox"]');
+	}
+
+	function previewStage() {
+		const root = previewRoot();
+		return root ? root.querySelector(".lightbox-stage") : null;
+	}
+
+	function previewImage() {
+		const root = previewRoot();
+		return root ? root.querySelector('[data-shop="lightbox-image"]') : null;
+	}
+
+	function openPreview(src, alt) {
+		const root = previewRoot();
+		const image = previewImage();
+		// The placeholder src Builder leaves on an unbound img is not a photo, so
+		// opening on it would flash a broken image at the customer.
+		if (!root || !image || !src || src.indexOf("/assets/builder/") === 0) return;
+		image.setAttribute("src", src);
+		image.setAttribute("alt", alt || "");
+		resetPreview();
+		root.dataset.open = "true";
+		document.documentElement.style.overflow = "hidden";
+	}
+
+	function closePreview() {
+		const root = previewRoot();
+		if (!root || root.dataset.open !== "true") return;
+		root.dataset.open = "false";
+		root.dataset.pinching = "false";
+		document.documentElement.style.overflow = "";
+		resetPreview();
+		const image = previewImage();
+		if (image) image.removeAttribute("src");
+	}
+
+	/** Back to 1x, centred, with no gesture state left over from last time. */
+	function resetPreview() {
+		preview.scale = ZOOM_MIN;
+		preview.x = 0;
+		preview.y = 0;
+		preview.pointers.clear();
+		preview.pinchDistance = 0;
+		preview.pan = null;
+		const stage = previewStage();
+		if (stage) stage.dataset.panning = "false";
+		renderPreview();
+	}
+
+	function renderPreview() {
+		const image = previewImage();
+		if (image) {
+			image.style.transform =
+				"translate(" + preview.x + "px, " + preview.y + "px) scale(" + preview.scale + ")";
+		}
+		const root = previewRoot();
+		if (!root) return;
+		const slider = root.querySelector('[data-shop="lightbox-zoom"]');
+		// Written on every gesture frame, not just when the slider moves, so the
+		// thumb follows a pinch instead of jumping to wherever it was left.
+		if (slider && document.activeElement !== slider) slider.value = String(preview.scale);
+		const level = root.querySelector('[data-shop="lightbox-level"]');
+		if (level) level.textContent = Math.round(preview.scale * 100) + "%";
+	}
+
+	/**
+	 * Keep the photo covering the stage, never sliding off to leave bare backdrop.
+	 *
+	 * The rect of a transformed element is its *transformed* box, so reading it
+	 * back gives the on-screen size without recomputing the scale by hand. When
+	 * the scaled photo is narrower than the stage on an axis, the offset is pinned
+	 * to zero on that axis so it stays centred instead of drifting.
+	 */
+	function clampPreviewPan() {
+		const stage = previewStage();
+		const image = previewImage();
+		if (!stage || !image) return;
+		const box = stage.getBoundingClientRect();
+		const shot = image.getBoundingClientRect();
+		if (!box.width || !box.height || !shot.width || !shot.height) return;
+		const limitX = shot.width >= box.width ? (shot.width - box.width) / 2 : 0;
+		const limitY = shot.height >= box.height ? (shot.height - box.height) / 2 : 0;
+		preview.x = Math.min(limitX, Math.max(-limitX, preview.x));
+		preview.y = Math.min(limitY, Math.max(-limitY, preview.y));
+	}
+
+	/**
+	 * @param {number} next     scale to move to
+	 * @param {?{x: number, y: number}} focus  stage-relative point to hold still,
+	 *   or null to leave the current pan alone (what the slider does).
+	 *
+	 * The offset maths: a stage point `a` sits over the image point
+	 * (a - t) / s. Holding that same image point under `a` after the scale changes
+	 * to s1 means t1 = a - s1 * (a - t0) / s0, which rearranges to a shift of
+	 * (a - t0) * (1 - s1 / s0). That is what keeps a pinch anchored between the
+	 * fingers rather than sliding the photo out from under them.
+	 */
+	function applyPreviewZoom(next, focus) {
+		const previous = preview.scale;
+		preview.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+		if (focus && previous > 0 && preview.scale !== previous) {
+			const ratio = 1 - preview.scale / previous;
+			preview.x += (focus.x - preview.x) * ratio;
+			preview.y += (focus.y - preview.y) * ratio;
+		}
+		clampPreviewPan();
+		renderPreview();
+	}
+
+	/** Midpoint of the two live pointers, relative to the stage's centre. */
+	function pinchFocus() {
+		const stage = previewStage();
+		if (!stage || preview.pointers.size < 2) return null;
+		const points = Array.from(preview.pointers.values());
+		const box = stage.getBoundingClientRect();
+		return {
+			x: (points[0].x + points[1].x) / 2 - (box.left + box.width / 2),
+			y: (points[0].y + points[1].y) / 2 - (box.top + box.height / 2),
+		};
+	}
+
+	function pinchSpread() {
+		const points = Array.from(preview.pointers.values());
+		if (points.length < 2) return 0;
+		return Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+	}
+
+	function onPreviewPointerDown(event) {
+		const stage = previewStage();
+		if (!stage) return;
+		// Capture on the stage so a finger that slides off the photo still
+		// reports its moves; without it the gesture dies the moment it leaves.
+		if (stage.setPointerCapture) {
+			try {
+				stage.setPointerCapture(event.pointerId);
+			} catch (error) {
+				/* capture is best-effort */
+			}
+		}
+		preview.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+		if (preview.pointers.size >= 2) {
+			preview.pinchDistance = pinchSpread();
+			preview.pan = null;
+			stage.dataset.panning = "false";
+			const root = previewRoot();
+			if (root) root.dataset.pinching = "true";
+			return;
+		}
+		preview.pan = {
+			x: event.clientX,
+			y: event.clientY,
+			originX: preview.x,
+			originY: preview.y,
+		};
+		stage.dataset.panning = "true";
+	}
+
+	function onPreviewPointerMove(event) {
+		if (!preview.pointers.has(event.pointerId)) return;
+		preview.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+		if (preview.pointers.size >= 2) {
+			const spread = pinchSpread();
+			if (preview.pinchDistance > 0 && spread > 0) {
+				applyPreviewZoom(preview.scale * (spread / preview.pinchDistance), pinchFocus());
+			}
+			return;
+		}
+		if (!preview.pan) return;
+		preview.x = preview.pan.originX + (event.clientX - preview.pan.x);
+		preview.y = preview.pan.originY + (event.clientY - preview.pan.y);
+		clampPreviewPan();
+		renderPreview();
+	}
+
+	function onPreviewPointerUp(event) {
+		const stage = previewStage();
+		preview.pointers.delete(event.pointerId);
+		if (stage && stage.releasePointerCapture) {
+			try {
+				stage.releasePointerCapture(event.pointerId);
+			} catch (error) {
+				/* already released */
+			}
+		}
+		if (preview.pointers.size < 2) {
+			preview.pinchDistance = 0;
+			const root = previewRoot();
+			if (root) root.dataset.pinching = "false";
+		}
+		if (preview.pointers.size === 1) {
+			// One finger came up mid-pinch. Re-anchor the drag to the finger that
+			// stayed down, or the photo jumps by the difference on the next move.
+			const remaining = Array.from(preview.pointers.entries())[0];
+			preview.pan = {
+				x: remaining[1].x,
+				y: remaining[1].y,
+				originX: preview.x,
+				originY: preview.y,
+			};
+		} else if (preview.pointers.size === 0) {
+			preview.pan = null;
+			if (stage) stage.dataset.panning = "false";
+		}
+	}
+
+	function initPreview() {
+		const root = previewRoot();
+		if (!root) return;
+		const stage = previewStage();
+		if (stage) {
+			stage.addEventListener("pointerdown", onPreviewPointerDown);
+			stage.addEventListener("pointermove", onPreviewPointerMove);
+			stage.addEventListener("pointerup", onPreviewPointerUp);
+			stage.addEventListener("pointercancel", onPreviewPointerUp);
+			stage.addEventListener("dragstart", (event) => event.preventDefault());
+		}
+		const slider = root.querySelector('[data-shop="lightbox-zoom"]');
+		if (slider) {
+			slider.addEventListener("input", () => {
+				applyPreviewZoom(parseFloat(slider.value) || ZOOM_MIN, null);
+			});
+		}
+	}
+
 	function initVariantPicker() {
 		const product = state.product;
 		if (!product || !product.has_variants) return;
@@ -470,7 +720,17 @@
 		else if (action === "coupon-remove") removeCoupon();
 		else if (action === "add-to-cart") addToCart(target);
 		else if (action === "buy-now") buyNow(target);
-		else if (action === "thumb") showImage(target.dataset.image);
+		else if (action === "thumb") {
+			// A thumbnail click both promotes the photo and opens the preview. The
+			// promotion stays because it is what the thumb row was already for, and
+			// the preview is what a click is now being asked for.
+			showImage(target.dataset.image);
+			openPreview(target.dataset.image, target.getAttribute("alt"));
+		}
+		else if (action === "main-image") {
+			openPreview(target.getAttribute("src"), target.getAttribute("alt"));
+		}
+		else if (action === "lightbox-close" || action === "lightbox-backdrop") closePreview();
 		else if (action === "rating-star") selectRating(parseInt(target.dataset.value, 10));
 		else if (action === "variant-option") selectOption(target);
 		else if (action === "qty-inc") setQty(target.dataset.itemCode, rowQty(target.dataset.itemCode) + 1);
@@ -479,7 +739,13 @@
 	});
 
 	document.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") closeDrawer();
+		// The preview is the topmost layer, so Escape closes it first and leaves
+		// the drawer alone; otherwise Escape on a zoomed photo would also empty a
+		// cart the customer never touched.
+		if (event.key !== "Escape") return;
+		const root = previewRoot();
+		if (root && root.dataset.open === "true") closePreview();
+		else closeDrawer();
 	});
 
 	document.addEventListener("submit", (event) => {
@@ -1184,6 +1450,7 @@
 
 	document.addEventListener("DOMContentLoaded", () => {
 		initGallery();
+		initPreview();
 		initVariantPicker();
 		refreshCartCount();
 		initReviewForm();

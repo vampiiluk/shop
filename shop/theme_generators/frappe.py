@@ -82,6 +82,7 @@ def register_components(refs):
 		("shop-navbar", "Shop Navbar", nav(refs)),
 		("shop-footer", "Shop Footer", footer(refs)),
 		("shop-cart-drawer", "Shop Cart Drawer", cart_drawer()),
+		("shop-lightbox", "Shop Image Preview", lightbox()),
 		("shop-hero", "Shop Hero", hero(refs)),
 		("shop-product-card", "Shop Product Card", product_card(refs)),
 		("shop-collection-tile", "Shop Collection Tile", collection_tile(refs)),
@@ -184,6 +185,124 @@ input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
 @media (prefers-reduced-motion: reduce) {{
 	[data-shop="cart-drawer"] .drawer-backdrop,
 	[data-shop="cart-drawer"] .drawer-panel {{ transition: none; }}
+}}
+/* Image preview. Above the cart drawer and the buy bar, so a customer part-way
+   down a product page still gets it over the bar rather than behind it. */
+[data-shop="lightbox"] {{
+	position: fixed;
+	inset: 0;
+	z-index: 120;
+	pointer-events: none;
+}}
+[data-shop="lightbox"] .lightbox-backdrop {{
+	position: absolute;
+	inset: 0;
+	background: rgba(9, 9, 10, 0.94);
+	display: none;
+	opacity: 0;
+	transition: opacity 160ms ease;
+}}
+[data-shop="lightbox"][data-open="true"] {{ pointer-events: auto; }}
+[data-shop="lightbox"][data-open="true"] .lightbox-backdrop {{ display: block; opacity: 1; }}
+/* touch-action:none is what makes the pinch ours: without it the browser claims
+   the two-finger gesture for its own page zoom and the photo never moves. */
+.lightbox-stage {{
+	position: absolute;
+	inset: 0;
+	align-items: center;
+	cursor: grab;
+	display: none;
+	justify-content: center;
+	overflow: hidden;
+	touch-action: none;
+}}
+[data-shop="lightbox"][data-open="true"] .lightbox-stage {{ display: flex; }}
+.lightbox-stage[data-panning="true"] {{ cursor: grabbing; }}
+.lightbox-image {{
+	max-height: 82%;
+	max-width: 92%;
+	object-fit: contain;
+	transform-origin: center center;
+	user-select: none;
+	-webkit-user-drag: none;
+	will-change: transform;
+}}
+.lightbox-close {{
+	background: rgba(255, 255, 255, 0.1);
+	border: 0;
+	border-radius: 999px;
+	color: #FFFFFF;
+	cursor: pointer;
+	font-size: 22px;
+	line-height: 1;
+	padding: 11px 15px;
+	position: absolute;
+	right: 18px;
+	top: 18px;
+	z-index: 2;
+}}
+.lightbox-bar {{
+	align-items: center;
+	background: rgba(255, 255, 255, 0.92);
+	border-radius: 999px;
+	bottom: 26px;
+	display: none;
+	gap: 14px;
+	left: 50%;
+	padding: 11px 18px;
+	position: absolute;
+	transform: translateX(-50%);
+	/* visibility is discrete: transitioned plainly it holds at `visible` for the
+	   whole fade, leaving an invisible-but-tappable bar under the fingers. Zeroed
+	   on the way out, and delayed to the end of the fade on the way back. */
+	transition: opacity 150ms ease, visibility 0s linear 150ms;
+	z-index: 2;
+}}
+[data-shop="lightbox"][data-open="true"] .lightbox-bar {{ display: flex; }}
+/* The slider is on the phone too, but a pinch is a two-finger gesture and the bar
+   sits right under the fingers doing it. It steps aside for the pinch and comes
+   back when the fingers lift. */
+[data-shop="lightbox"][data-pinching="true"] .lightbox-bar {{
+	opacity: 0;
+	visibility: hidden;
+	transition: opacity 150ms ease, visibility 0s linear 0s;
+}}
+.lightbox-label {{
+	color: {refs["muted"]};
+	font-size: 11px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}}
+.lightbox-level {{ color: {refs["ink"]}; min-width: 42px; text-align: right; }}
+.lightbox-zoom {{
+	-webkit-appearance: none;
+	appearance: none;
+	background: {refs["line"]};
+	border-radius: 999px;
+	height: 4px;
+	width: 170px;
+}}
+.lightbox-zoom::-webkit-slider-thumb {{
+	-webkit-appearance: none;
+	appearance: none;
+	background: {refs["ink"]};
+	border: 0;
+	border-radius: 50%;
+	cursor: pointer;
+	height: 18px;
+	width: 18px;
+}}
+.lightbox-zoom::-moz-range-thumb {{
+	background: {refs["ink"]};
+	border: 0;
+	border-radius: 50%;
+	cursor: pointer;
+	height: 18px;
+	width: 18px;
+}}
+@media (prefers-reduced-motion: reduce) {{
+	[data-shop="lightbox"] .lightbox-backdrop,
+	.lightbox-bar {{ transition: none; }}
 }}
 .drawer-header {{
 	align-items: center;
@@ -341,6 +460,95 @@ def shell(refs, children):
 			children + [component_ref("shop-cart-drawer")],
 		)
 	]
+
+
+def lightbox():
+	"""Fullscreen image preview, opened by clicking a product photo.
+
+	No product data is bound to it; storefront.js fills in whichever photo was
+	clicked, so one overlay serves every image on the page. The img starts with no
+	src because an empty one shows a broken icon behind the backdrop for the
+	moment before the click handler runs.
+
+	The stage carries no data-shop value on purpose: the document-level click
+	handler resolves the nearest [data-shop] ancestor, so an unlabelled stage makes
+	a click on the photo itself fall through to the overlay root and do nothing,
+	leaving the backdrop and the close button as the only ways out.
+	"""
+	return block(
+		"div",
+		name="Image Preview",
+		attrs={
+			"data-shop": "lightbox",
+			"data-open": "false",
+			"data-pinching": "false",
+			"role": "dialog",
+			"aria-modal": "true",
+			"aria-label": "Image preview",
+		},
+		children=[
+			block(
+				"div",
+				name="Backdrop",
+				attrs={"data-shop": "lightbox-backdrop"},
+				classes=["lightbox-backdrop"],
+			),
+			block(
+				"div",
+				name="Stage",
+				classes=["lightbox-stage"],
+				children=[
+					block(
+						"img",
+						name="Photo",
+						attrs={
+							"data-shop": "lightbox-image",
+							"alt": "",
+							"draggable": "false",
+						},
+						classes=["lightbox-image"],
+					)
+				],
+			),
+			block(
+				"button",
+				text="×",
+				attrs={
+					"type": "button",
+					"data-shop": "lightbox-close",
+					"aria-label": "Close preview",
+				},
+				classes=["lightbox-close"],
+			),
+			block(
+				"div",
+				name="Controls",
+				classes=["lightbox-bar"],
+				children=[
+					block("span", text="Zoom", classes=["lightbox-label"]),
+					block(
+						"input",
+						attrs={
+							"type": "range",
+							"data-shop": "lightbox-zoom",
+							"min": "1",
+							"max": "5",
+							"step": "0.01",
+							"value": "1",
+							"aria-label": "Zoom",
+						},
+						classes=["lightbox-zoom"],
+					),
+					block(
+						"span",
+						text="100%",
+						attrs={"data-shop": "lightbox-level"},
+						classes=["lightbox-label", "lightbox-level"],
+					),
+				],
+			),
+		],
+	)
 
 
 def cart_drawer():
@@ -2559,6 +2767,9 @@ def product_blocks(refs):
 			related_band(refs),
 			component_ref("shop-footer"),
 			buy_bar(refs),
+			# Only the product page opens the preview, so only it carries the
+			# overlay, and last so nothing in the sections above affects layering.
+			component_ref("shop-lightbox"),
 		],
 	)
 	blocks[0]["baseStyles"]["paddingBottom"] = "64px"
