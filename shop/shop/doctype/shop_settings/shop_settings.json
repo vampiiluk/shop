@@ -98,7 +98,8 @@
   {
    "fieldname": "store_logo",
    "fieldtype": "Attach Image",
-   "label": "Store Logo"
+   "label": "Store Logo",
+   "make_attachment_public": 1
   },
   {
    "fieldname": "column_break_store",
