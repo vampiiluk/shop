@@ -1,9 +1,16 @@
+import random
+
 import frappe
 from frappe.utils import cint
 
 from shop.storefront import cart, catalog, checkout, orders, product
 
 PAGE_SIZE = 24
+# How many products the hero's right-hand box is given. Two: the box shows one
+# beside the copy and both of them side by side on a phone, so the count cannot
+# be device-specific without making the server answer differently per viewport.
+# Which of them is visible is decided in CSS.
+HERO_PRODUCT_COUNT = 2
 
 
 @frappe.whitelist(allow_guest=True)
@@ -12,7 +19,44 @@ def home() -> dict:
 		"store": store_details(),
 		"collections": catalog.get_collections(),
 		"featured_products": catalog.get_products(limit=8)["products"],
+		"hero_products": hero_products(),
 	}
+
+
+def hero_products(count: int = HERO_PRODUCT_COUNT) -> list:
+	"""A random handful of things that can actually be bought right now.
+
+	Drawn per request, so the box differs every visit instead of always leading
+	with the same few. No condition filter: new and preloved are both eligible,
+	because the point of the box is to show what is on the shelf, not to push one
+	kind over the other.
+
+	"In stock" is the shop's own display rule from ``display_stock``, not a
+	stricter one. If Shop Settings ever allows ordering out of stock then
+	everything is available and everything qualifies, which is what the rest of
+	the storefront would tell the shopper anyway. Published needs no filter:
+	``get_products`` only ever reads published products.
+	"""
+	stocked = all_in_stock()
+	if len(stocked) <= count:
+		return stocked
+	return random.sample(stocked, count)
+
+
+def all_in_stock() -> list:
+	"""Every published product that is in stock.
+
+	``get_products`` caps a single page at ``MAX_PAGE_SIZE``, so this pages
+	through rather than sampling the first page alone. Without that, a shop with
+	more than 60 stocked products would draw its random four from the top of the
+	ranking only, and the box would quietly stop being random.
+	"""
+	found: list = []
+	while True:
+		result = catalog.get_products(in_stock=True, start=len(found), limit=catalog.MAX_PAGE_SIZE)
+		found.extend(result["products"])
+		if not result["products"] or len(found) >= result["total"]:
+			return found
 
 
 @frappe.whitelist(allow_guest=True)

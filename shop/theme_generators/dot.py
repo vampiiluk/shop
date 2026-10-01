@@ -523,6 +523,15 @@ a[data-active="true"] {{
 	.drawer-close {{ padding: 10px; margin: -10px; }}
 	[data-shop="remove"], .drawer-remove {{ padding: 8px 6px; }}
 }}
+/* The hero's box shows one product beside the copy and two side by side on a
+   phone. Both cards are always in the markup - the grid is two columns at the
+   576px breakpoint - so the desktop case is the second one hidden, rather than
+   a second product withheld: withholding it would make what the phone shows
+   depend on the viewport the server happened to answer. 577px is the inverse of
+   the same 576px breakpoint the builder emits for mobileStyles. */
+@media only screen and (min-width: 577px) {{
+	.hero-showcase__grid > a ~ a {{ display: none; }}
+}}
 #reviews {{ scroll-margin-top: 100px; }}
 """
 
@@ -1412,9 +1421,21 @@ def page_header(refs, index, title, subtitle=None, extra=None, aside=None):
 
 
 def hero(refs):
-	return panel(
-		refs,
-		[
+	# Two columns: the copy on the left, and on the right a box of products that
+	# can actually be bought, drawn fresh on every visit. The copy column grows to
+	# fill whatever is left so the box can hold a fixed width without the two
+	# fighting over it.
+	# The eyebrow, headline, lede and buttons stay one tight cluster: spreading
+	# all five evenly across the column pulls the headline away from its own lede
+	# and the hero stops reading as a single statement. Only the spec strip is
+	# pinned to the bottom, so the space the taller product box leaves is
+	# deliberate rather than a gap under the buttons.
+	cluster = block(
+		"div",
+		name="Hero Cluster",
+		styles={"display": "flex", "flexDirection": "column", "gap": "20px", "width": "100%"},
+		mobile={"gap": "18px"},
+		children=[
 			label(refs, "( 01 ) New drop"),
 			block(
 				"h1",
@@ -1427,7 +1448,11 @@ def hero(refs):
 					"height": "fit-content",
 					"letterSpacing": "-0.03em",
 					"lineHeight": "1.02",
-					"maxWidth": "700px",
+					# Wide enough that "Collected properly." stays on one line.
+					# It is the longest of the two and the hero has a product box
+					# beside it now, so a narrower column wraps it to three lines
+					# and the hero stops reading as the statement it was.
+					"maxWidth": "620px",
 					"width": "100%",
 				},
 				mobile={"fontSize": "36px"},
@@ -1447,7 +1472,69 @@ def hero(refs):
 					pill(refs, "Collections", href="/products", variant="outline"),
 				],
 			),
+		],
+	)
+	copy = block(
+		"div",
+		name="Hero Copy",
+		styles={
+			"display": "flex",
+			"flexDirection": "column",
+			"flexBasis": "0",
+			"flexGrow": 1,
+			"gap": "20px",
+			# The product box is the taller of the two. align-items:stretch on the
+			# row already matches this column to it; space-between then pins the
+			# cluster to the top and the strip to the bottom.
+			# No height here: the row's height is content-driven, so a percentage
+			# height resolves against nothing and collapses the column back to its
+			# natural size, undoing the stretch.
+			"justifyContent": "space-between",
+			"minWidth": "0",
+			"width": "100%",
+		},
+		mobile={"flexBasis": "auto", "flexGrow": 0, "gap": "18px", "justifyContent": "flex-start"},
+		children=[
+			cluster,
 			spec_strip(refs, ["48h dispatch", "14 day returns", "Free shipping", "Cash on delivery"]),
+		],
+	)
+	showcase = block(
+		"div",
+		name="Hero Showcase",
+		styles={
+			"backgroundColor": refs["card"],
+			"borderRadius": "16px",
+			"display": "flex",
+			"flexBasis": "260px",
+			"flexGrow": 0,
+			"flexShrink": 0,
+			"minWidth": "0",
+			"padding": "16px",
+			"width": "260px",
+		},
+		mobile={"flexBasis": "auto", "flexShrink": 1, "width": "100%"},
+		tablet={"flexBasis": "240px", "width": "240px"},
+		children=[product_grid(refs, "hero_products", "hero", columns=1, gap="22px", classes=["hero-showcase__grid"])],
+	)
+	return panel(
+		refs,
+		[
+			block(
+				"div",
+				name="Hero Row",
+				styles={
+					"alignItems": "stretch",
+					"display": "flex",
+					"flexDirection": "row",
+					"gap": "40px",
+					"width": "100%",
+				},
+				# Stacked, not squeezed: the cards are 4:5 portraits and a narrow
+				# two-column grid of them turns into postage stamps.
+				mobile={"flexDirection": "column", "gap": "26px"},
+				children=[copy, showcase],
+			),
 		],
 		styles={"gap": "20px", "padding": "56px 40px 34px"},
 		mobile={"gap": "18px", "padding": "30px 18px 22px"},
@@ -1604,18 +1691,19 @@ def stars_span(refs, key, size="12px"):
 	)
 
 
-def product_grid(refs, key, source, columns=4):
+def product_grid(refs, key, source, columns=4, gap="34px 20px", classes=None):
 	return repeater(
 		key,
 		component_ref("dot-product-card"),
 		{
 			"display": "grid",
-			"gap": "34px 20px",
+			"gap": gap,
 			"gridTemplateColumns": f"repeat({columns}, minmax(0, 1fr))",
 			"width": "100%",
 		},
 		mobile={"gap": "22px 12px", "gridTemplateColumns": "repeat(2, minmax(0, 1fr))"},
 		tablet={"gridTemplateColumns": "repeat(2, minmax(0, 1fr))"},
+		classes=classes,
 		name=f"Grid · {source}",
 	)
 
@@ -1834,7 +1922,13 @@ def home_blocks(refs):
 		refs,
 		[
 			component_ref("dot-navbar"),
-			stack([component_ref("dot-hero"), collections, best_sellers]),
+			# The hero is inlined rather than pulled in as component_ref("dot-hero"),
+			# because it now holds a product grid of its own and the builder does not
+			# resolve a component reference nested inside a component: the cards
+			# rendered as unstyled shells, with their data bound and their styles
+			# missing, so the box came out empty. At page level the card reference
+			# resolves the same way section 03's does.
+			stack([hero(refs), collections, best_sellers]),
 			component_ref("dot-footer"),
 		],
 	)
