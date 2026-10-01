@@ -52,9 +52,13 @@ doc_events = {
 		"on_cancel": "shop.integrations.meta_catalog.on_stock_change",
 	},
 	"File": {
-		# cap uploads at the same 800px/q75 as the demo set so new product
-		# photos can't undo the PageSpeed image fix
+		# cap uploads at the same 800px as the demo set so new product photos
+		# can't undo the PageSpeed image fix, and re-encode to whichever of
+		# WebP / the source format actually came out smaller
 		"before_insert": "shop.files.shrink_uploaded_image",
+		# File.validate overwrites file_size with the size the client uploaded,
+		# which stops describing the file the moment it is re-encoded
+		"validate": "shop.files.recount_file_size",
 	},
 }
 
