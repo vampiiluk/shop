@@ -735,11 +735,12 @@
 		else if (action === "add-to-cart") addToCart(target);
 		else if (action === "buy-now") buyNow(target);
 		else if (action === "thumb") {
-			// A thumbnail click both promotes the photo and opens the preview. The
-			// promotion stays because it is what the thumb row was already for, and
-			// the preview is what a click is now being asked for.
+			// A thumbnail promotes its photo and nothing else. It used to also open
+			// the fullscreen preview, which made the obvious next step - "let me see
+			// the other one full size" - arrive unasked, and left the row unable to
+			// be used for what it is plainly for: flicking between photos. The big
+			// picture is the control that opens the preview.
 			showImage(target.dataset.image);
-			openPreview(target.dataset.image, target.getAttribute("alt"));
 		}
 		else if (action === "main-image") {
 			openPreview(target.getAttribute("src"), target.getAttribute("alt"));
