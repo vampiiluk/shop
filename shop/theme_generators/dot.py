@@ -541,9 +541,10 @@ a[data-active="true"] {{
 	box-sizing: border-box;
 	display: flex;
 	/* The cards are absolutely positioned, so nothing gives the list a height.
-		This one is the card's whole height - a photo with the name under it - and
-		it steps down with the card width on the smaller breakpoints. */
-	height: 300px;
+		This one is the card's whole height - a 250px photo, the 12px gap and the
+		38px name - divided by the 91% the cards are laid out at, so that the
+		centre card's 1.1 scale lands back on exactly this. */
+	height: 330px;
 	justify-content: center;
 	list-style: none;
 	perspective: 300px;
@@ -564,11 +565,17 @@ a[data-active="true"] {{
 	transition: transform 0.3s ease-in, opacity 0.3s ease-in, filter 0.3s ease-in;
 	width: 190px;
 }}
-/* The photo keeps the card's ink-free space to itself: it gives up its aspect
-   ratio and takes the height the name does not need. */
+/* The photo is a fixed height in pixels, not a share of what is left.
+   Left as flex:1 it took whatever the name did not use, and the name is one or
+   two lines depending on the product - so a short name gave its photograph 242px
+   and a long one 223px, and five cards in the same row held five differently
+   sized pictures. The photos in this catalogue are not all the same shape either,
+   so nothing about the picture itself would have equalised them: object-fit:cover
+   fills whatever box it is given, and the box was the thing that varied. */
 .carousel__list > a > div:first-child {{
 	aspect-ratio: auto;
-	flex: 1 1 auto;
+	flex: 0 0 auto;
+	height: 250px;
 	min-height: 0;
 }}
 /* Photo and name only. The condition tag, the stars and the price are still in
@@ -576,10 +583,14 @@ a[data-active="true"] {{
 .carousel__list > a > *:not(:first-child):not(h3) {{
 	display: none;
 }}
+/* Two lines' worth, fixed, so a one-line name reserves the same room a two-line
+   one does. Without this the name would still be the variable that decides how
+   tall the card is. */
 .carousel__list > a h3 {{
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
 	flex: 0 0 auto;
+	height: 38px;
 	overflow: hidden;
 	transition: opacity 0.3s ease-in;
 }}
@@ -646,12 +657,14 @@ a[data-active="true"] {{
 	pointer-events: none;
 }}
 @media only screen and (max-width: 1023px) {{
-	.carousel__list {{ height: 276px; }}
+	.carousel__list {{ height: 297px; }}
 	.carousel__list > a {{ width: 170px; }}
+	.carousel__list > a > div:first-child {{ height: 220px; }}
 }}
 @media only screen and (max-width: 576px) {{
-	.carousel__list {{ height: 252px; }}
+	.carousel__list {{ height: 275px; }}
 	.carousel__list > a {{ width: 152px; }}
+	.carousel__list > a > div:first-child {{ height: 200px; }}
 }}
 /* The pen's 0.3s slide is exactly the kind of motion this has to drop. The
    positions still change, they just arrive at once. */
