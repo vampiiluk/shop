@@ -1418,7 +1418,7 @@ def hero(refs):
 			label(refs, "( 01 ) New drop"),
 			block(
 				"h1",
-				text="Fewer things.<br>Made properly.",
+				text="Fewer things.<br>Collected properly.",
 				styles={
 					"color": refs["ink"],
 					"fontFamily": HEAD,
@@ -1825,7 +1825,7 @@ def home_blocks(refs):
 	best_sellers = panel(
 		refs,
 		[
-			section_head(refs, "( 03 ) Best sellers", "What people keep buying", "View all →", "/products"),
+			section_head(refs, "( 03 ) New arrival", "What people keep buying", "View all →", "/products"),
 			product_grid(refs, "featured_products", "featured"),
 		],
 		name="Section · Best Sellers",
