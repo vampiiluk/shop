@@ -1137,7 +1137,7 @@ def footer(refs):
 							brand(refs),
 							prose(
 								refs,
-								"A short catalogue of everyday objects, made in small runs and built to be kept.",
+								"Everyday essentials, from brand-new finds to gently preloved favorites.",
 								size="13px",
 							),
 						],
@@ -1825,7 +1825,7 @@ def home_blocks(refs):
 	best_sellers = panel(
 		refs,
 		[
-			section_head(refs, "( 03 ) New arrival", "What people keep buying", "View all →", "/products"),
+			section_head(refs, "( 03 ) New arrival", "What is New", "View all →", "/products"),
 			product_grid(refs, "featured_products", "featured"),
 		],
 		name="Section · Best Sellers",
