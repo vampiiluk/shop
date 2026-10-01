@@ -233,6 +233,11 @@ input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
 	border-radius: 999px;
 	color: #FFFFFF;
 	cursor: pointer;
+	/* Gated on data-open like the backdrop, stage and bar. The overlay root only
+	   sets pointer-events:none while closed, which stops the button being
+	   clickable but not being drawn - so without this the × sits over the
+	   product page permanently. */
+	display: none;
 	font-size: 22px;
 	line-height: 1;
 	padding: 11px 15px;
@@ -241,9 +246,10 @@ input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
 	top: 18px;
 	z-index: 2;
 }}
+[data-shop="lightbox"][data-open="true"] .lightbox-close {{ display: block; }}
 .lightbox-bar {{
 	align-items: center;
-	background: rgba(255, 255, 255, 0.92);
+	background: rgba(255, 255, 255, 0.96);
 	border-radius: 999px;
 	bottom: 26px;
 	display: none;
@@ -259,25 +265,27 @@ input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
 	z-index: 2;
 }}
 [data-shop="lightbox"][data-open="true"] .lightbox-bar {{ display: flex; }}
-/* The slider is on the phone too, but a pinch is a two-finger gesture and the bar
-   sits right under the fingers doing it. It steps aside for the pinch and comes
-   back when the fingers lift. */
+/* Fixed colours, not theme variables, and deliberately so: the overlay pins its
+   own appearance in both schemes (dark backdrop, white pill), so letting these
+   follow the page's light-dark() palette makes `ink` resolve to #F4F4F5 and the
+   readout and thumb land white-on-white at 1.1:1. Ratios are against #FFFFFF. */
 [data-shop="lightbox"][data-pinching="true"] .lightbox-bar {{
 	opacity: 0;
 	visibility: hidden;
 	transition: opacity 150ms ease, visibility 0s linear 0s;
 }}
 .lightbox-label {{
-	color: {refs["muted"]};
+	/* 5.06:1 - the theme's muted is 3.44:1, short of AA at this size. */
+	color: #6E6E75;
 	font-size: 11px;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
 }}
-.lightbox-level {{ color: {refs["ink"]}; min-width: 42px; text-align: right; }}
+.lightbox-level {{ color: #0B0B0C; min-width: 42px; text-align: right; }}
 .lightbox-zoom {{
 	-webkit-appearance: none;
 	appearance: none;
-	background: {refs["line"]};
+	background: #BDBDC4;
 	border-radius: 999px;
 	height: 4px;
 	width: 170px;
@@ -285,17 +293,19 @@ input[readonly] {{ background: {refs["paper"]}; cursor: default; }}
 .lightbox-zoom::-webkit-slider-thumb {{
 	-webkit-appearance: none;
 	appearance: none;
-	background: {refs["ink"]};
+	background: #0B0B0C;
 	border: 0;
 	border-radius: 50%;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 	cursor: pointer;
 	height: 18px;
 	width: 18px;
 }}
 .lightbox-zoom::-moz-range-thumb {{
-	background: {refs["ink"]};
+	background: #0B0B0C;
 	border: 0;
 	border-radius: 50%;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 	cursor: pointer;
 	height: 18px;
 	width: 18px;

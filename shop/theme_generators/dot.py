@@ -392,6 +392,11 @@ a[data-active="true"] {{
 	border-radius: 999px;
 	color: #FFFFFF;
 	cursor: pointer;
+	/* Gated on data-open like the backdrop, stage and bar. Without this the ×
+	   paints over the product page at all times: the overlay root only sets
+	   pointer-events:none while closed, which stops the button being clickable
+	   but not being drawn. */
+	display: none;
 	font-size: 22px;
 	line-height: 1;
 	padding: 11px 15px;
@@ -400,9 +405,18 @@ a[data-active="true"] {{
 	top: 18px;
 	z-index: 2;
 }}
+[data-shop="lightbox"][data-open="true"] .lightbox-close {{ display: block; }}
+/* The bar and its contents take fixed colours rather than theme variables, and
+   that is deliberate. The overlay already fixes its own appearance: a dark
+   backdrop and a white pill, in both colour schemes. Feeding it the page's
+   light-dark() palette means the same rules invert under it in dark mode, and
+   `ink` becomes #F4F4F5 - so the zoom readout and the slider thumb render
+   #F4F4F5 on a #FFFFFF bar, 1.1:1, i.e. invisible. The variables describe the
+   page behind the overlay; this is a surface of its own.
+   Ratios below are against the #FFFFFF bar. */
 .lightbox-bar {{
 	align-items: center;
-	background: rgba(255, 255, 255, 0.92);
+	background: rgba(255, 255, 255, 0.96);
 	border-radius: 999px;
 	bottom: 26px;
 	display: none;
@@ -427,17 +441,19 @@ a[data-active="true"] {{
 	transition: opacity 150ms ease, visibility 0s linear 0s;
 }}
 .lightbox-label {{
-	color: {refs["muted"]};
+	/* 5.06:1. The theme's muted is #8A8A8F, which is only 3.44:1 and short of AA
+	   for text this small. */
+	color: #6E6E75;
 	font-family: {MONO}, monospace;
 	font-size: 10px;
 	letter-spacing: 0.1em;
 	text-transform: uppercase;
 }}
-.lightbox-level {{ color: {refs["ink"]}; min-width: 42px; text-align: right; }}
+.lightbox-level {{ color: #0B0B0C; min-width: 42px; text-align: right; }}
 .lightbox-zoom {{
 	-webkit-appearance: none;
 	appearance: none;
-	background: {refs["line"]};
+	background: #BDBDC4;
 	border-radius: 999px;
 	height: 4px;
 	width: 170px;
@@ -445,17 +461,19 @@ a[data-active="true"] {{
 .lightbox-zoom::-webkit-slider-thumb {{
 	-webkit-appearance: none;
 	appearance: none;
-	background: {refs["ink"]};
+	background: #0B0B0C;
 	border: 0;
 	border-radius: 50%;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 	cursor: pointer;
 	height: 18px;
 	width: 18px;
 }}
 .lightbox-zoom::-moz-range-thumb {{
-	background: {refs["ink"]};
+	background: #0B0B0C;
 	border: 0;
 	border-radius: 50%;
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 	cursor: pointer;
 	height: 18px;
 	width: 18px;

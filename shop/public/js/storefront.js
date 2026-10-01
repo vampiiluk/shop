@@ -346,7 +346,10 @@
 		x: 0,
 		y: 0,
 		pointers: new Map(),
-		pinchDistance: 0,
+		// Captured when the second finger lands; the zoom is then derived
+		// absolutely from these two rather than accumulated across moves.
+		pinchStartDistance: 0,
+		pinchStartScale: ZOOM_MIN,
 		pan: null,
 	};
 
@@ -394,7 +397,8 @@
 		preview.x = 0;
 		preview.y = 0;
 		preview.pointers.clear();
-		preview.pinchDistance = 0;
+		preview.pinchStartDistance = 0;
+		preview.pinchStartScale = ZOOM_MIN;
 		preview.pan = null;
 		const stage = previewStage();
 		if (stage) stage.dataset.panning = "false";
@@ -493,7 +497,8 @@
 		}
 		preview.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 		if (preview.pointers.size >= 2) {
-			preview.pinchDistance = pinchSpread();
+			preview.pinchStartDistance = pinchSpread();
+			preview.pinchStartScale = preview.scale;
 			preview.pan = null;
 			stage.dataset.panning = "false";
 			const root = previewRoot();
@@ -515,8 +520,17 @@
 
 		if (preview.pointers.size >= 2) {
 			const spread = pinchSpread();
-			if (preview.pinchDistance > 0 && spread > 0) {
-				applyPreviewZoom(preview.scale * (spread / preview.pinchDistance), pinchFocus());
+			if (preview.pinchStartDistance > 0 && spread > 0) {
+				// Absolute, from the distance and scale the pinch began at - not
+				// scale *= (spread / startDistance), which reapplies the ratio
+				// measured at the start to the running scale on every single move.
+				// That compounds: fingers opening from 80px to 160px, a true 2x,
+				// landed at 4.2x and hit the 5x ceiling almost immediately, which
+				// is what made the zoom feel like it was racing away.
+				applyPreviewZoom(
+					preview.pinchStartScale * (spread / preview.pinchStartDistance),
+					pinchFocus()
+				);
 			}
 			return;
 		}
@@ -538,7 +552,7 @@
 			}
 		}
 		if (preview.pointers.size < 2) {
-			preview.pinchDistance = 0;
+			preview.pinchStartDistance = 0;
 			const root = previewRoot();
 			if (root) root.dataset.pinching = "false";
 		}
