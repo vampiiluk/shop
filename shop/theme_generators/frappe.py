@@ -4741,14 +4741,16 @@ def about_blocks(refs):
 			serif_page_heading(refs, "Made by builders, for builders."),
 			paragraph(
 				refs,
-				"This store exists for one reason: merchandise worth keeping. Heavyweight "
-				"fabrics, minimal marks and a fit that survives real work. Everything here "
-				"is made in small runs and never overproduced.",
+				"This store exists to give you quality everyday essentials without the high "
+				"price tag. We offer a mix of brand-new items alongside gently preloved—chosen "
+				"because they are durable, practical, and made to last.",
 			),
 			paragraph(
 				refs,
-				"We keep our margins honest and stand behind everything we sell. If "
-				"something is not right, write to us and we will fix it.",
+				"Every pre-owned item is carefully inspected, cleaned, and described with "
+				"complete honesty, so you always know what you’re getting. We keep our prices "
+				"fair and stand behind every order. If something isn’t right when your box "
+				"arrives, message us and we will fix it.",
 			),
 			block(
 				"div",
@@ -4758,15 +4760,14 @@ def about_blocks(refs):
 					"borderTopWidth": "1px",
 					"display": "grid",
 					"gap": "24px",
-					"gridTemplateColumns": "repeat(3, minmax(0, 1fr))",
+					"gridTemplateColumns": "repeat(2, minmax(0, 1fr))",
 					"marginTop": "16px",
 					"paddingTop": "24px",
 					"width": "100%",
 				},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
 				children=[
-					stat("2020", "Founded"),
-					stat("120+", "Products shipped"),
+					stat("2026", "Founded"),
 					stat("48h", "Dispatch time"),
 				],
 			),
@@ -4811,15 +4812,15 @@ def contact_blocks(refs):
 				"div",
 				styles={"display": "flex", "flexDirection": "column", "marginTop": "10px", "width": "100%"},
 				children=[
-					detail("Email", "hello@example.com"),
-					detail("Phone", "+91 98765 43210"),
+					detail("Email", "relooppk@gmail.com"),
+					detail("Phone", "+923106488879"),
 					detail("Hours", "Mon to Fri, 10:00 to 18:00"),
 				],
 			),
 			block(
 				"a",
 				text="Write to us",
-				attrs={"href": "mailto:hello@example.com"},
+				attrs={"href": "mailto:relooppk@gmail.com"},
 				styles={**black_button_styles(refs), "marginTop": "16px"},
 			),
 		],

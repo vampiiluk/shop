@@ -4194,15 +4194,18 @@ def about_blocks(refs):
 		[
 			prose(
 				refs,
-				"This store exists for one reason: objects worth keeping. Considered materials, "
-				"a fit that survives real use, and small runs that are never overproduced.",
+				"This store exists to give you quality everyday essentials without the high price "
+				"tag. We offer a mix of brand-new items alongside gently preloved—chosen because "
+				"they are durable, practical, and made to last.",
 				size="15px",
 				width="min(620px, 100%)",
 			),
 			prose(
 				refs,
-				"We keep our margins honest and stand behind everything we sell. If something is "
-				"not right, write to us and we will fix it.",
+				"Every pre-owned item is carefully inspected, cleaned, and described with complete "
+				"honesty, so you always know what you’re getting. We keep our prices fair and "
+				"stand behind every order. If something isn’t right when your box arrives, "
+				"message us and we will fix it.",
 				size="15px",
 				width="min(620px, 100%)",
 			),
@@ -4214,12 +4217,15 @@ def about_blocks(refs):
 					"borderTopWidth": "1px",
 					"display": "grid",
 					"gap": "24px",
-					"gridTemplateColumns": "repeat(3, minmax(0, 1fr))",
+					# Two figures, not three. The orders-shipped claim is gone, so
+					# this tracks the children rather than leaving a third empty
+					# column behind.
+					"gridTemplateColumns": "repeat(2, minmax(0, 1fr))",
 					"paddingTop": "28px",
 					"width": "100%",
 				},
 				mobile={"gridTemplateColumns": "minmax(0, 1fr)"},
-				children=[stat("2020", "Founded"), stat("120+", "Products shipped"), stat("48h", "Dispatch time")],
+				children=[stat("2026", "Founded"), stat("48h", "Dispatch time")],
 			),
 		],
 		name="Section · About",
@@ -4260,12 +4266,12 @@ def contact_blocks(refs):
 				"div",
 				styles={"display": "flex", "flexDirection": "column", "width": "100%"},
 				children=[
-					detail("Email", "hello@example.com"),
-					detail("Phone", "+91 98765 43210"),
+					detail("Email", "relooppk@gmail.com"),
+					detail("Phone", "+923106488879"),
 					detail("Hours", "Mon to Fri, 10:00 to 18:00"),
 				],
 			),
-			pill(refs, "Write to us", href="mailto:hello@example.com"),
+			pill(refs, "Write to us", href="mailto:relooppk@gmail.com"),
 		],
 		name="Section · Contact",
 	)
