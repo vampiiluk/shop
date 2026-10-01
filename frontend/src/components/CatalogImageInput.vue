@@ -8,7 +8,23 @@
 				<img v-if="model" :src="model" :alt="label || 'Image'" class="size-full object-cover" />
 				<LucideImage v-else class="size-5 text-ink-gray-4" />
 			</div>
-			<FileUploader :file-types="['image/*']" @success="onUpload" @failure="onFailure">
+			<!--
+				private: false is required, not a preference. frappe-ui's FileUploader
+				defaults `private` to true, so without this a product photo is stored
+				under /private/files/ and the storefront hands that url to visitors,
+				who get a 403. Frappe's own Attach field has the same default, which
+				is right there (a desk attachment is often a private document) and
+				wrong here: a shop photo is public by nature. The companion flag
+				make_attachment_public on the DocType covers Frappe's Attach control
+				and does nothing for this component, which posts to upload_file
+				directly and never reads that flag.
+			-->
+			<FileUploader
+				:file-types="['image/*']"
+				:upload-args="{ private: false }"
+				@success="onUpload"
+				@failure="onFailure"
+			>
 				<template #default="{ uploading, progress, openFileSelector }">
 					<Button :loading="uploading" @click="openFileSelector">
 						{{ uploading ? `Uploading ${progress}%` : model ? 'Replace' : 'Upload' }}

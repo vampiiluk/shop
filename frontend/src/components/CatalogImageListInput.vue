@@ -25,7 +25,15 @@
 			</div>
 		</div>
 		<div class="mt-2 flex items-center gap-3">
-			<FileUploader :file-types="['image/*']" @success="add" @failure="onFailure">
+			<!-- private: false - frappe-ui's uploader defaults to private, which puts
+			     a product photo under /private/files/ where every visitor gets a 403.
+			     See CatalogImageInput.vue for the fuller note. -->
+			<FileUploader
+				:file-types="['image/*']"
+				:upload-args="{ private: false }"
+				@success="add"
+				@failure="onFailure"
+			>
 				<template #default="{ uploading, progress, openFileSelector }">
 					<Button :loading="uploading" @click="openFileSelector">
 						<template #prefix><LucidePlus class="size-4" /></template>

@@ -23,7 +23,15 @@
 				This product has no photos yet. Upload one for this variant below.
 			</p>
 			<div class="mt-4 flex items-center gap-2">
-				<FileUploader :file-types="['image/*']" @success="onUpload" @failure="onFailure">
+				<!-- private: false - frappe-ui's uploader defaults to private, which puts
+				     a variant photo under /private/files/ where every visitor gets a
+				     403. See CatalogImageInput.vue for the fuller note. -->
+				<FileUploader
+					:file-types="['image/*']"
+					:upload-args="{ private: false }"
+					@success="onUpload"
+					@failure="onFailure"
+				>
 					<template #default="{ uploading, progress, openFileSelector }">
 						<Button :loading="uploading" @click="openFileSelector">
 							<template #prefix><LucidePlus class="size-4" /></template>
