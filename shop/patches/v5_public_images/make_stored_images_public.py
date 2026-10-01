@@ -41,18 +41,7 @@ Re-running is a no-op.
 
 import frappe
 
-# Fields a guest's browser is handed, as (doctype, fieldname) on a document.
-# Shop Settings is a Single, so it has no table and is read and written through
-# the Singles helpers rather than get_all/set_value. Handled by is_single().
-DOCUMENT_FIELDS = [
-	("Shop Collection", "image"),
-	("Shop Settings", "store_logo"),
-]
-
-# Fields behind a child table, as (parent doctype, table field, child doctype, child field).
-CHILD_FIELDS = [
-	("Shop Product", "images", "Shop Product Image", "image"),
-]
+from shop.files import set_image_reference, storefront_image_references
 
 PRIVATE_PREFIX = "/private/files/"
 PUBLIC_PREFIX = "/files/"
@@ -73,7 +62,7 @@ def make_stored_images_public() -> dict:
 	"""Do the work and describe it. Split from execute() so it can be dry-run.
 
 	Returns {"moved": [file names], "skipped": [reason strings]}."""
-	references = _private_references()
+	references = storefront_image_references(PRIVATE_PREFIX)
 	if not references:
 		return {"moved": [], "skipped": []}
 
@@ -101,57 +90,6 @@ def make_stored_images_public() -> dict:
 	_repoint_references(references)
 
 	return {"moved": moved, "skipped": skipped}
-
-
-def _is_single(doctype: str) -> bool:
-	"""True for a Single doctype, which has no table of its own.
-
-	Shop Settings holds the store logo and is one of these, so asking the database
-	for a `tabShop Settings` table raises rather than returning nothing.
-	"""
-	return bool(frappe.db.get_value("DocType", doctype, "issingle"))
-
-
-def _private_references() -> dict:
-	"""Map every referenced `/private/files/...` url to the rows holding it.
-
-	Each entry is (table, row selector, fieldname), so a rewrite later can name
-	the exact row rather than pattern-matching a string across the whole table.
-	"""
-	references: dict[str, list[tuple[str, dict, str]]] = {}
-
-	for doctype, fieldname in DOCUMENT_FIELDS:
-		if not frappe.db.exists("DocType", doctype):
-			continue
-		if _is_single(doctype):
-			url = frappe.db.get_single_value(doctype, fieldname)
-			if url and url.startswith(PRIVATE_PREFIX):
-				references.setdefault(url, []).append((doctype, {"doctype": doctype}, fieldname))
-			continue
-		for row in frappe.db.get_all(
-			doctype,
-			fields=["name", fieldname],
-			filters={fieldname: ["like", f"{PRIVATE_PREFIX}%"]},
-		):
-			if row.get(fieldname):
-				references.setdefault(row[fieldname], []).append(
-					(doctype, {"name": row["name"]}, fieldname)
-				)
-
-	for _, _, child, child_field in CHILD_FIELDS:
-		if not frappe.db.exists("DocType", child):
-			continue
-		for row in frappe.db.get_all(
-			child,
-			fields=["name", child_field],
-			filters={child_field: ["like", f"{PRIVATE_PREFIX}%"]},
-		):
-			if row.get(child_field):
-				references.setdefault(row[child_field], []).append(
-					(child, {"name": row["name"]}, child_field)
-				)
-
-	return references
 
 
 def _make_public(file_names: list[str]) -> list[str]:
@@ -196,12 +134,7 @@ def _repoint_references(references: dict) -> None:
 		if new_url == old_url:
 			continue
 		for table, selector, fieldname in rows:
-			if _is_single(table):
-				frappe.db.set_single_value(table, fieldname, new_url, update_modified=False)
-				continue
-			frappe.db.set_value(
-				table, selector, fieldname, new_url, update_modified=False
-			)
+			set_image_reference(table, selector, fieldname, new_url)
 
 
 def _skipped_note(skipped: list[str]) -> str:

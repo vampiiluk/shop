@@ -42,6 +42,80 @@ FAMILY = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
 SUFFIX = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
 CONTENT_TYPE = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
+# The fields holding an image a guest's browser is handed, as (doctype, fieldname)
+# on a document, and (parent doctype, table field, child doctype, child field)
+# behind a child table. One list, because two things have to agree on it exactly:
+# the migrations that fix files already uploaded, and anyone adding an image field
+# later who needs to know it has to be added here too.
+STOREFRONT_IMAGE_FIELDS = [
+	("Shop Collection", "image"),
+	("Shop Settings", "store_logo"),
+]
+STOREFRONT_CHILD_IMAGE_FIELDS = [
+	("Shop Product", "images", "Shop Product Image", "image"),
+]
+
+
+def is_single(doctype: str) -> bool:
+	"""True for a Single doctype, which has no table of its own.
+
+	Shop Settings holds the store logo and is one, so asking the database for a
+	`tabShop Settings` table raises rather than returning nothing.
+	"""
+	return bool(frappe.db.get_value("DocType", doctype, "issingle"))
+
+
+def storefront_image_references(prefix: str | None = None) -> dict:
+	"""Map each url held by a storefront image field to the rows holding it.
+
+	`prefix` narrows the map to urls starting with it - `/private/` to find the
+	files still filed privately, `/files/` to find the ones already moved.
+
+	Each entry is (table, row selector, fieldname), so a rewrite can name the
+	exact row rather than pattern-matching a string across a whole table.
+	"""
+	references: dict[str, list[tuple[str, dict, str]]] = {}
+
+	def keep(url):
+		return bool(url) and (prefix is None or url.startswith(prefix))
+
+	for doctype, fieldname in STOREFRONT_IMAGE_FIELDS:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		if is_single(doctype):
+			url = frappe.db.get_single_value(doctype, fieldname)
+			if keep(url):
+				references.setdefault(url, []).append((doctype, {"doctype": doctype}, fieldname))
+			continue
+		for row in frappe.db.get_all(
+			doctype, fields=["name", fieldname], filters={fieldname: ["like", f"{prefix or ''}%"]}
+		):
+			if keep(row.get(fieldname)):
+				references.setdefault(row[fieldname], []).append(
+					(doctype, {"name": row["name"]}, fieldname)
+				)
+
+	for _, _, child, child_field in STOREFRONT_CHILD_IMAGE_FIELDS:
+		if not frappe.db.exists("DocType", child):
+			continue
+		for row in frappe.db.get_all(
+			child, fields=["name", child_field], filters={child_field: ["like", f"{prefix or ''}%"]}
+		):
+			if keep(row.get(child_field)):
+				references.setdefault(row[child_field], []).append(
+					(child, {"name": row["name"]}, child_field)
+				)
+
+	return references
+
+
+def set_image_reference(table: str, selector: dict, fieldname: str, value: str) -> None:
+	"""Point one row's image field at `value`."""
+	if is_single(table):
+		frappe.db.set_single_value(table, fieldname, value, update_modified=False)
+		return
+	frappe.db.set_value(table, selector, fieldname, value, update_modified=False)
+
 
 def site_file_path(file_url):
 	"""Map a site-relative file url to its path on disk, else None."""
@@ -69,6 +143,13 @@ def shrink_uploaded_image(doc):
 	ext = extension(doc.file_url)
 	if ext not in RESIZABLE or not os.path.isfile(path):
 		return
+
+	# Absolute, because the temp encodes and the final rename have to name the
+	# same directory. Frappe's site_path is relative when the bench is driven from
+	# the sites directory, and a relative path plus a relative directory resolves
+	# against whatever the process cwd happens to be.
+	path = os.path.abspath(path)
+	target_dir = os.path.dirname(path)
 
 	original_size = os.path.getsize(path)
 
@@ -101,9 +182,9 @@ def shrink_uploaded_image(doc):
 
 			image = webp_ready(image)
 
-			webp = _encode(image, "WEBP", icc=icc, quality=WEBP_QUALITY, method=6)
+			webp = _encode(image, "WEBP", target_dir, icc=icc, quality=WEBP_QUALITY, method=6)
 			family_fmt = FAMILY[ext]
-			family = _encode(image, family_fmt, icc=icc)
+			family = _encode(image, family_fmt, target_dir, icc=icc)
 
 		fmt, chosen, loser = _choose(webp, family, family_fmt, original_size)
 		if chosen is None:
@@ -134,9 +215,17 @@ def webp_ready(image: Image.Image) -> Image.Image:
 	return image.convert("RGBA" if image.mode.endswith("A") else "RGB")
 
 
-def _encode(image: Image.Image, fmt: str, icc=None, **save_kwargs) -> str | None:
-	"""Write `image` as `fmt` into a temp file. Returns its path, or None."""
-	fd, tmp = tempfile.mkstemp(suffix=SUFFIX.get(fmt, ""))
+def _encode(image: Image.Image, fmt: str, directory: str, icc=None, **save_kwargs) -> str | None:
+	"""Write `image` as `fmt` into a temp file beside its target. Returns its path.
+
+	The temp file has to be in the destination directory, not the system temp
+	dir: the site can sit on a different filesystem (here it does, and /tmp is
+	tmpfs), and `os.replace` across two of those is `EXDEV` - "Invalid cross-device
+	link". Same directory also keeps the final move atomic, which is what stops a
+	half-written file ever being reachable under the name the storefront will
+	serve. A prefix on the name makes any stray left by a killed process obvious.
+	"""
+	fd, tmp = tempfile.mkstemp(prefix=".reloop-", suffix=SUFFIX.get(fmt, ""), dir=directory)
 	os.close(fd)
 	try:
 		payload = image
@@ -188,6 +277,13 @@ def _apply(doc, path: str, chosen: str, fmt: str, original_ext: str) -> None:
 	new_ext = SUFFIX[fmt].lstrip(".")
 	final_path = path
 
+	# Read the original's ownership and permissions before it is replaced. The
+	# encode is written with mkstemp, which is 0600 owned by whoever ran it - so a
+	# migration run as root would leave the storefront's images unreadable to the
+	# web server, which is not root. Uploads run as the web user and would land at
+	# 0600 too, against this site's 0664 convention.
+	original = os.stat(path)
+
 	if new_ext != original_ext:
 		# The format changed, so the name has to change with it, or the url will
 		# promise a format the bytes are not in.
@@ -200,6 +296,7 @@ def _apply(doc, path: str, chosen: str, fmt: str, original_ext: str) -> None:
 		final_path = os.path.join(os.path.dirname(path), name)
 
 	os.replace(chosen, final_path)
+	_restore_attributes(final_path, original)
 
 	if final_path != path:
 		# The old-format original is now unreferenced by anything.
@@ -212,6 +309,23 @@ def _apply(doc, path: str, chosen: str, fmt: str, original_ext: str) -> None:
 	# File.validate overwrites file_size with the size the client uploaded, which
 	# no longer describes the file. recount_file_size puts it right after that.
 	doc.flags.reloop_recount_file_size = True
+
+
+def _restore_attributes(path: str, original: os.stat_result) -> None:
+	"""Give the replacement the original file's ownership and permissions.
+
+	Best effort: a process that cannot chown - anything but root, or a shared
+	filesystem that refuses it - still gets the mode right, which is the part that
+	makes the difference between readable and not.
+	"""
+	try:
+		os.chown(path, original.st_uid, original.st_gid)
+	except (OSError, AttributeError):
+		pass
+	try:
+		os.chmod(path, original.st_mode & 0o7777)
+	except OSError:
+		pass
 
 
 def recount_file_size(doc):
