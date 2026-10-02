@@ -44,12 +44,26 @@ doc_events = {
 		"on_update": "shop.integrations.verification.on_address_update",
 	},
 	"Shop Product": {
-		"on_update": "shop.integrations.meta_catalog.on_product_update",
-		"on_trash": "shop.integrations.meta_catalog.on_product_trash",
+		"on_update": [
+			"shop.integrations.meta_catalog.on_product_update",
+			"shop.storefront.page_data.clear_stocked_cache",
+		],
+		"on_trash": [
+			"shop.integrations.meta_catalog.on_product_trash",
+			"shop.storefront.page_data.clear_stocked_cache",
+		],
 	},
 	"Stock Ledger Entry": {
-		"on_submit": "shop.integrations.meta_catalog.on_stock_change",
-		"on_cancel": "shop.integrations.meta_catalog.on_stock_change",
+		# Selling the last one of something takes it out of the hero box, so a
+		# stock change has to clear that cache too — not just a catalogue edit.
+		"on_submit": [
+			"shop.integrations.meta_catalog.on_stock_change",
+			"shop.storefront.page_data.clear_stocked_cache",
+		],
+		"on_cancel": [
+			"shop.integrations.meta_catalog.on_stock_change",
+			"shop.storefront.page_data.clear_stocked_cache",
+		],
 	},
 	"File": {
 		# cap uploads at the same 800px as the demo set so new product photos

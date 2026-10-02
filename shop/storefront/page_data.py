@@ -3,7 +3,7 @@ import random
 import frappe
 from frappe.utils import cint
 
-from shop.storefront import cart, catalog, checkout, orders, product
+from shop.storefront import cart, catalog, checkout, orders, product, seo
 
 PAGE_SIZE = 24
 # How many products the hero's carousel is given. Five: the centre one, one
@@ -11,6 +11,14 @@ PAGE_SIZE = 24
 # the carousel has a style for. The three either side are drawn behind the
 # centre card and only partly visible.
 HERO_PRODUCT_COUNT = 5
+# The hero box only needs to know which products are buyable, and that answer
+# changes when a product is published, renamed or sold out — not every time
+# somebody looks at it. Caching it collapses what was eight sequential queries
+# per page load (one per catalog page, see all_in_stock) into a Redis read, and
+# a short TTL means a shelf change shows up on its own even if an invalidation
+# hook is ever missed. The hero is the only caller.
+STOCKED_CACHE_KEY = "shop:hero_stocked_products"
+STOCKED_CACHE_TTL = 300
 
 
 @frappe.whitelist(allow_guest=True)
@@ -20,6 +28,7 @@ def home() -> dict:
 		"collections": catalog.get_collections(),
 		"featured_products": catalog.get_products(limit=8)["products"],
 		"hero_products": hero_products(),
+		**seo.seo_for("home"),
 	}
 
 
@@ -36,6 +45,10 @@ def hero_products(count: int = HERO_PRODUCT_COUNT) -> list:
 	everything is available and everything qualifies, which is what the rest of
 	the storefront would tell the shopper anyway. Published needs no filter:
 	``get_products`` only ever reads published products.
+
+	The sample is drawn from the *cached* shelf list, not the cache itself: the
+	box still differs between two visits inside one TTL window, because only the
+	expensive part — working out what is buyable — is held back.
 	"""
 	stocked = all_in_stock()
 	if len(stocked) <= count:
@@ -50,13 +63,44 @@ def all_in_stock() -> list:
 	through rather than sampling the first page alone. Without that, a shop with
 	more than 60 stocked products would draw its random four from the top of the
 	ranking only, and the box would quietly stop being random.
+
+	Cached, because this is a full scan of the catalog and the hero runs it on
+	every page load. A miss costs one scan; a hit costs a Redis read. The result
+	is a list of plain dicts, so it round-trips through the cache as JSON
+	unchanged. Invalidation is on the product and stock events, and the TTL
+	backstops those.
 	"""
+	cached = frappe.cache().get_value(STOCKED_CACHE_KEY)
+	if cached is not None:
+		return cached
+
 	found: list = []
 	while True:
 		result = catalog.get_products(in_stock=True, start=len(found), limit=catalog.MAX_PAGE_SIZE)
 		found.extend(result["products"])
 		if not result["products"] or len(found) >= result["total"]:
-			return found
+			break
+
+	frappe.cache().set_value(STOCKED_CACHE_KEY, found, expires_in_sec=STOCKED_CACHE_TTL)
+	return found
+
+
+def clear_stocked_cache(_doc=None, _method=None) -> None:
+	"""Drop the cached shelf list.
+
+	Wired into the Shop Product and Stock Ledger Entry hooks, so a publish, a
+	rename or a sale clears it immediately rather than leaving the hero offering
+	something that has just gone out of stock for up to ``STOCKED_CACHE_TTL``.
+
+	The document and method are accepted and ignored. Frappe passes both to a
+	doc event, and the Stock Ledger Entry hooks are shared with the Meta catalog
+	sync, which is why the signature cannot simply take no arguments.
+	"""
+	frappe.cache().delete_value(STOCKED_CACHE_KEY)
+	# The structured-data catalogue describes the same products, so it goes when
+	# they change. Left alone it would advertise a price or a name that has
+	# already changed, which is worse for an answer engine than no graph at all.
+	frappe.cache().delete_value(seo.CATALOG_CACHE_KEY)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -97,12 +141,16 @@ def listing() -> dict:
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
 		**result,
+		# This page is always /products whatever the query string says, so the
+		# canonical it advertises is /products and not the filtered URL: a
+		# search or a filter is a view of the range, not a page of its own.
+		**seo.seo_for("products"),
 	}
 
 
-FILTER_PARAMS = ("collection", "price", "stock", "sort", "size", "color")
 # Query parameters a filter link carries over; `collection` only applies to the
 # /products listing, since a collection page keeps its slug in the path.
+FILTER_PARAMS = ("collection", "price", "stock", "sort", "size", "color")
 CARRY_PARAMS = ("collection", "search", "sort", "price", "stock", "size", "color")
 # Facet filters are scoped to the category they were offered in, so they reset
 # when the shopper moves to another collection.
@@ -282,6 +330,7 @@ def product_page() -> dict:
 		"product": detail,
 		"related_products": related_products(detail),
 		"reviews": reviews.get_reviews(detail["name"], limit=6),
+		**seo.seo_for(f"product/{detail['slug']}", product=detail),
 	}
 
 
@@ -347,12 +396,20 @@ def collection_page() -> dict:
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
 		**result,
+		**seo.seo_for(path),
 	}
 
 
 @frappe.whitelist(allow_guest=True)
 def basic() -> dict:
-	return {"store": store_details()}
+	"""Page data for the static pages: about, faq, contact.
+
+	One endpoint serves all three, because none of them need anything but the
+	store's details. The route is read off the request so each still gets its own
+	title, description and structured data rather than all three claiming to be
+	the home page.
+	"""
+	return {"store": store_details(), **seo.seo_for(seo.requested_route())}
 
 
 @frappe.whitelist(allow_guest=True)
