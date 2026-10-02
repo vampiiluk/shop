@@ -1334,6 +1334,80 @@ def wallpaper(refs):
 	)
 
 
+# Where the scrim reaches full opacity, measured up from the bottom of the page.
+# This has to clear the footer, because the footer is what the scrim exists for:
+# 48px of footer bottom padding + 149px of footer content on a desktop, and
+# 36px + 241px on a phone, where the link columns stack. Getting this wrong in the
+# lenient direction leaves the pattern half-visible behind the links; getting it
+# wrong the other way paints a flat band over the last product card.
+WALLPAPER_SCRIM_ONSET = "206px"
+WALLPAPER_SCRIM_ONSET_MOBILE = "288px"
+# How far above that the scrim fades in from nothing. Long enough to be a fade
+# rather than a step, short enough that the pattern is still plainly present over
+# the products themselves.
+WALLPAPER_SCRIM_RAMP = "340px"
+WALLPAPER_SCRIM_RAMP_MOBILE = "320px"
+
+
+def _scrim_mask(onset, ramp):
+	"""Three stops, not two: the ramp ENDS above the footer and stays put below it.
+
+	A single `transparent -> #000` ramp over the whole distance looks right on
+	inspection and is wrong in use -- it only ever reaches about half opacity where
+	the text actually starts, which leaves the pattern plainly visible behind the
+	links while looking fine at the bottom of the page. So: nothing above, fully
+	opaque from `onset` down, and flat to the end.
+	"""
+	return (
+		f"linear-gradient(to bottom, "
+		f"transparent calc(100% - {int(onset[:-2]) + int(ramp[:-2])}px), "
+		f"#000 calc(100% - {onset}), #000 100%)"
+	)
+
+
+def wallpaper_scrim(refs):
+	"""Ramps the wallpaper out under the footer, so the footer text has clean canvas.
+
+	Why the footer needs this at all: it is the only part of the page that puts
+	10-13px body text straight onto the pattern. The cards are opaque panels and
+	sit on their own surface; the footer deliberately does not, "so it stays out of
+	the way". That was fine against a 24px grid of 1px dots. Against 40px solid
+	monograms it is not, and it only showed up in light mode -- there the marks are
+	dark on light, the same polarity as the text, so at small sizes they merge. In
+	dark mode the text sits ~8x further from the canvas than the marks do and wins
+	comfortably. The wallpaper's contrast against the canvas is in fact identical in
+	both themes (1.33 / 1.32), so this is about polarity and size, not loudness.
+
+	A separate layer in the canvas colour, rather than compositing a gradient into
+	the wallpaper's own mask. mask-composite would need `intersect` for every engine
+	plus the legacy `-webkit-mask-composite: source-in`, whose layer-order semantics
+	are not the same as the standard property's -- a reliable way to ship a fade
+	that silently fails in half the browsers. This needs no compositing at all.
+
+	It must come AFTER wallpaper() in the children: both sit at z-index -1, and
+	among elements sharing a z-index the later one paints on top.
+	"""
+	return block(
+		"div",
+		name="Wallpaper Scrim",
+		attrs={"aria-hidden": "true"},
+		styles={
+			"WebkitMask": _scrim_mask(WALLPAPER_SCRIM_ONSET, WALLPAPER_SCRIM_RAMP),
+			"mask": _scrim_mask(WALLPAPER_SCRIM_ONSET, WALLPAPER_SCRIM_RAMP),
+			"backgroundColor": refs["canvas"],
+			"inset": "0",
+			"pointerEvents": "none",
+			"position": "absolute",
+			# A pair with the -1 in wallpaper() above -- same reason, same caveat.
+			"zIndex": "-1",
+		},
+		mobile={
+			"WebkitMask": _scrim_mask(WALLPAPER_SCRIM_ONSET_MOBILE, WALLPAPER_SCRIM_RAMP_MOBILE),
+			"mask": _scrim_mask(WALLPAPER_SCRIM_ONSET_MOBILE, WALLPAPER_SCRIM_RAMP_MOBILE),
+		},
+	)
+
+
 def shell(refs, children):
 	node = root(
 		{
@@ -1354,7 +1428,10 @@ def shell(refs, children):
 			"paddingTop": "94px",
 			"width": "100%",
 		},
-		[wallpaper(refs)] + children + [component_ref("dot-cart-drawer")],
+		# Order matters between the first two: both sit at z-index -1, and among
+		# elements sharing a z-index the later one paints on top, so the scrim has
+		# to come after the wallpaper it is there to fade out.
+		[wallpaper(refs), wallpaper_scrim(refs)] + children + [component_ref("dot-cart-drawer")],
 	)
 	node["mobileStyles"] = {"gap": "12px", "paddingTop": "78px"}
 	return [node]
@@ -1574,15 +1651,15 @@ def nav(refs):
 def footer_column(refs, title, links):
 	return block(
 		"div",
-		styles={"display": "flex", "flexDirection": "column", "gap": "12px", "width": "100%"},
+		styles={"display": "flex", "flexDirection": "column", "gap": "10px", "width": "100%"},
 		children=[
-			block("p", text=title, styles=mono(size="10px", color=refs["muted"], spacing="0.16em")),
+			block("p", text=title, styles=mono(size="11px", color=refs["muted"], spacing="0.16em")),
 			*[
 				block(
 					"a",
 					text=text,
 					attrs={"href": href},
-					styles={**mono(size="11px", color=refs["ink"], spacing="0.1em"), "textDecoration": "none"},
+					styles={**mono(size="12px", color=refs["ink"], spacing="0.1em"), "textDecoration": "none"},
 				)
 				for text, href in links
 			],
@@ -1595,8 +1672,8 @@ def footer(refs):
 	inner = block(
 		"div",
 		name="Footer Inner",
-		styles={"display": "flex", "flexDirection": "column", "gap": "32px", "width": "100%"},
-		mobile={"gap": "24px"},
+		styles={"display": "flex", "flexDirection": "column", "gap": "28px", "width": "100%"},
+		mobile={"gap": "22px"},
 		children=[
 			block(
 				"div",
@@ -1611,13 +1688,13 @@ def footer(refs):
 				children=[
 					block(
 						"div",
-						styles={"display": "flex", "flexDirection": "column", "gap": "14px", "maxWidth": "300px", "width": "100%"},
+						styles={"display": "flex", "flexDirection": "column", "gap": "12px", "maxWidth": "300px", "width": "100%"},
 						children=[
 							brand(refs),
 							prose(
 								refs,
 								"Everyday essentials, from brand-new finds to gently preloved favorites.",
-								size="13px",
+								size="14px",
 							),
 						],
 					),
@@ -1648,18 +1725,18 @@ def footer(refs):
 					"display": "flex",
 					"flexDirection": "row",
 					"gap": "6px",
-					"paddingTop": "20px",
+					"paddingTop": "24px",
 					"width": "100%",
 				},
 				children=[
-					block("span", text="© 2026", styles=mono(size="10px", color=refs["muted"], spacing="0.12em")),
+					block("span", text="© 2026", styles=mono(size="11px", color=refs["muted"], spacing="0.12em")),
 					block(
 						"span",
 						text="Shop",
-						styles=mono(size="10px", color=refs["muted"], spacing="0.12em"),
+						styles=mono(size="11px", color=refs["muted"], spacing="0.12em"),
 						dynamicValues=[dv("store.name", "innerHTML")],
 					),
-					block("span", text="· All rights reserved", styles=mono(size="10px", color=refs["muted"], spacing="0.12em")),
+					block("span", text="· All rights reserved", styles=mono(size="11px", color=refs["muted"], spacing="0.12em")),
 				],
 			),
 		],
