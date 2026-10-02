@@ -196,6 +196,10 @@ PALETTE = {
 	"line": ("#E4E4E7", "#2A2A2F"),
 	"card": ("#F3F3F4", "#1D1D21"),
 	"accent": ("#E5322D", "#FF5A54"),
+	# The wallpaper mark, as a translucent ink. A pair rather than one value:
+	# white-on-dark needs more alpha than black-on-light to read at the same
+	# strength, so the night value is deliberately higher.
+	"wall": ("rgba(11, 11, 12, 0.07)", "rgba(244, 244, 245, 0.11)"),
 	"success": ("#15803D", "#4ADE80"),
 }
 
@@ -1270,12 +1274,49 @@ def utility_row(refs, text, href, glyph="→"):
 	)
 
 
+# The repeating monogram that backs every page. A CSS mask rather than a
+# background-image, so the mark's own fill is irrelevant and the visible colour
+# comes from the element's background-color -- which is refs["wall"], a
+# light-dark() pair. That is what makes the wallpaper adaptive: neither the SVG
+# nor this file needs a colour-scheme rule of its own.
+WALLPAPER_URL = "/assets/shop/img/wallpaper.svg"
+WALLPAPER_TILE = "170px"
+# Most of this shop's traffic is a phone in one hand. At 170px a 390px screen
+# fits barely two repeats, so the marks stop reading as texture and start
+# competing with the content sitting on top of them. Smaller on mobile.
+WALLPAPER_TILE_MOBILE = "88px"
+
+
+def wallpaper(refs):
+	return block(
+		"div",
+		name="Wallpaper",
+		attrs={"aria-hidden": "true"},
+		styles={
+			"WebkitMask": f'url("{WALLPAPER_URL}") repeat',
+			"mask": f'url("{WALLPAPER_URL}") repeat',
+			"WebkitMaskSize": f"{WALLPAPER_TILE} {WALLPAPER_TILE}",
+			"maskSize": f"{WALLPAPER_TILE} {WALLPAPER_TILE}",
+			"backgroundColor": refs["wall"],
+			"inset": "0",
+			"pointerEvents": "none",
+			"position": "absolute",
+			"zIndex": "0",
+		},
+		mobile={
+			"WebkitMaskSize": f"{WALLPAPER_TILE_MOBILE} {WALLPAPER_TILE_MOBILE}",
+			"maskSize": f"{WALLPAPER_TILE_MOBILE} {WALLPAPER_TILE_MOBILE}",
+		},
+	)
+
+
 def shell(refs, children):
 	node = root(
 		{
 			"alignItems": "center",
 			"backgroundColor": refs["canvas"],
 			"color": refs["ink"],
+			"position": "relative",
 			"display": "flex",
 			"flexDirection": "column",
 			"flexShrink": 0,
@@ -1285,7 +1326,7 @@ def shell(refs, children):
 			"paddingTop": "94px",
 			"width": "100%",
 		},
-		children + [component_ref("dot-cart-drawer")],
+		[wallpaper(refs)] + children + [component_ref("dot-cart-drawer")],
 	)
 	node["mobileStyles"] = {"gap": "12px", "paddingTop": "78px"}
 	return [node]
@@ -1319,7 +1360,7 @@ def brand_glyph(refs):
 			"display": "block",
 			"flexShrink": 0,
 			"height": "16px",
-			"opacity": "0.7",
+			"opacity": "0.9",
 			"width": "14px",
 		},
 		children=[
