@@ -196,10 +196,13 @@ PALETTE = {
 	"line": ("#E4E4E7", "#2A2A2F"),
 	"card": ("#F3F3F4", "#1D1D21"),
 	"accent": ("#E5322D", "#FF5A54"),
-	# The wallpaper mark, as a translucent ink. A pair rather than one value:
-	# white-on-dark needs more alpha than black-on-light to read at the same
-	# strength, so the night value is deliberately higher.
-	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.038)"),
+	# The wallpaper mark, as a translucent ink. The night value is 3.4x the day
+	# one, and that gap is not a stylistic choice: over a near-black canvas a
+	# few levels of lift are far less perceptible than the same few levels of
+	# darkening over near-white. At 0.038 the night mark measured a 9/255 step
+	# against #09090A and simply was not visible; 0.075 measures ~17/255 and
+	# reads as a texture without competing with anything.
+	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.075)"),
 	"success": ("#15803D", "#4ADE80"),
 }
 
