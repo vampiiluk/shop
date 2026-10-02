@@ -196,13 +196,19 @@ PALETTE = {
 	"line": ("#E4E4E7", "#2A2A2F"),
 	"card": ("#F3F3F4", "#1D1D21"),
 	"accent": ("#E5322D", "#FF5A54"),
-	# The wallpaper mark, as a translucent ink. The night value is 3.4x the day
-	# one, and that gap is not a stylistic choice: over a near-black canvas a
-	# few levels of lift are far less perceptible than the same few levels of
-	# darkening over near-white. At 0.038 the night mark measured a 9/255 step
-	# against #09090A and simply was not visible; 0.075 measures ~17/255 and
-	# reads as a texture without competing with anything.
-	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.075)"),
+	# The wallpaper mark, as a translucent ink.
+	#
+	# The night value is chosen against the site's OWN surfaces, not by taste.
+	# Off the #09090A canvas the nav pill sits at a 13/255 lift and a card at
+	# 23/255. A wallpaper that lifts more than the pill stops reading as texture
+	# and starts reading as content -- which is exactly what happens on OLED,
+	# where black is truly black and small lifts resolve completely. An LCD
+	# backlight never reaches true black, so the same value washes out there and
+	# looks fine. CSS cannot tell the two apart, hence one compromise: 0.045
+	# composites to an 11/255 step, just under the pill, quiet enough for OLED and
+	# still present on LCD. Day is 0.022 because darkening near-white is far more
+	# legible than lifting near-black, so the same alpha would shout in daylight.
+	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.045)"),
 	"success": ("#15803D", "#4ADE80"),
 }
 
