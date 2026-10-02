@@ -196,19 +196,10 @@ PALETTE = {
 	"line": ("#E4E4E7", "#2A2A2F"),
 	"card": ("#F3F3F4", "#1D1D21"),
 	"accent": ("#E5322D", "#FF5A54"),
-	# The wallpaper mark, as a translucent ink.
-	#
-	# The night value is chosen against the site's OWN surfaces, not by taste.
-	# Off the #09090A canvas the nav pill sits at a 13/255 lift and a card at
-	# 23/255. A wallpaper that lifts more than the pill stops reading as texture
-	# and starts reading as content -- which is exactly what happens on OLED,
-	# where black is truly black and small lifts resolve completely. An LCD
-	# backlight never reaches true black, so the same value washes out there and
-	# looks fine. CSS cannot tell the two apart, hence one compromise: 0.045
-	# composites to an 11/255 step, just under the pill, quiet enough for OLED and
-	# still present on LCD. Day is 0.022 because darkening near-white is far more
-	# legible than lifting near-black, so the same alpha would shout in daylight.
-	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.045)"),
+	# The wallpaper, in the same token the old dotted canvas used and at the same
+	# strength. Both themes take their value from here, so the pattern needs no
+	# colour-scheme rule of its own and cannot drift from the palette.
+	"dots": ("#D1D1D4", "#26262B"),
 	"success": ("#15803D", "#4ADE80"),
 }
 
@@ -1283,17 +1274,36 @@ def utility_row(refs, text, href, glyph="→"):
 	)
 
 
-# The repeating monogram that backs every page. A CSS mask rather than a
-# background-image, so the mark's own fill is irrelevant and the visible colour
-# comes from the element's background-color -- which is refs["wall"], a
-# light-dark() pair. That is what makes the wallpaper adaptive: neither the SVG
-# nor this file needs a colour-scheme rule of its own.
-WALLPAPER_URL = "/assets/shop/img/wallpaper-2.svg"
-WALLPAPER_TILE = "84px"
-# Most of this shop's traffic is a phone in one hand. At 170px a 390px screen
-# fits barely two repeats, so the marks stop reading as texture and start
-# competing with the content sitting on top of them. Smaller on mobile.
-WALLPAPER_TILE_MOBILE = "56px"
+# The wallpaper that backs every page: the monogram repeated on a checkerboard, so
+# the ARRANGEMENT is the diamond -- four monograms leave a four-edged void between
+# them, with a mark at each of its corners. The pitches are flush, so there is no
+# gutter between neighbours, and the tile is a whole multiple of both, which puts a
+# monogram centred on each seam: half in one tile, half in the next, its two halves
+# meeting across the repeat as an infinity.
+#
+# Painted through a CSS mask, and that is what makes it adaptive. A mask reads only
+# shape coverage, so the mark's own fill is irrelevant and the visible colour comes
+# from this element's background-color -- which is refs["dots"], the same token the
+# old dotted canvas used. Neither the SVG nor this file needs a colour-scheme rule
+# of its own.
+WALLPAPER_URL = "/assets/shop/img/wallpaper-7.svg"
+# These must equal the SVG's own width/height to the digit, and the reason is
+# sharper than "so it looks right": the SVG declares preserveAspectRatio="none",
+# and its viewBox is the same two numbers, so nothing can be refitted or
+# re-centred. Get them out of step and the browser scales the tile to fit, the
+# artwork pulls away from the edge, and the repeat shows a gap on one side and a
+# doubled hairline on the other. That is one bug, not two, and it reads as
+# "monograms overlap in places" plus "the right edge has a gap".
+#
+# A two-value size because the tile is NOT square: the mark is 0.866 as wide as it
+# is tall, so equal clear space on both axes needs two different pitches.
+# 149.2746 x 160.0000 is 2 rows, authored as a 40px mark with a 40px gap -- the gap being
+# one monogram's own length, which is what the pattern was tuned to.
+WALLPAPER_TILE = "149.2746px 160.0000px"
+# Same tile at 70%, so the marks land near 28px instead of 40px. Scaling the tile
+# keeps the gap proportional to the mark, which a separately authored asset at a
+# different size would not.
+WALLPAPER_TILE_MOBILE = "104.492px 112px"
 
 
 def wallpaper(refs):
@@ -1304,9 +1314,9 @@ def wallpaper(refs):
 		styles={
 			"WebkitMask": f'url("{WALLPAPER_URL}") repeat',
 			"mask": f'url("{WALLPAPER_URL}") repeat',
-			"WebkitMaskSize": f"{WALLPAPER_TILE} {WALLPAPER_TILE}",
-			"maskSize": f"{WALLPAPER_TILE} {WALLPAPER_TILE}",
-			"backgroundColor": refs["wall"],
+			"WebkitMaskSize": WALLPAPER_TILE,
+			"maskSize": WALLPAPER_TILE,
+			"backgroundColor": refs["dots"],
 			"inset": "0",
 			"pointerEvents": "none",
 			"position": "absolute",
@@ -1318,8 +1328,8 @@ def wallpaper(refs):
 			"zIndex": "-1",
 		},
 		mobile={
-			"WebkitMaskSize": f"{WALLPAPER_TILE_MOBILE} {WALLPAPER_TILE_MOBILE}",
-			"maskSize": f"{WALLPAPER_TILE_MOBILE} {WALLPAPER_TILE_MOBILE}",
+			"WebkitMaskSize": WALLPAPER_TILE_MOBILE,
+			"maskSize": WALLPAPER_TILE_MOBILE,
 		},
 	)
 
