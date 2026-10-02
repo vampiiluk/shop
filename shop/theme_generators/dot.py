@@ -199,7 +199,7 @@ PALETTE = {
 	# The wallpaper mark, as a translucent ink. A pair rather than one value:
 	# white-on-dark needs more alpha than black-on-light to read at the same
 	# strength, so the night value is deliberately higher.
-	"wall": ("rgba(11, 11, 12, 0.07)", "rgba(244, 244, 245, 0.11)"),
+	"wall": ("rgba(11, 11, 12, 0.022)", "rgba(244, 244, 245, 0.038)"),
 	"success": ("#15803D", "#4ADE80"),
 }
 
@@ -1279,12 +1279,12 @@ def utility_row(refs, text, href, glyph="→"):
 # comes from the element's background-color -- which is refs["wall"], a
 # light-dark() pair. That is what makes the wallpaper adaptive: neither the SVG
 # nor this file needs a colour-scheme rule of its own.
-WALLPAPER_URL = "/assets/shop/img/wallpaper.svg"
-WALLPAPER_TILE = "170px"
+WALLPAPER_URL = "/assets/shop/img/wallpaper-2.svg"
+WALLPAPER_TILE = "84px"
 # Most of this shop's traffic is a phone in one hand. At 170px a 390px screen
 # fits barely two repeats, so the marks stop reading as texture and start
 # competing with the content sitting on top of them. Smaller on mobile.
-WALLPAPER_TILE_MOBILE = "88px"
+WALLPAPER_TILE_MOBILE = "56px"
 
 
 def wallpaper(refs):
@@ -1301,7 +1301,12 @@ def wallpaper(refs):
 			"inset": "0",
 			"pointerEvents": "none",
 			"position": "absolute",
-			"zIndex": "0",
+			# -1, not 0. A positioned element with z-index 0 paints in a later
+			# step than plain in-flow blocks, so at 0 this layer sat ON TOP of the
+			# New arrival and Collections cards and made them look translucent.
+			# That only happens because the root below is a stacking context; if
+			# the root ever loses its z-index, -1 would fall behind the canvas.
+			"zIndex": "-1",
 		},
 		mobile={
 			"WebkitMaskSize": f"{WALLPAPER_TILE_MOBILE} {WALLPAPER_TILE_MOBILE}",
@@ -1317,6 +1322,10 @@ def shell(refs, children):
 			"backgroundColor": refs["canvas"],
 			"color": refs["ink"],
 			"position": "relative",
+			# With position:relative alone this is not a stacking context, so the
+			# wallpaper's z-index:-1 would escape it and paint behind the canvas.
+			# These two lines are a pair with wallpaper() above.
+			"zIndex": "0",
 			"display": "flex",
 			"flexDirection": "column",
 			"flexShrink": 0,
