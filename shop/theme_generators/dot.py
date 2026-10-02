@@ -1358,21 +1358,28 @@ def _px(v):
 def _scrim_mask(onset, ramp, top):
 	"""Six stops: solid at both edges, transparent through the middle.
 
-	The top and bottom ramps are each capped with a percentage. The layer is sized
-	to the whole document, and a short page -- /contact is barely a screen tall, and
-	the shell only guarantees min-height 100vh -- is shorter than the two ramps put
-	together. Left alone the stops cross, CSS clamps them into order, and the result
-	is a page with no pattern on it at all. min() keeps each ramp inside its share of
-	the page no matter how short the page is.
+	The guard against a short page clamps each bottom stop UP to wherever the top
+	ramp actually finished, rather than shrinking the onset. /cart is the case that
+	matters: it is barely a screen tall, so a percentage cap on the onset pulled the
+	scrim's start down to about a fifth of the page and left the top of the footer
+	sitting on bare pattern -- the very thing the scrim is there to prevent. Clamping
+	upwards instead means a page too short for both ramps simply loses the pattern
+	band in the middle, which is a defensible outcome; leaving text unreadable is
+	not.
+
+	The arithmetic that has to hold is stop4 >= stop3 and stop5 >= stop4. CSS clamps
+	out-of-order stops silently, which is how a crossed pair turns into a page with
+	no pattern on it at all.
 	"""
 	top_end = _px(top) + _px(WALLPAPER_SCRIM_RAMP)
 	bottom_start = _px(onset) + _px(ramp)
+	floor = f"min({top_end}px, 26%)"          # where the top ramp actually ends
 	return (
 		"linear-gradient(to bottom, "
 		f"#000 0, #000 {top}, "
-		f"transparent min({top_end}px, 26%), "
-		f"transparent max(0px, 100% - min({bottom_start}px, 45%)), "
-		f"#000 max(0px, 100% - min({_px(onset)}px, 20%)), #000 100%)"
+		f"transparent {floor}, "
+		f"transparent max({floor}, 100% - min({bottom_start}px, 45%)), "
+		f"#000 max({floor}, 100% - min({_px(onset)}px, 45%)), #000 100%)"
 	)
 
 
@@ -3497,7 +3504,29 @@ def cart_blocks(refs):
 			"padding": "18px 0",
 			"width": "100%",
 		},
-		mobile={"gap": "10px"},
+		# A phone cannot fit this row. The fixed parts alone -- a 58px thumbnail,
+		# a 90px stepper, an 84px minimum on the amount and a "REMOVE" label --
+		# come to about 275px before the product name gets a single pixel, and
+		# the panel has roughly 320px of usable width once the page and panel
+		# padding are off it. Every one of those pieces also refuses to shrink
+		# below its own min-content, so the row does not compress: it overflows,
+		# and the Remove button lands outside the card.
+		#
+		# So on a phone it becomes a two-row grid rather than a squeezed flex row:
+		#
+		#     thumb  name        amount
+		#     qty    qty         remove
+		#
+		# minmax(0, 1fr) on the middle column is what stops the name repeating the
+		# same overflow one column in -- a bare 1fr floors at min-content, which is
+		# the width of the longest word in the product name.
+		mobile={
+			"display": "grid",
+			"gridTemplateAreas": '"thumb info amount" "qty qty remove"',
+			"gridTemplateColumns": "58px minmax(0, 1fr) auto",
+			"columnGap": "10px",
+			"rowGap": "12px",
+		},
 		children=[
 			block(
 				"img",
@@ -3510,11 +3539,13 @@ def cart_blocks(refs):
 					"objectFit": "cover",
 					"width": "58px",
 				},
+				mobile={"gridArea": "thumb"},
 				dynamicValues=[dv("image", "src", "attribute"), dv("product_name", "alt", "attribute")],
 			),
 			block(
 				"div",
 				styles={"display": "flex", "flexDirection": "column", "flexGrow": "1", "gap": "4px"},
+				mobile={"gridArea": "info", "minWidth": "0"},
 				children=[
 					block(
 						"h3",
@@ -3534,6 +3565,7 @@ def cart_blocks(refs):
 				"div",
 				name="Qty",
 				styles={"alignItems": "center", "display": "flex", "flexDirection": "row", "gap": "8px"},
+				mobile={"gridArea": "qty"},
 				children=[
 					block(
 						"button",
@@ -3563,9 +3595,16 @@ def cart_blocks(refs):
 				styles={
 					**mono(size="13px", weight="500", color=refs["ink"], spacing="0.02em", upper=False),
 					"minWidth": "84px",
+					# On mobile the floor has no job left -- the column is sized by its own
+					# content there -- so it is dropped below.
+					# 84px is narrower than "Rs 2,000.00" at this size, so the value used to
+					# break across two lines and throw the whole row wide. A price has no
+					# legal break, so say so rather than let it find one.
 					"textAlign": "right",
+					"whiteSpace": "nowrap",
 				},
 				dynamicValues=[dv("formatted_amount", "innerHTML")],
+				mobile={"gridArea": "amount", "minWidth": "0"},
 			),
 			block(
 				"button",
@@ -3578,6 +3617,7 @@ def cart_blocks(refs):
 					"textDecoration": "underline",
 				},
 				dynamicValues=[dv("item_code", "data-item-code", "attribute")],
+				mobile={"gridArea": "remove", "justifySelf": "end"},
 			),
 		],
 	)
