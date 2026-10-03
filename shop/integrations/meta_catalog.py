@@ -53,7 +53,7 @@ from shop.secrets import is_mask
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
 # frappe.utils.get_url() wrongly reports http://…:8000 behind this proxy, so
 # absolute storefront links (product pages, images) use this constant instead.
-SITE_BASE = "https://erp.sananahmad.dpdns.org"
+SITE_BASE = "https://reloop.pk"
 BATCH_LIMIT = 500
 # A 12-item batch already needs more than 10s to flip to "finished".
 STATUS_ATTEMPTS = 15
