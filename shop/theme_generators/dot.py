@@ -1334,69 +1334,60 @@ def wallpaper(refs):
 	)
 
 
-# How far up from the bottom of the page the wallpaper ramps away to nothing.
-# This has to clear the footer, because the footer is what the scrim exists for:
-# 48px of footer bottom padding + 149px of footer content on a desktop, and
-# 36px + 241px on a phone, where the link columns stack. Getting this wrong in the
-# lenient direction leaves the pattern half-visible behind the links; getting it
-# wrong the other way paints a flat band over the last product card.
-WALLPAPER_SCRIM_ONSET = "206px"
-WALLPAPER_SCRIM_ONSET_MOBILE = "288px"
-WALLPAPER_SCRIM_RAMP = "340px"
-WALLPAPER_SCRIM_RAMP_MOBILE = "320px"
-# Mirrored at the top: the pattern was running straight behind the nav pill, which
-# is the same complaint as the footer one end further up the page. Held opaque at
-# the very top edge so the nav sits on clean canvas.
-WALLPAPER_SCRIM_TOP = "300px"
-WALLPAPER_SCRIM_TOP_MOBILE = "260px"
+# The wallpaper shows in one band, behind the nav bar, and nowhere else.
+#
+# WALLPAPER_BAND_SOLID is the pill's own bottom edge, measured off the live shop: the
+# capsule is at top:16px with 13px of padding around a 23px-tall row, so it ends at
+# 65px on a desktop. It sits at top:10px with 11px of padding on a phone and ends at
+# 55px. The pattern stays solid to that line and is gone by the fade value, which
+# puts the gradient in the strip of canvas between the pill and the first card rather
+# than across the pill's own text.
+WALLPAPER_BAND_SOLID = "66px"
+WALLPAPER_BAND_SOLID_MOBILE = "56px"
+WALLPAPER_BAND_FADE = "116px"
+WALLPAPER_BAND_FADE_MOBILE = "100px"
 
 
 def _px(v):
 	return int(v[:-2])
 
 
-def _scrim_mask(onset, ramp, top):
-	"""Six stops: solid at both edges, transparent through the middle.
+def _band_mask(solid, fade):
+	"""Four stops: nothing at the top, canvas from the fade down.
 
-	The guard against a short page clamps each bottom stop UP to wherever the top
-	ramp actually finished, rather than shrinking the onset. /cart is the case that
-	matters: it is barely a screen tall, so a percentage cap on the onset pulled the
-	scrim's start down to about a fifth of the page and left the top of the footer
-	sitting on bare pattern -- the very thing the scrim is there to prevent. Clamping
-	upwards instead means a page too short for both ramps simply loses the pattern
-	band in the middle, which is a defensible outcome; leaving text unreadable is
-	not.
+	This is the inverse of what the scrim used to do. It covered the ends of the
+	page so the pattern could run through the middle; now it covers everything below
+	one band, so the pattern is confined to the top of the page.
 
-	The arithmetic that has to hold is stop4 >= stop3 and stop5 >= stop4. CSS clamps
-	out-of-order stops silently, which is how a crossed pair turns into a page with
-	no pattern on it at all.
+	Every stop is a fixed distance from the top of the layer, and that layer is
+	sized to the document. With two ramps each stop used to need a percentage cap
+	and a floor against the other ramp, because a short page -- /cart is barely a
+	screen tall -- could pull them into each other, and CSS reorders crossed stops
+	silently, which turns into a page with no pattern on it at all. There is no
+	arithmetic left here that can produce that, so the guard is gone rather than
+	rewritten.
 	"""
-	top_end = _px(top) + _px(WALLPAPER_SCRIM_RAMP)
-	bottom_start = _px(onset) + _px(ramp)
-	floor = f"min({top_end}px, 26%)"          # where the top ramp actually ends
 	return (
 		"linear-gradient(to bottom, "
-		f"#000 0, #000 {top}, "
-		f"transparent {floor}, "
-		f"transparent max({floor}, 100% - min({bottom_start}px, 45%)), "
-		f"#000 max({floor}, 100% - min({_px(onset)}px, 45%)), #000 100%)"
+		f"transparent 0, transparent {solid}, "
+		f"#000 {fade}, #000 100%)"
 	)
 
 
 def wallpaper_scrim(refs):
-	"""Ramps the wallpaper out at both ends of the page, so the nav and the footer
-	both get clean canvas.
+	"""Covers the wallpaper everywhere except the one band behind the nav bar.
 
-	Why either end needs this at all: the nav pill and the footer are the only
-	parts of the page that put small text straight onto the pattern.
-	The cards are opaque panels and sit on their own surface; the nav pill and the
-	footer deliberately do not, so they stay out of the way. That was fine against a
-	24px grid of 1px dots. Against 40px solid monograms it is not, and it only showed
-	up in light mode -- there the marks are
-	dark on light, the same polarity as the text, so at small sizes they merge. In
-	dark mode the text sits ~8x further from the canvas than the marks do and wins
-	comfortably. The wallpaper's contrast against the canvas is in fact identical in
-	both themes (1.33 / 1.32), so this is about polarity and size, not loudness.
+	What it used to do was the opposite: it faded the pattern out at the top and the
+	bottom of the page, leaving it visible through the middle, so the nav pill and the
+	footer -- the only two things that put small text straight onto the pattern -- both
+	got clean canvas. That was tuned against a 24px grid of 1px dots. Against 40px
+	solid monograms it stopped working in light mode, where the marks are dark on
+	light, the same polarity as the text, and merge at small sizes.
+
+	Confining the pattern to the nav band settles that by removing the problem rather
+	than fighting it: there is now no pattern anywhere near the footer, and the pill
+	sits on its own opaque surface with the pattern only in the canvas either side of
+	it. The wall reads as a header texture instead of a page-wide field.
 
 	A separate layer in the canvas colour, rather than compositing a gradient into
 	the wallpaper's own mask. mask-composite would need `intersect` for every engine
@@ -1412,8 +1403,8 @@ def wallpaper_scrim(refs):
 		name="Wallpaper Scrim",
 		attrs={"aria-hidden": "true"},
 		styles={
-			"WebkitMask": _scrim_mask(WALLPAPER_SCRIM_ONSET, WALLPAPER_SCRIM_RAMP, WALLPAPER_SCRIM_TOP),
-			"mask": _scrim_mask(WALLPAPER_SCRIM_ONSET, WALLPAPER_SCRIM_RAMP, WALLPAPER_SCRIM_TOP),
+			"WebkitMask": _band_mask(WALLPAPER_BAND_SOLID, WALLPAPER_BAND_FADE),
+			"mask": _band_mask(WALLPAPER_BAND_SOLID, WALLPAPER_BAND_FADE),
 			"backgroundColor": refs["canvas"],
 			"inset": "0",
 			"pointerEvents": "none",
@@ -1422,8 +1413,8 @@ def wallpaper_scrim(refs):
 			"zIndex": "-1",
 		},
 		mobile={
-			"WebkitMask": _scrim_mask(WALLPAPER_SCRIM_ONSET_MOBILE, WALLPAPER_SCRIM_RAMP_MOBILE, WALLPAPER_SCRIM_TOP_MOBILE),
-			"mask": _scrim_mask(WALLPAPER_SCRIM_ONSET_MOBILE, WALLPAPER_SCRIM_RAMP_MOBILE, WALLPAPER_SCRIM_TOP_MOBILE),
+			"WebkitMask": _band_mask(WALLPAPER_BAND_SOLID_MOBILE, WALLPAPER_BAND_FADE_MOBILE),
+			"mask": _band_mask(WALLPAPER_BAND_SOLID_MOBILE, WALLPAPER_BAND_FADE_MOBILE),
 		},
 	)
 
