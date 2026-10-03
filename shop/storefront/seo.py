@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
 
 import frappe
 from frappe.utils import fmt_money
@@ -57,11 +58,21 @@ def site_url(path: str = "/") -> str:
 	``get_url()`` produces and therefore the form Builder's canonical is already
 	in. Returning a slash here would leave a page advertising two canonical
 	spellings of its own home page.
+
+	The path is percent-encoded. ``get_url()`` concatenates and encodes nothing,
+	and the file paths it is handed carry raw spaces -- an uploaded photo lands as
+	``/files/Image generation_10_01_1052_01.webp``. That is not a URL, and a URL-typed
+	schema.org property has to be one: Google is given an ``image`` it cannot
+	resolve. The sitemap already encodes these same paths, so the two were
+	disagreeing about the address of the same file.
+
+	``%`` is left alone so an already-encoded path is not encoded a second time
+	into ``%2520``.
 	"""
 	if not path.startswith("/"):
 		path = f"/{path}"
 	path = path.rstrip("/")
-	return frappe.utils.get_url(path)
+	return frappe.utils.get_url(quote(path, safe="/%"))
 
 
 def store_settings() -> dict:
@@ -284,13 +295,20 @@ def _product_node(product: dict, settings: dict) -> dict:
 				else "https://schema.org/OutOfStock"
 			),
 		}
-		compare_at = product.get("compare_at_price")
-		if compare_at and float(compare_at) > float(product["price"]):
-			offer["priceSpecification"] = {
-				"@type": "UnitPriceSpecification",
-				"priceCurrency": settings["currency"],
-				"price": f"{float(compare_at):.2f}",
-			}
+		# Deliberately NOT emitting a compare-at here, which is where this used to put
+		# one as an Offer.priceSpecification. Google rejected the whole Offer for it and
+		# reported the Product as having no offers at all, on all 11 products -- every
+		# one of them had a compare-at, so every one of them lost the property.
+		#
+		# priceSpecification is not a "was" price. On an Offer, schema.org means the
+		# components that make up the price -- tax, shipping, discounts -- and Google's
+		# merchant documentation reads it that way. A bare UnitPriceSpecification
+		# carrying a single price contradicts the Offer's own price beside it.
+		#
+		# There is also nowhere correct to put it: schema.org has no "was" price on an
+		# Offer. The storefront shows the struck-through figure itself, which is what a
+		# shopper sees; this only ever mattered to a crawler reading markup, and a
+		# crawler was reading it as a broken Offer.
 		node["offers"] = offer
 	return node
 
