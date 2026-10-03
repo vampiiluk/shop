@@ -324,25 +324,14 @@ def _offer_catalog(settings: dict, products: list[dict] | None) -> dict | None:
 	if not products:
 		return None
 	items = []
-	for index, row in enumerate(products, start=1):
+	for row in products:
 		route = row.get("route") or f"/product/{row.get('slug') or row.get('name')}"
-		offer = {"@type": "Offer", "url": site_url(route), "priceCurrency": settings["currency"]}
-		if row.get("price") not in (None, ""):
-			offer["price"] = f"{float(row['price']):.2f}"
-			offer["availability"] = (
-				"https://schema.org/InStock" if row.get("in_stock") else "https://schema.org/OutOfStock"
-			)
-		product = {
-			"@type": "Product",
-			"name": row.get("product_name") or row.get("name"),
-			"url": site_url(route),
-		}
-		if row.get("image"):
-			product["image"] = site_url(row["image"])
-		condition = (row.get("condition") or "").strip()
-		if condition and condition.lower() not in ("", "new", "preloved"):
-			product["itemCondition"] = "https://schema.org/UsedCondition"
-		items.append({"@type": "Offer", "position": index, "itemOffered": product, "offer": offer})
+		# Reuse the product-page builder rather than restating it. This catalog used to
+		# describe products a second time, differently, and the two drifted: the pages
+		# carried offers/review/aggregateRating and this carried none, so Google read
+		# every item here as a Product with no offers and rejected all of them.
+		# One builder means the homepage and a product page cannot disagree again.
+		items.append(_product_node(row, settings))
 	return {
 		"@type": "OfferCatalog",
 		"@id": f"{site_url('/')}#catalog",
