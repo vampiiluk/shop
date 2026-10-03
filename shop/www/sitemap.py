@@ -36,7 +36,7 @@ def get_context(context):
 	links = {}
 
 	def add(loc, lastmod):
-		links.setdefault(loc, lastmod)
+		links.setdefault(loc, _lastmod(lastmod))
 
 	for route, page in get_pages().items():
 		if page.sitemap:
@@ -50,6 +50,39 @@ def get_context(context):
 		add(get_url(route), modified)
 
 	return {"links": [{"loc": loc, "lastmod": lastmod} for loc, lastmod in links.items()]}
+
+
+def _lastmod(value) -> str:
+	"""A ``lastmod`` in one of the two forms W3C datetime actually accepts.
+
+	Search Console rejected 15 of the 17 entries as "Invalid date". The values were
+	Python datetimes rendered straight into the XML: ``2026-10-01 21:49:35.032357``.
+	A space where the spec wants ``T``, and microseconds on the end -- so it is
+	neither of the two legal shapes, ``YYYY-MM-DD`` or
+	``YYYY-MM-DDThh:mm:ss+00:00``. Only the static-page branch was clean, which is
+	why exactly the two entries that were already correct were the two that had
+	never been through a datetime.
+
+	Dates are what search engines act on here, and a day is the precision a sitemap
+	needs; the time only adds bytes and a second way to be invalid. Anything
+	unparseable falls back to today rather than emitting a broken value, since a
+	wrong-but-valid date is more dangerous than an absent one.
+	"""
+	import datetime as dt
+
+	if isinstance(value, (dt.datetime, dt.date)):
+		return value.strftime("%Y-%m-%d")
+
+	text = str(value or "").strip()
+	# Shape is not validity: "2026-13-45" is the right shape and not a real date,
+	# so the tail is parsed rather than sliced. strptime raises, and an
+	# out-of-range date would otherwise go to Google to be rejected again.
+	for candidate in (text, text[:10]):
+		try:
+			return dt.datetime.strptime(candidate, "%Y-%m-%d").strftime("%Y-%m-%d")
+		except ValueError:
+			continue
+	return dt.date.today().strftime("%Y-%m-%d")
 
 
 def _shop_routes():
