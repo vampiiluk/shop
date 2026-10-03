@@ -49,7 +49,36 @@ def get_context(context):
 	for route, modified in _shop_routes():
 		add(get_url(route), modified)
 
+	add(get_url("") or "/", _home_modified())
+
 	return {"links": [{"loc": loc, "lastmod": lastmod} for loc, lastmod in links.items()]}
+
+
+def _home_modified():
+	"""When the home page last changed.
+
+	The home page is the one URL that cannot be discovered by either of the
+	sweeps above, which is why it was missing: Builder stores its route as
+	``home`` but serves the page at ``/``, so ``get_url("home")`` is a URL that
+	does not resolve, and robots.txt disallows ``/home`` anyway so it must never
+	be advertised. It has to be added by hand, at the URL it is actually served
+	on.
+
+	``lastmod`` comes from the Builder page when it can be read, because a
+	home page that has not changed should not tell a crawler to come back for
+	news. Anything unreadable falls back to today, which is the same rule
+	``_lastmod`` applies to an unparseable value.
+	"""
+	try:
+		row = frappe.get_all(
+			"Builder Page", filters={"route": "home"}, fields=["modified"], limit=1
+		)
+		if row and row[0].get("modified"):
+			return row[0]["modified"]
+	except Exception as exc:
+		frappe.log_error(f"shop sitemap: home page unreadable: {exc}", "Shop Sitemap")
+		frappe.clear_messages()
+	return nowdate()
 
 
 def _lastmod(value) -> str:
