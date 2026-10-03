@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+{# The template has to live here as well as the controller.
+
+   A www route resolves its template first and then loads the controller from
+   whichever app supplied that template. Providing only shop/www/sitemap.py
+   therefore does nothing: frappe/www/sitemap.xml wins the template lookup, so
+   frappe/www/sitemap.py is loaded alongside it and this app's controller is never
+   reached. Byte-identical to Frappe's, so the override changes which links appear
+   and nothing about the XML itself. #}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	{% for link in links %}
+	<url>
+		<loc>{{ link.loc }}</loc>
+		<lastmod>{{ link.lastmod }}</lastmod>
+	</url>
+	{% endfor %}
+</urlset>
