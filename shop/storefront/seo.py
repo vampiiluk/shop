@@ -83,7 +83,21 @@ def store_settings() -> dict:
 	renders rather than being invented here.
 	"""
 	settings = {}
-	for field in ("store_name", "currency", "whatsapp_number", "address_country"):
+	# address_locality / address_postal / return_window_days are newer than some
+	# installs' Shop Settings. get_single_value raises on a column that is not
+	# there, so each is read independently and simply reads as absent rather than
+	# taking the whole structured-data block down with it.
+	for field in (
+		"store_name",
+		"currency",
+		"whatsapp_number",
+		"address_country",
+		"address_locality",
+		"address_postal",
+		"return_window_days",
+		"flat_shipping_rate",
+		"free_shipping_above",
+	):
 		try:
 			settings[field] = frappe.db.get_single_value("Shop Settings", field)
 		except Exception:
@@ -204,7 +218,7 @@ def _organization(settings: dict) -> dict:
 	}
 	contact = {}
 	if settings.get("whatsapp_number"):
-		contact["telephone"] = settings["whatsapp_number"]
+		contact["telephone"] = _e164(settings["whatsapp_number"])
 	if contact:
 		node["contactPoint"] = {
 			"@type": "ContactPoint",
@@ -212,9 +226,67 @@ def _organization(settings: dict) -> dict:
 			"availableLanguage": ["en", "ur"],
 			**contact,
 		}
-	if settings.get("address_country"):
-		node["address"] = {"@type": "PostalAddress", "addressCountry": settings["address_country"]}
+	address = {}
+	if country := _country_code(settings.get("address_country")):
+		address["addressCountry"] = country
+	# The rest of a PostalAddress is per Google's own report optional, and each part
+	# is only emitted once it is actually configured. A guessed street address would
+	# be a false claim about where a business is, printed in search results.
+	if locality := (settings.get("address_locality") or "").strip():
+		address["addressLocality"] = locality
+	if postal := (settings.get("address_postal") or "").strip():
+		address["postalCode"] = postal
+	if address:
+		node["address"] = {"@type": "PostalAddress", **address}
 	return node
+
+
+# Addressed the way a human types it, which is how Default Country is filled in.
+# Small on purpose: only the countries this shop could plausibly be, plus a
+# pass-through for anything already a code. A full table would be a country list
+# masquerading as a lookup, and the setting is editable by hand anyway.
+_COUNTRY_CODES = {
+	"pakistan": "PK",
+	"india": "IN",
+	"united kingdom": "GB",
+	"uk": "GB",
+	"united states": "US",
+	"usa": "US",
+	"united arab emirates": "AE",
+	"uae": "AE",
+	"canada": "CA",
+	"australia": "AU",
+	"turkey": "TR",
+	"turkiye": "TR",
+	"saudi arabia": "SA",
+}
+
+
+def _country_code(value: str | None) -> str | None:
+	"""schema.org wants an ISO 3166-1 alpha-2 code, not a country name.
+
+	The setting holds "Pakistan", which is not a code. Google then cannot build the
+	Country node and reports it as invalid, then reports that node as having no name
+	-- one wrong value, two warnings. Anything already two letters is passed through
+	unchanged so an existing correct setting is not mangled.
+	"""
+	raw = (value or "").strip()
+	if not raw:
+		return None
+	if len(raw) == 2 and raw.isalpha():
+		return raw.upper()
+	return _COUNTRY_CODES.get(raw.lower())
+
+
+def _e164(value: str) -> str:
+	"""telephone wants E.164, which is a leading + and no separators.
+
+	The setting is stored as digits only because that is what wa.me links need, so
+	the plus has to be added here rather than in the data: changing the stored value
+	would change every WhatsApp link built from it.
+	"""
+	digits = re.sub(r"\D", "", value)
+	return f"+{digits}" if digits else value
 
 
 def _website(settings: dict) -> dict:
@@ -276,10 +348,20 @@ def _product_node(product: dict, settings: dict) -> dict:
 	}
 	if product.get("item"):
 		node["sku"] = product["item"]
+	# brand / gtin / mpn are all optional to Google, and all three are claims about
+	# a specific physical item. Emitted only when the catalogue actually carries one:
+	# guessing a brand from the product name is how a catalogue ends up attributing
+	# goods to the wrong manufacturer.
+	if brand := (product.get("brand") or "").strip():
+		node["brand"] = {"@type": "Brand", "name": brand}
+	for field, key in (("gtin", "gtin"), ("mpn", "mpn")):
+		if value := (product.get(field) or "").strip():
+			node[key] = value
 	condition = (product.get("condition") or "").strip()
 	if condition and condition.lower() not in ("", "new", "preloved"):
 		node["itemCondition"] = "https://schema.org/UsedCondition"
-		node["brand"] = {"@type": "Brand", "name": condition}
+		if not product.get("brand"):
+			node["brand"] = {"@type": "Brand", "name": condition}
 	images = _image_urls(product)
 	if images:
 		node["image"] = images
@@ -310,7 +392,136 @@ def _product_node(product: dict, settings: dict) -> dict:
 		# shopper sees; this only ever mattered to a crawler reading markup, and a
 		# crawler was reading it as a broken Offer.
 		node["offers"] = offer
+	# Merchant-listing properties. Both are optional per Google and both are claims
+	# about how the business trades, so each is emitted only once the underlying
+	# number is actually configured. Emitting a rate or a returns window that no one
+	# entered would be inventing a policy and printing it beside the price.
+	if shipping := _shipping_details(settings):
+		node["shippingDetails"] = shipping
+	if policy := _return_policy(settings):
+		node["hasMerchantReturnPolicy"] = policy
+	aggregate, entries = _ratings(product)
+	if aggregate:
+		node["aggregateRating"] = aggregate
+		if entries:
+			node["review"] = entries
 	return node
+
+
+def _shipping_details(settings: dict) -> dict | None:
+	"""OfferShippingDetails, built from the shop's real configured rates.
+
+	The destination is required by Google but must not be invented, so it is left
+	out when the shop has not said where it ships to.
+
+	shippingRate is the flat rate the shop actually charges. It stays the flat rate
+	even when there is a free-shipping threshold, because the threshold is a
+	minimum-order condition rather than the rate: reporting 0.00 would claim every
+	order ships free, which is false for a 799 order under a 5000 threshold.
+	"""
+	if not _number(settings.get("flat_shipping_rate")):
+		return None
+	currency = settings["currency"]
+	node = {
+		"@type": "OfferShippingDetails",
+		"shippingRate": {
+			"@type": "MonetaryAmount",
+			"value": _decimal(settings["flat_shipping_rate"]),
+			"currency": currency,
+		},
+	}
+	if _number(settings.get("free_shipping_above")):
+		node["shippingDestination"] = {
+			"@type": "DefinedRegion",
+			"addressCountry": _country_code(settings.get("address_country")) or "PK",
+		}
+	return node
+
+
+def _return_policy(settings: dict) -> dict | None:
+	"""MerchantReturnPolicy, but only when a return window has been configured.
+
+	The homepage advertises "14 day returns" as theme copy. That string is not
+	configuration, so it cannot be promoted into structured data that Google may show
+	to a shopper as a stated policy -- the number has to come from Shop Settings.
+	"""
+	days = settings.get("return_window_days")
+	if not days or not str(days).strip().lstrip("-").isdigit():
+		return None
+	days = int(days)
+	if days <= 0:
+		return None
+	return {
+		"@type": "MerchantReturnPolicy",
+		"applicableCountry": _country_code(settings.get("address_country")) or "PK",
+		"returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+		"merchantReturnDays": days,
+		"returnMethod": "https://schema.org/ReturnByMail",
+		"returnFees": "https://schema.org/FreeReturn",
+	}
+
+
+def _ratings(product: dict) -> tuple[dict | None, list[dict]]:
+	"""aggregateRating and review, or nothing at all when there are no reviews.
+
+	Fabricated stars are a policy violation, not a cosmetic gap, so this reports
+	only ratings that exist in Shop Review. With an empty table both are None and
+	neither property is emitted.
+	"""
+	name = product.get("name")
+	if not name or not frappe.db.exists("Shop Review", {"product": name}):
+		return None, []
+	from shop.storefront import reviews
+
+	summary = reviews.summary(name)
+	if not summary.get("count"):
+		return None, []
+	aggregate = {
+		"@type": "AggregateRating",
+		"ratingValue": summary["average"],
+		"reviewCount": summary["count"],
+		"bestRating": 5,
+		"worstRating": 1,
+	}
+	rows = frappe.get_all(
+		"Shop Review",
+		filters={"product": name},
+		fields=["reviewer_name", "rating", "title", "review"],
+		order_by="creation desc",
+		limit=5,
+	)
+	out = []
+	for row in rows:
+		if not (row.get("review") or "").strip():
+			continue
+		entry = {
+			"@type": "Review",
+			"reviewRating": {
+				"@type": "Rating",
+				"ratingValue": row["rating"],
+				"bestRating": 5,
+				"worstRating": 1,
+			},
+			"author": {"@type": "Person", "name": row.get("reviewer_name") or "Customer"},
+			"datePublished": str(row.get("creation") or "")[:10],
+			"reviewBody": row["review"],
+		}
+		if (row.get("title") or "").strip():
+			entry["name"] = row["title"]
+		out.append(entry)
+	return aggregate, out
+
+
+def _number(value) -> float | None:
+	try:
+		number = float(value)
+	except (TypeError, ValueError):
+		return None
+	return number if number > 0 else None
+
+
+def _decimal(value) -> str:
+	return f"{float(value):.2f}"
 
 
 def _offer_catalog(settings: dict, products: list[dict] | None) -> dict | None:

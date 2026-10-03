@@ -615,6 +615,24 @@
    "fieldtype": "Small Text",
    "label": "Last Sync Status",
    "read_only": 1
+  },
+  {
+   "fieldname": "address_locality",
+   "fieldtype": "Data",
+   "label": "Store City",
+   "description": "City the shop is in. Published in structured data as addressLocality, so it is a stated location."
+  },
+  {
+   "fieldname": "address_postal",
+   "fieldtype": "Data",
+   "label": "Postal Code",
+   "description": "Postal code for the store. Published as postalCode."
+  },
+  {
+   "fieldname": "return_window_days",
+   "fieldtype": "Int",
+   "label": "Return Window (days)",
+   "description": "How many days a customer has to return an item. Published in structured data as a merchant return policy, so only fill this in if it is your real policy. Leave it at 0 and nothing is published."
   }
  ],
  "issingle": 1,
