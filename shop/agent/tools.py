@@ -31,9 +31,17 @@ from shop.api import variants as variants_api
 
 def _temp_file(suffix: str) -> str:
 	"""A uniquely created temp file (mktemp's names are predictable, so a local
-	process could pre-create or symlink them; this is the atomic version)."""
+	process could pre-create or symlink them; this is the atomic version).
+
+	The os module is imported as _os at the top of this file, to keep it clear
+	which of the several aliased stdlib imports a given call reaches for. This
+	line said `os.close` -- the one bare name in the module, and it raised
+	NameError on every GMS query, so every address verification failed before the
+	scraper was ever invoked. The binary, the browser and the network were all
+	fine; the call site never got that far.
+	"""
 	fd, path = _tempfile.mkstemp(suffix=suffix)
-	os.close(fd)
+	_os.close(fd)
 	return path
 
 
