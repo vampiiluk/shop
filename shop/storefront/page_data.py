@@ -423,7 +423,29 @@ def checkout_page() -> dict:
 	result = checkout.get_checkout_summary()
 	result["store"] = store
 	# Expose store fields at the top level so Builder page_data_script can access them.
-	for key in ("address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions", "raast_instructions"):
+	#
+	# The fingerprint keys are here for the same reason as the address ones: Builder
+	# rebuilds page_data from a fixed key list in the page's page_data_script, so a
+	# value that stays nested under "store" never reaches the browser at all. That
+	# is why Shop Settings could say "creepjs" and every order still recorded
+	# "thumbmarkjs" -- storefront.js found no provider, and its fallback is silent.
+	#
+	# Both sides have to list these: the generator's allowlist tuple and this loop.
+	# Changing one without the other leaves the value stripped at the page boundary
+	# and the symptom exactly as it is today.
+	for key in (
+		"address_cities",
+		"address_provinces",
+		"address_country",
+		"landmark_required",
+		"province_city_map",
+		"cod_allowed_cities",
+		"advance_instructions",
+		"raast_instructions",
+		"fingerprint_provider",
+		"fp_public_key",
+		"fp_region",
+	):
 		result[key] = store.get(key)
 	return result
 

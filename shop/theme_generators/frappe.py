@@ -48,7 +48,8 @@ def generate():
 		("frappe-product", "Product", "product/:slug", product_blocks(refs), "product_page", ("product",), False),
 		("frappe-collection", "Collection", "collection/:slug", collection_blocks(refs), "collection_page", (), False),
 		("frappe-cart", "Cart", "cart", cart_blocks(refs), "cart_page", ("cart",), False),
-		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions", "raast_instructions"), False),
+		("frappe-checkout", "Checkout", "checkout", checkout_blocks(refs), "checkout_page", ("cart", "addresses", "address_cities", "address_provinces", "address_country", "landmark_required", "province_city_map", "cod_allowed_cities", "advance_instructions", "raast_instructions",
+										 "fingerprint_provider", "fp_public_key", "fp_region"), False),
 		(
 			"frappe-order-confirmation",
 			"Order Confirmed",

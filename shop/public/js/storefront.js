@@ -20,6 +20,20 @@
 		const store = storeContext();
 		const provider = store.fingerprint_provider || "thumbmarkjs";
 
+		// Loud, because the alternative is invisible. A provider that never
+		// reaches the page falls back to thumbmarkjs here, and every order then
+		// records "thumbmarkjs" -- which reads as a setting that was applied and
+		// silently was not. It was: Builder rebuilds page_data from a fixed key
+		// list, so a value nested under `store` or missing from that list is
+		// dropped before this code runs, with nothing in any log.
+		if (!store.fingerprint_provider) {
+			console.warn(
+				"[shop] Shop Settings.fingerprint_provider did not reach this page " +
+					"(page_data.store and page_data.fingerprint_provider are both absent). " +
+					`Falling back to "${provider}". Check the page's page_data_script allowlist.`
+			);
+		}
+
 		if (provider === "fingerprintjs-pro") {
 			if (!store.fp_public_key) {
 				return Promise.resolve({ visitorId: "", requestId: "", provider: "fingerprintjs-pro" });
@@ -44,7 +58,16 @@
 		}
 
 		if (provider === "fingerprintjs-oss") {
-			return import("https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fingerprintjs.min.js")
+			// dist/fp.esm.js, not dist/fingerprintjs.min.js. The filename the old
+			// URL named does not exist in the package -- it 404s, so this branch never
+			// ran and the .catch below quietly returned an empty visitorId, which is
+			// indistinguishable at checkout from "the customer has no fingerprint".
+			//
+			// It also has to be the ESM build specifically. dist/fp.min.js is a plain
+			// script that assigns a global; import() of it yields a module with no
+			// exports at all, so .load would be undefined. fp.esm.js is the only one of
+			// the dist files that is a real module.
+			return import("https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs/dist/fp.esm.js")
 				.then((FingerprintJS) => FingerprintJS.load())
 				.then((agent) => agent.get())
 				.then((result) => ({
