@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import frappe
 from frappe.utils import fmt_money
@@ -37,6 +37,14 @@ from frappe.utils import fmt_money
 # about 160. These are budgets to stay inside, not targets to fill.
 TITLE_BUDGET = 60
 DESCRIPTION_BUDGET = 158
+
+# The share card served from the app's own public/ directory. A stable path, not a
+# File doctype record: crawlers cache these URLs hard, and a path that moves when
+# a File is renamed leaves every share that already resolved it pointing at
+# nothing.
+OG_DEFAULT_IMAGE = "/assets/shop/img/og-card.png"
+OG_CARD_WIDTH = 1200
+OG_CARD_HEIGHT = 630
 
 FALLBACK_STORE_NAME = "reloop"
 
@@ -290,11 +298,22 @@ def _e164(value: str) -> str:
 
 
 def _website(settings: dict) -> dict:
+	# `name` is what Google puts beside the results, and `alternateName` is where
+	# the domain goes. Without the second one Google has no sanctioned place to
+	# record that "reloop.pk" is the same thing as "reloop", and it falls back to
+	# printing the host in the title line -- which is what it was doing.
+	#
+	# The pair is only a request, not a command: Google decides what to display
+	# from this plus its own signals, and a change here needs a re-crawl to show
+	# up. It is on the home page's graph on purpose -- that is the page Google
+	# reads the site name from.
+	host = urlparse(site_url("/")).netloc
 	return {
 		"@type": "WebSite",
 		"@id": f"{site_url('/')}#website",
 		"url": site_url("/"),
 		"name": settings["shop_name"],
+		"alternateName": host,
 		"inLanguage": "en",
 		"publisher": {"@id": f"{site_url('/')}#organization"},
 	}
@@ -651,7 +670,15 @@ def seo_for(route: str = "", product: dict | None = None) -> dict:
 	# so its canonical has to be "/" or a crawler is pointed at a URL that does
 	# not exist.
 	canonical = site_url("/" if route in ("", "home") else f"/{route}")
-	image = site_url((product or {}).get("image") or "/assets/shop/images/og-default.webp")
+	# The share card: the site's own lockup, wallpaper and spec strip at 1200x630,
+	# the size every scraper expects. It replaced an auto-generated screenshot of
+	# the page, which went stale the moment the hero copy changed -- a shared link
+	# showed "Made properly" beside a site that says "Collected properly".
+	#
+	# A product photo still wins where there is one, so sharing a product shows
+	# the product rather than the shop card.
+	product_image = (product or {}).get("image")
+	image = site_url(product_image or OG_DEFAULT_IMAGE)
 
 	metatags = {
 		"title": title,
@@ -667,6 +694,16 @@ def seo_for(route: str = "", product: dict | None = None) -> dict:
 		"twitter:description": description,
 		"twitter:image": image,
 	}
+
+	# Dimensions and alt, but only for the shop card. They are what a scraper
+	# uses to lay a card out before it has fetched the image, and several render
+	# a blank box rather than guess. They are NOT declared for a product photo:
+	# product images are whatever the camera produced, and stating the card's
+	# 1200x630 for one would be a lie the scraper acts on.
+	if not product_image:
+		metatags["og:image:width"] = str(OG_CARD_WIDTH)
+		metatags["og:image:height"] = str(OG_CARD_HEIGHT)
+		metatags["og:image:alt"] = f"{settings['shop_name']} — everyday essentials, new and preloved"
 
 	graph = json.dumps(
 		_graph(route, settings, product), ensure_ascii=False, separators=(",", ":")
