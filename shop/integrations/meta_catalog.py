@@ -36,7 +36,9 @@ Variants and condition, both verified against the live catalogue:
   writes) is normalised to Meta's enum: ``new``, ``refurbished``, ``used``.
 """
 
+import hashlib
 import json
+import os
 import re
 import time
 import urllib.error
@@ -365,12 +367,126 @@ def _run_requests(
 
 
 def _absolute(url: str) -> str:
-	"""Absolute URL for a stored (usually root-relative) asset path."""
+	"""Absolute URL for a stored (usually root-relative) asset path.
+
+	The path is percent-encoded. 23 of the 48 product images have a space in the
+	filename ("Image generation_10_03_1806_04.webp"), and a raw space is not a
+	valid URL character: Meta's fetcher rejects it outright, so those products
+	silently had no image at all.
+	"""
 	if not url:
 		return ""
 	if url.startswith(("http://", "https://")):
 		return url
-	return SITE_BASE + ("" if url.startswith("/") else "/") + url
+	parts = urllib.parse.urlsplit(SITE_BASE + ("" if url.startswith("/") else "/") + url)
+	return urllib.parse.urlunsplit(
+		(parts.scheme, parts.netloc, urllib.parse.quote(parts.path), parts.query, parts.fragment)
+	)
+
+
+# Meta's catalogue accepts JPEG and PNG only. Every other raster format — and
+# WebP above all — is refused by the fetcher, which clears image_link rather
+# than storing it. 45 of this shop's 48 product images were WebP, so the
+# catalogue had no imagery at all.
+META_IMAGE_FORMATS = (".jpg", ".jpeg", ".png")
+# Meta's own limit on additional_image_links. Six is the deepest gallery here.
+MAX_IMAGES = 10
+# Longest edge. Large enough for Meta's 600px minimum with room to zoom, small
+# enough that a phone on mobile data still opens the WhatsApp card quickly.
+META_IMAGE_EDGE = 1200
+JPEG_QUALITY = 85
+
+
+def _is_meta_format(path: str) -> bool:
+	return path.lower().split("?")[0].endswith(META_IMAGE_FORMATS)
+
+
+def _jpeg_for(path: str) -> str:
+	"""A JPEG copy of a non-JPEG image, cached as a public File.
+
+	The stored file is the original upload, so there is no JPEG sibling to point
+	at — the conversion has to happen here. The derivative gets a deterministic
+	name derived from the source, so the second sync reuses it instead of
+	converting again, and ``meta_catalog_converted_images`` records which source
+	each one came from so a re-uploaded image gets a fresh copy rather than a
+	stale one.
+
+	Returns the original path unchanged if conversion is not possible. Sending a
+	format Meta may refuse is no worse than sending nothing, and the caller
+	already tolerates a product with no usable image.
+	"""
+	if _is_meta_format(path):
+		return path
+	relative = path.lstrip("/")
+	# Absolute, for the same reason files.py is: site_path is relative when the
+	# bench is driven from the sites directory, and a relative path resolved
+	# against whatever cwd the sync happens to have will silently write the
+	# derivative somewhere that is never served.
+	source = os.path.abspath(os.path.join(frappe.get_site_path(), "public", relative))
+	if not os.path.isfile(source):
+		return path
+
+	stem, ext = os.path.splitext(os.path.basename(relative))
+	ext_or_hash = hashlib.sha1(f"{relative}:{_file_signature(source)}".encode()).hexdigest()[:10]
+	name = f"meta-{stem}-{ext_or_hash}.jpg"
+	target = os.path.join(frappe.get_site_path(), "public", "files", name)
+	target = os.path.abspath(target)
+	if not os.path.isfile(target):
+		try:
+			_convert_to_jpeg(source, target)
+		except Exception as exc:
+			frappe.log_error(
+				title="Meta catalog image conversion failed",
+				message=f"{relative} -> files/{name}: {exc}",
+			)
+			return path
+	return "/files/" + name
+
+
+def _file_signature(path: str) -> str:
+	"""Size and mtime, so an edited image does not reuse an old derivative."""
+	stat = os.stat(path)
+	return f"{stat.st_size}-{int(stat.st_mtime)}"
+
+
+def _convert_to_jpeg(source: str, target: str) -> None:
+	"""Re-encode as JPEG, flattening onto white.
+
+	WebP and PNG can carry an alpha channel and JPEG cannot, so without a
+	flatten the transparent areas of a product shot come out black. Product
+	photography on this shop is shot against white, so white is the right matte.
+	"""
+	from PIL import Image
+
+	with Image.open(source) as img:
+		img.load()
+		if img.mode in ("RGBA", "LA", "P"):
+			img = img.convert("RGBA")
+			matte = Image.new("RGB", img.size, (255, 255, 255))
+			matte.paste(img, mask=img.split()[-1])
+			img = matte
+		else:
+			img = img.convert("RGB")
+		img.thumbnail((META_IMAGE_EDGE, META_IMAGE_EDGE), Image.LANCZOS)
+		os.makedirs(os.path.dirname(target), exist_ok=True)
+		img.save(target, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
+
+
+def _meta_images(images: list[str]) -> tuple[str, list[str]]:
+	"""(image_link, additional_image_links) for one product's gallery.
+
+	Meta treats the two differently on a partial UPDATE: omitting
+	additional_image_links leaves the existing set alone, so a product that
+	temporarily has no convertible image keeps whatever it already had.
+	"""
+	ready: list[str] = []
+	for path in images[:MAX_IMAGES]:
+		url = _absolute(_jpeg_for(path))
+		if url and url not in ready:
+			ready.append(url)
+	if not ready:
+		return "", []
+	return ready[0], ready[1:]
 
 
 def _money(amount: float, currency: str) -> str:
@@ -395,6 +511,7 @@ def _rows(names: list[str] | None = None) -> list:
 			"condition",
 			"item",
 			"has_variants",
+			"meta_google_product_category",
 		],
 		order_by="name",
 	)
@@ -415,7 +532,7 @@ def _context(rows: list) -> dict:
 		# per-variant rates: variants are their own catalogue items now
 		"variant_prices": pricing.get_prices(variant_codes),
 		"variant_attrs": _variant_attrs(variant_codes),
-		"images": catalog.first_images([row.name for row in rows]),
+		"images": catalog.all_images([row.name for row in rows]),
 		"variants": variants,
 		"qtys": stock.get_stock(codes),
 	}
@@ -538,10 +655,15 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 			data["sale_price"] = _money(rate, currency)
 		else:
 			data["price"] = _money(rate, currency)
-	image = ctx["images"].get(product.name)
+	image, extra_images = _meta_images(ctx["images"].get(product.name) or [])
 	if image:
-		data["image_link"] = _absolute(image)
-	if cfg.get("google_category"):
+		data["image_link"] = image
+	if extra_images:
+		data["additional_image_links"] = extra_images
+	category = (getattr(product, "meta_google_product_category", None) or "").strip()
+	if category:
+		data["google_product_category"] = category
+	elif cfg.get("google_category"):
 		data["google_product_category"] = cfg["google_category"]
 	return data
 
@@ -596,6 +718,8 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 				child["price"] = _money(rate, currency)
 		if base.get("image_link"):
 			child["image_link"] = base["image_link"]
+		if base.get("additional_image_links"):
+			child["additional_image_links"] = base["additional_image_links"]
 		if base.get("google_product_category"):
 			child["google_product_category"] = base["google_product_category"]
 		child.update(ctx["variant_attrs"].get(code) or {})
@@ -995,7 +1119,7 @@ def products_for_item(item_code: str) -> list[str]:
 
 
 def on_product_update(doc, method=None) -> None:
-	"""Shop Product saved: push it, or drop it when unpublished."""
+	"""Shop Product saved: push it, drop it when unpublished, and fix its sets."""
 	if _paused() or not active():
 		return
 	if doc.published:
@@ -1016,18 +1140,45 @@ def on_product_update(doc, method=None) -> None:
 			job_id=f"meta-drop-{doc.name}",
 			deduplicate=True,
 		)
+	_push_collections_for_product(doc.name)
 
 
 def on_product_trash(doc, method=None) -> None:
-	"""Shop Product deleted: remove its catalogue entry."""
-	if _paused() or not active() or not doc.meta_product_id:
+	"""Shop Product deleted: remove its catalogue entry and its set memberships."""
+	if _paused() or not active():
+		return
+	if doc.meta_product_id:
+		frappe.enqueue(
+			"shop.integrations.meta_catalog.drop_product",
+			slug=doc.slug,
+			queue="short",
+			enqueue_after_commit=True,
+			job_id=f"meta-drop-{doc.name}",
+			deduplicate=True,
+		)
+	_push_collections_for_product(doc.name)
+
+
+def _push_collections_for_product(product_name: str) -> None:
+	"""Re-sync every set this product is in.
+
+	Product-set membership is stored as retailer_ids, and a product with variants
+	contributes one id per variant, so adding, removing or re-categorising a
+	product changes the membership of its collections. Which collections those
+	are cannot be read from the saved document - membership lives in a child
+	table, and by the time on_update runs the old rows may already be replaced -
+	so the union of before and after is synced, and the diff against Meta in
+	``sync_collection`` is what actually decides the change.
+	"""
+	names = collections_for_product(product_name)
+	if not names:
 		return
 	frappe.enqueue(
-		"shop.integrations.meta_catalog.drop_product",
-		slug=doc.slug,
+		"shop.integrations.meta_catalog.push_collections",
+		names=names,
 		queue="short",
 		enqueue_after_commit=True,
-		job_id=f"meta-drop-{doc.name}",
+		job_id=f"meta-collection-{product_name}",
 		deduplicate=True,
 	)
 
@@ -1058,3 +1209,321 @@ def scheduled_reconcile() -> None:
 	except Exception as exc:
 		frappe.log_error(title="Meta catalog sync failed")
 		_record(f"Sync failed — {_explain(exc)}")
+	try:
+		sync_collections()
+	except Exception as exc:
+		frappe.log_error(title="Meta catalog collection sync failed")
+		_record(f"Collections failed — {_explain(exc)}")
+
+
+# ---------------------------------------------------------------------------
+# Collections.
+#
+# A Shop Collection is a curated group of products, which is what Meta calls a
+# product set. Verified against the live catalogue 1805695184000731:
+#
+# * ``GET  /{catalog}/product_sets?fields=id,name,retailer_id`` lists them.
+#   Meta has already created one, "All Products", with a null retailer_id -
+#   it is not ours and is never touched.
+# * ``POST /{catalog}/product_sets`` with ``{name, retailer_id}`` creates one.
+#   retailer_id is the collection slug, so a set is found rather than
+#   duplicated on the next run.
+# * ``GET  /{set}/products?fields=retailer_id`` lists current members.
+# * ``POST``/``DELETE /{set}/products`` with ``{products: [...]}`` add and
+#   remove them, each answering with a status handle like items_batch.
+#
+# Membership is by catalogue id, not by the product's slug: a product with
+# variants has no row of its own in the catalogue, so every one of its variant
+# items has to be a member or the product is absent from the collection.
+# ---------------------------------------------------------------------------
+
+
+def collections_active() -> bool:
+	"""True when collection syncing is switched on and Meta is configured.
+
+	Separate from ``active()`` because the token that can push products cannot
+	necessarily write product sets. Verified against the live catalogue:
+	``GET /{catalog}/product_sets`` and ``GET /{set}/products`` both answer, but
+	``POST /{catalog}/product_sets`` is refused with "Product set with the same
+	filters already exists" pointing at Meta's own "All Products", and
+	``POST /{set}/products`` answers "Object with ID ... does not exist, cannot be
+	loaded due to permissions". So collection sync stays off until the token can
+	write, rather than failing on every product save.
+	"""
+	return (
+		bool(cint(frappe.db.get_single_value("Shop Settings", "meta_enabled")))
+		and bool(cint(frappe.db.get_single_value("Shop Settings", "meta_sync_collections")))
+		and config() is not None
+	)
+
+
+def collection_rows(names: list[str] | None = None) -> list:
+	"""Published Shop Collections to mirror (optionally limited to these names)."""
+	filters: dict = {"published": 1}
+	if names:
+		filters["name"] = ["in", names]
+	return frappe.get_all(
+		"Shop Collection",
+		filters=filters,
+		fields=["name", "title", "slug"],
+		order_by="name",
+	)
+
+
+def _catalogue_ids(product, ctx: dict) -> list[str]:
+	"""Every catalogue row a product occupies, as retailer_ids.
+
+	A variant product is a group of items in Meta and has no row of its own, so
+	it contributes one id per variant. A simple product contributes its slug.
+	"""
+	codes = (ctx.get("variants") or {}).get(product.item) or []
+	if codes:
+		return [_child_id(product.slug, code) for code in codes]
+	return [product.slug]
+
+
+def _collection_members(collection_name: str, ctx: dict) -> list[str]:
+	"""Catalogue ids of every published product in this collection.
+
+	Reads membership from the product side (``Shop Product.collections``) rather
+	than from a child table on the collection, because that is where the shop
+	stores it: membership is a Table MultiSelect on Shop Product.
+	"""
+	names = frappe.get_all(
+		"Shop Product Collection",
+		filters={"collection": collection_name},
+		fields=["parent"],
+		pluck="parent",
+	)
+	names = frappe.get_all(
+		"Shop Product", filters={"name": ["in", names], "published": 1}, pluck="name"
+	)
+	if not names:
+		return []
+	rows = frappe.get_all(
+		"Shop Product", filters={"name": ["in", names]}, fields=["name", "slug", "item"]
+	)
+	lookup = {r["name"]: r for r in rows}
+	members: list[str] = []
+	for name in names:
+		row = lookup.get(name)
+		if not row:
+			continue
+		members.extend(_catalogue_ids(row, ctx))
+	return sorted(dict.fromkeys(members))
+
+
+def _fetch_sets(cfg: dict) -> dict[str, dict]:
+	"""The product sets this shop can see, keyed by retailer_id then by name.
+
+	Two keys, because a set created in Commerce Manager comes back with no
+	retailer_id at all - Meta only populates that field for sets made through the
+	API. Keying by name as well means a set an admin created by hand is adopted
+	and populated rather than duplicated. Sets with neither are skipped: Meta's
+	own "All Products" carries no retailer_id and its name is not a collection,
+	so it is never renamed or written to.
+	"""
+	url = f"{GRAPH_BASE}/{cfg['catalog_id']}/product_sets"
+	query = urllib.parse.urlencode({"fields": "id,name,retailer_id", "limit": "500"})
+	sets: dict[str, dict] = {}
+	for _ in range(20):
+		page_url = f"{url}?{query}" if query else url
+		result = _graph("GET", page_url, token=cfg["token"] if query else None)
+		query = ""
+		for row in result.get("data") or []:
+			entry = {"id": row["id"], "name": row.get("name") or ""}
+			if row.get("retailer_id"):
+				sets[row["retailer_id"]] = entry
+			elif entry["name"]:
+				sets[f"\x00name\x00{_norm(entry['name'])}"] = entry
+		next_url = (result.get("paging") or {}).get("next")
+		if not next_url:
+			break
+		url, query = next_url, ""
+	return sets
+
+
+def _norm(value: str) -> str:
+	"""Case- and punctuation-insensitive key, so "Toys & Collectables" matches
+	"Toys and Collectables" and a hand-typed name still lines up."""
+	return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _find_set(slug: str, title: str, existing: dict[str, dict]) -> dict | None:
+	"""An existing set for this collection, by retailer_id first, then by name."""
+	return existing.get(slug) or existing.get(f"\x00name\x00{_norm(title)}")
+
+
+def _set_members(cfg: dict, set_id: str) -> list[str]:
+	"""retailer_ids currently in one product set."""
+	url = f"{GRAPH_BASE}/{set_id}/products"
+	query = urllib.parse.urlencode({"fields": "retailer_id", "limit": "500"})
+	members: list[str] = []
+	for _ in range(40):
+		page_url = f"{url}?{query}" if query else url
+		result = _graph("GET", page_url, token=cfg["token"] if query else None)
+		query = ""
+		for row in result.get("data") or []:
+			if row.get("retailer_id"):
+				members.append(row["retailer_id"])
+		next_url = (result.get("paging") or {}).get("next")
+		if not next_url:
+			break
+		url, query = next_url, ""
+	return members
+
+
+def _ensure_set(cfg: dict, slug: str, title: str, existing: dict[str, dict]) -> str:
+	"""The Meta product set id for one collection, creating it if absent."""
+	known = existing.get(slug)
+	if known:
+		if known["name"] != title:
+			_graph("POST", f"{GRAPH_BASE}/{known['id']}", {"name": title}, token=cfg["token"])
+		return known["id"]
+	created = _graph(
+		"POST",
+		f"{GRAPH_BASE}/{cfg['catalog_id']}/product_sets",
+		{"name": title, "retailer_id": slug},
+		token=cfg["token"],
+	)
+	set_id = created.get("id")
+	if not set_id:
+		raise MetaAPIError(f"Meta did not return an id for product set {slug!r}")
+	existing[slug] = {"id": set_id, "name": title}
+	return set_id
+
+
+def sync_collection(name: str, sets: dict[str, dict] | None = None, ctx: dict | None = None) -> dict:
+	"""Mirror one Shop Collection: its product set, and who is in it."""
+	cfg = config()
+	if not cfg:
+		frappe.throw(_("Set the Meta Catalog ID and API key in Shop Settings first."))
+	collection = frappe.db.get_value(
+		"Shop Collection", name, ["title", "slug", "published", "meta_product_set_id"], as_dict=True
+	)
+	if not collection:
+		return {"success": False, "status": "Collection no longer exists"}
+	if not cint(collection.published):
+		return drop_collection_set(collection, cfg)
+
+	slug = (collection.slug or "").strip() or frappe.utils.nowdate()
+	title = (collection.title or slug).strip()
+	own_sets = _fetch_sets(cfg) if sets is None else sets
+	set_id = _ensure_set(cfg, slug, title, own_sets)
+
+	errors: list[str] = []
+	warnings: list[str] = []
+	if ctx is None:
+		ctx = _context(_rows())
+	wanted = _collection_members(name, ctx)
+	current = set(_set_members(cfg, set_id))
+
+	add = [m for m in wanted if m not in current]
+	drop = [m for m in sorted(current) if m not in set(wanted)]
+	for method, batch in (("POST", add), ("DELETE", drop)):
+		if not batch:
+			continue
+		_graph(
+			method,
+			f"{GRAPH_BASE}/{set_id}/products",
+			{"products": batch},
+			token=cfg["token"],
+		)
+
+	if collection.meta_product_set_id != set_id:
+		frappe.db.set_value(
+			"Shop Collection", name, "meta_product_set_id", set_id, update_modified=False
+		)
+
+	status = f"{title}: {len(wanted)} product{'s' if len(wanted) != 1 else ''} on Meta"
+	if add or drop:
+		status += f" (+{len(add)} / -{len(drop)})"
+	return {"success": not errors, "status": status, "set_id": set_id, "added": add, "removed": drop}
+
+
+def sync_collections(names: list[str] | None = None) -> dict:
+	"""Every published collection, sharing one listing of the product sets."""
+	cfg = config()
+	if not cfg:
+		frappe.throw(_("Set the Meta Catalog ID and API key in Shop Settings first."))
+	rows = collection_rows(names)
+	if not rows:
+		return {"success": True, "status": "No published collections", "collections": 0}
+	ctx = _context(_rows())
+	sets = _fetch_sets(cfg)
+	results = []
+	for row in rows:
+		try:
+			results.append(sync_collection(row.name, sets=sets, ctx=ctx))
+		except MetaAPIError as exc:
+			results.append({"success": False, "status": f"{row.title}: {exc}", "set_id": None})
+	frappe.db.commit()
+	failed = [r for r in results if not r["success"]]
+	status = (
+		" · ".join(r["status"] for r in failed)[:240]
+		if failed
+		else f"{len(results)} collection{'s' if len(results) != 1 else ''} on Meta"
+	)
+	_record(status)
+	return {"success": not failed, "status": status, "collections": len(results), "results": results}
+
+
+def drop_collection_set(collection, cfg: dict) -> dict:
+	"""An unpublished collection leaves the catalogue."""
+	slug = (collection.get("slug") or "").strip()
+	set_id = collection.get("meta_product_set_id")
+	if not set_id and slug:
+		set_id = (_fetch_sets(cfg) or {}).get(slug, {}).get("id")
+	if not set_id:
+		return {"success": True, "status": "Collection was never on Meta"}
+	_graph("DELETE", f"{GRAPH_BASE}/{set_id}", token=cfg["token"])
+	if collection.get("name"):
+		frappe.db.set_value(
+			"Shop Collection", collection["name"], "meta_product_set_id", None, update_modified=False
+		)
+	return {"success": True, "status": f"Removed {collection.get('title') or slug} from the catalogue"}
+
+
+def collections_for_product(product_name: str) -> list[str]:
+	"""Shop Collections a product belongs to, by name."""
+	return frappe.get_all(
+		"Shop Product Collection",
+		filters={"parent": product_name},
+		fields=["collection"],
+		pluck="collection",
+	)
+
+
+def on_collection_update(doc, method=None) -> None:
+	"""Shop Collection saved: push the set and its membership."""
+	if _paused() or not active():
+		return
+	frappe.enqueue(
+		"shop.integrations.meta_catalog.push_collections",
+		names=[doc.name],
+		queue="short",
+		enqueue_after_commit=True,
+		job_id=f"meta-collection-{doc.name}",
+		deduplicate=True,
+	)
+
+
+def on_collection_trash(doc, method=None) -> None:
+	"""Shop Collection deleted: take the set out of the catalogue."""
+	if _paused() or not active():
+		return
+	frappe.enqueue(
+		"shop.integrations.meta_catalog.push_collections",
+		names=[doc.name],
+		queue="short",
+		enqueue_after_commit=True,
+		job_id=f"meta-collection-{doc.name}",
+		deduplicate=True,
+	)
+
+
+def push_collections(names: list[str] | None = None) -> dict:
+	"""Enqueued entry point for a collection save, a product save or the hourly run."""
+	if not active():
+		return {"success": False, "status": "Meta catalog sync is off"}
+	return sync_collections(names)

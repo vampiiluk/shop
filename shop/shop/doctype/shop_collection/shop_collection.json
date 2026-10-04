@@ -56,6 +56,15 @@
    "label": "Description"
   },
   {
+   "fieldname": "meta_product_set_id",
+   "fieldtype": "Data",
+   "label": "Meta Product Set ID",
+   "description": "The Meta product set this collection is mirrored to. Written by the sync; do not edit.",
+   "read_only": 1,
+   "print_on": 0,
+   "search_index": 0
+  },
+  {
    "fieldname": "image",
    "fieldtype": "Attach Image",
    "label": "Image",

@@ -430,6 +430,19 @@ def get_meta_sync_progress(run_id: str | None = None) -> dict:
 	return progress_snapshot(run_id)
 
 
+@frappe.whitelist(methods=["POST"])
+def sync_meta_collections() -> dict:
+	"""Push every published Shop Collection to Meta as a product set.
+
+	Separate from ``sync_meta_catalog`` because collections are a different kind
+	of object in Meta - a curated set rather than a row - and the button sits on
+	the collection list rather than in Settings. The hourly reconcile does both.
+	"""
+	only_managers()
+	from shop.integrations.meta_catalog import sync_collections
+	return sync_collections()
+
+
 @frappe.whitelist()
 def get_whatsapp_link() -> dict:
 	"""The shop's WhatsApp links, readable without manager rights.

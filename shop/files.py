@@ -24,9 +24,11 @@ failure leaves the original file alone - an upload must never break.
 """
 
 import os
+import re
 import tempfile
 
 import frappe
+from frappe.utils.data import strip_html
 from PIL import Image, ImageOps
 
 MAX_DIM = 800  # same cap as the re-encoded demo set
@@ -350,3 +352,166 @@ def _cleanup(path) -> None:
 			os.remove(path)
 		except OSError:
 			pass
+
+
+# ---------------------------------------------------------------------------
+# Product images, named and described, when the product is saved.
+#
+# Upload-time hygiene above is deliberately format work and nothing else: at
+# File.before_insert the file has no product to belong to yet, so naming it
+# after one would be a guess. By the time the Shop Product is saved the pairing
+# is known, which is where the rest of the job belongs.
+# ---------------------------------------------------------------------------
+
+# A Data field with no explicit max_length is 140 in Frappe. Read it rather than
+# hardcoding it: an alt_text longer than the limit does not get shortened, it
+# raises CharacterLengthExceededError and the product cannot be saved at all.
+ALT_FALLBACK_LIMIT = 140
+
+
+def alt_limit() -> int:
+	"""The alt_text field's own character limit."""
+	try:
+		field = frappe.get_meta("Shop Product Image").get_field("alt_text")
+		return int(field.max_length or ALT_FALLBACK_LIMIT) if field else ALT_FALLBACK_LIMIT
+	except Exception:
+		return ALT_FALLBACK_LIMIT
+
+
+def already_named(filename: str, slug: str) -> bool:
+	"""True when `filename` is this product's own `{slug}-{n}` name.
+
+	Anchored on the real slug rather than a loose digit pattern: a slug can end
+	in a digit ("...-solar-red-1"), so "/.+-\\d+/" would also match an unrelated
+	upload and skip a rename that still had to happen.
+	"""
+	return bool(re.fullmatch(rf"{re.escape(slug)}-\d+\.[A-Za-z0-9]+", filename or ""))
+
+
+def product_alt_text(doc) -> str:
+	"""Alt text for one of this product's images, from the product's own copy.
+
+	An ``alt`` attribute is read aloud by a screen reader and is the text an
+	image search matches on, so the product name alone understates both. The
+	short description leads, because that is what the admin wrote to describe
+	the thing rather than to name it. A hand-written alt_text always wins: this
+	only fills a blank.
+	"""
+	name = (doc.product_name or "").strip()
+	body = re.sub(r"\s+", " ", strip_html(doc.short_description or doc.description or "")).strip()
+	if body.lower().startswith(name.lower()) and name:
+		body = ""
+	text = f"{name} - {body}" if name and body else (name or body)
+
+	limit = alt_limit()
+	if len(text) <= limit:
+		return text
+	# Cut on a word so the alt does not end mid-word, and drop the separator the
+	# truncation would otherwise leave dangling.
+	clipped = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" -,")
+	return clipped or text[:limit]
+
+
+def rename_product_images(doc) -> None:
+	"""Shop Product hook: name each image `{slug}-{n}` and fill its alt text.
+
+	Idempotent, because it runs on every save: a name that already matches is
+	left alone, so only genuinely new or replaced uploads are moved. Renaming is
+	a plain ``os.replace`` of the bytes plus a repoint of the File doc and every
+	row referencing it, not a re-encode - the upload hook already produced the
+	format, and re-encoding twice would be a second quality loss for nothing.
+
+	A failure on one image is logged and the save continues. A product that
+	cannot be renamed is still a product that should sell; an exception here
+	would block the admin from saving anything about it at all.
+	"""
+	slug = (doc.slug or "").strip()
+	rows = [row for row in (doc.get("images") or []) if (row.image or "").strip()]
+	if not rows:
+		return
+	if not slug:
+		# before_insert assigns the slug from the product name, so on an insert
+		# this is only empty if the product has no name either.
+		return
+
+	for index, row in enumerate(rows, start=1):
+		try:
+			_named_image(doc, row, slug, index)
+		except Exception:
+			frappe.log_error(
+				title="Product image rename failed",
+				message=f"{doc.name} row {index} ({row.image}): {frappe.get_traceback()}",
+			)
+
+		desired = product_alt_text(doc)
+		current = (row.alt_text or "").strip()
+		# Blank is the obvious case. Alt that is exactly the product name counts
+		# too: that is what the importer wrote for every one of the 48 images, so
+		# treating it as "already written" would mean the description never
+		# reaches the alt attribute at all. Anything else was typed by a person
+		# and is left alone.
+		if desired and (not current or current == (doc.product_name or "").strip()):
+			row.alt_text = desired
+
+
+def _named_image(doc, row, slug: str, index: int) -> None:
+	"""Move one image to its `{slug}-{n}` name and repoint everything at it."""
+	old_url = row.image.strip()
+	path = site_file_path(old_url)
+	if not path or not os.path.isfile(path):
+		return  # external url, or already gone; nothing on disk to rename
+
+	path = os.path.abspath(path)
+	current = os.path.basename(path)
+	if already_named(current, slug):
+		return
+
+	directory = os.path.dirname(path)
+	extension_ = os.path.splitext(current)[1].lower() or ".webp"
+
+	from frappe.core.doctype.file.utils import generate_file_name
+
+	wanted = generate_file_name(
+		f"{slug}-{index}{extension_}", is_private=old_url.startswith("/private/")
+	)
+	target = os.path.join(directory, wanted)
+	if os.path.abspath(target) == path:
+		return
+
+	original = os.stat(path)
+	os.replace(path, target)
+	_restore_attributes(target, original)
+
+	prefix = "/private/files/" if old_url.startswith("/private/") else "/files/"
+	new_url = f"{prefix}{wanted}"
+	_repoint(old_url, new_url, wanted, os.path.getsize(target))
+	row.image = new_url
+
+
+def _repoint(old_url: str, new_url: str, new_name: str, size: int) -> None:
+	"""Update the File doc and every storefront row that referenced the old url.
+
+	Another product can hold the same image, and the old file is about to stop
+	existing under its old name, so every reference moves together. In-memory
+	child rows of the document being saved are excluded: their save is coming
+	next and would overwrite anything written behind its back.
+	"""
+	for name in frappe.get_all("File", filters={"file_url": old_url}, pluck="name"):
+		try:
+			frappe.db.set_value(
+				"File",
+				name,
+				{"file_name": new_name, "file_url": new_url, "file_size": size},
+				update_modified=False,
+			)
+		except Exception:
+			pass
+
+	for table, _, child, field in STOREFRONT_CHILD_IMAGE_FIELDS:
+		if not frappe.db.exists("DocType", child):
+			continue
+		frappe.db.set_value(child, {"image": old_url}, field, new_url, update_modified=False)
+	for doctype, field in STOREFRONT_IMAGE_FIELDS:
+		if frappe.db.exists("DocType", doctype) and not is_single(doctype):
+			frappe.db.set_value(doctype, {field: old_url}, field, new_url, update_modified=False)
+

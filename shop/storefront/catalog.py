@@ -262,15 +262,32 @@ def star_string(average: float) -> str:
 def first_images(product_names: list[str]) -> dict:
 	if not product_names:
 		return {}
+	images = {}
+	for parent, image in all_images(product_names).items():
+		images[parent] = image[0]
+	return images
+
+
+def all_images(product_names: list[str]) -> dict:
+	"""Every image per product, in the order the admin arranged them.
+
+	``first_images`` is deliberately lossy — the storefront only ever shows one
+	image per card — so anything that needs the full set (the Meta catalogue
+	sends ``additional_image_links``) has to ask for this instead. Ordering is
+	by ``idx``, so the same image stays the primary one between syncs.
+	"""
+	if not product_names:
+		return {}
 	rows = frappe.get_all(
 		"Shop Product Image",
 		filters={"parent": ["in", product_names]},
 		fields=["parent", "image"],
 		order_by="parent, idx",
 	)
-	images = {}
+	images: dict[str, list[str]] = {}
 	for row in rows:
-		images.setdefault(row.parent, row.image)
+		if row.image:
+			images.setdefault(row.parent, []).append(row.image)
 	return images
 
 

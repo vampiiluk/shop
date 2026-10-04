@@ -583,6 +583,13 @@
    "depends_on": "eval:doc.whatsapp_number"
   },
   {
+   "fieldname": "meta_sync_collections",
+   "fieldtype": "Check",
+   "label": "Sync Collections to Meta",
+   "default": "0",
+   "description": "Mirror each published Shop Collection as a Meta product set, and keep its membership in step. Off until the access token can write product sets: Meta refuses to create a second set on a catalogue that already has one, and answers \"cannot be loaded due to permissions\" for a set the token cannot write."
+  },
+  {
    "description": "Catalogue ID from Commerce Manager, e.g. 1805695184000731.",
    "fieldname": "meta_catalog_id",
    "fieldtype": "Data",

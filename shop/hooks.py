@@ -43,6 +43,14 @@ doc_events = {
 	"Address": {
 		"on_update": "shop.integrations.verification.on_address_update",
 	},
+	"Shop Collection": {
+		# A collection is a Meta product set: created on save, membership re-diffed
+		# against Meta, and taken out of the catalogue when it is unpublished or
+		# deleted. Meta's own "All Products" carries no retailer_id and is never
+		# touched, because it is not ours to rename or delete.
+		"on_update": "shop.integrations.meta_catalog.on_collection_update",
+		"on_trash": "shop.integrations.meta_catalog.on_collection_trash",
+	},
 	"Shop Product": {
 		"on_update": [
 			"shop.integrations.meta_catalog.on_product_update",
