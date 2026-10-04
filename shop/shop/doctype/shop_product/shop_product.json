@@ -160,16 +160,6 @@
    "label": "Meta Product ID",
    "no_copy": 1,
    "read_only": 1
-  },
-  {
-   "fieldname": "meta_google_product_category",
-   "fieldtype": "Data",
-   "label": "Meta Google Product Category",
-   "insert_after": "meta_product_id",
-   "description": "Google product taxonomy path used for this product in the Meta catalogue, e.g. \"Apparel & Accessories > Clothing > Shoes\". Leave empty to fall back to the catalogue-wide default in Shop Settings.",
-   "options": "Google Product Category",
-   "search_index": 0,
-   "print_on": 0
   }
  ],
  "links": [],

@@ -389,8 +389,6 @@ def _absolute(url: str) -> str:
 # than storing it. 45 of this shop's 48 product images were WebP, so the
 # catalogue had no imagery at all.
 META_IMAGE_FORMATS = (".jpg", ".jpeg", ".png")
-# Meta's own limit on additional_image_links. Six is the deepest gallery here.
-MAX_IMAGES = 10
 # Longest edge. Large enough for Meta's 600px minimum with room to zoom, small
 # enough that a phone on mobile data still opens the WhatsApp card quickly.
 META_IMAGE_EDGE = 1200
@@ -472,21 +470,19 @@ def _convert_to_jpeg(source: str, target: str) -> None:
 		img.save(target, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
 
 
-def _meta_images(images: list[str]) -> tuple[str, list[str]]:
-	"""(image_link, additional_image_links) for one product's gallery.
+def _meta_image(image: str) -> str:
+	"""The catalogue's one image for a product, as a URL Meta will accept.
 
-	Meta treats the two differently on a partial UPDATE: omitting
-	additional_image_links leaves the existing set alone, so a product that
-	temporarily has no convertible image keeps whatever it already had.
+	Meta keeps ``image_link`` and discards ``additional_image_links``: verified
+	across three tokens and two catalogues (1805695184000731 and
+	2337544673737481), where a batch carrying both came back with no error, no
+	warning, and one image stored - identical to a control that omitted the
+	extra images entirely. ``/product_images`` does not exist on either
+	catalogue, so there is no second route. One image it is.
 	"""
-	ready: list[str] = []
-	for path in images[:MAX_IMAGES]:
-		url = _absolute(_jpeg_for(path))
-		if url and url not in ready:
-			ready.append(url)
-	if not ready:
-		return "", []
-	return ready[0], ready[1:]
+	if not image:
+		return ""
+	return _absolute(_jpeg_for(image))
 
 
 def _money(amount: float, currency: str) -> str:
@@ -511,7 +507,6 @@ def _rows(names: list[str] | None = None) -> list:
 			"condition",
 			"item",
 			"has_variants",
-			"meta_google_product_category",
 		],
 		order_by="name",
 	)
@@ -532,7 +527,7 @@ def _context(rows: list) -> dict:
 		# per-variant rates: variants are their own catalogue items now
 		"variant_prices": pricing.get_prices(variant_codes),
 		"variant_attrs": _variant_attrs(variant_codes),
-		"images": catalog.all_images([row.name for row in rows]),
+		"images": catalog.first_images([row.name for row in rows]),
 		"variants": variants,
 		"qtys": stock.get_stock(codes),
 	}
@@ -655,16 +650,9 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 			data["sale_price"] = _money(rate, currency)
 		else:
 			data["price"] = _money(rate, currency)
-	image, extra_images = _meta_images(ctx["images"].get(product.name) or [])
+	image = _meta_image(ctx["images"].get(product.name))
 	if image:
 		data["image_link"] = image
-	if extra_images:
-		data["additional_image_links"] = extra_images
-	category = (getattr(product, "meta_google_product_category", None) or "").strip()
-	if category:
-		data["google_product_category"] = category
-	elif cfg.get("google_category"):
-		data["google_product_category"] = cfg["google_category"]
 	return data
 
 
@@ -718,10 +706,6 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 				child["price"] = _money(rate, currency)
 		if base.get("image_link"):
 			child["image_link"] = base["image_link"]
-		if base.get("additional_image_links"):
-			child["additional_image_links"] = base["additional_image_links"]
-		if base.get("google_product_category"):
-			child["google_product_category"] = base["google_product_category"]
 		child.update(ctx["variant_attrs"].get(code) or {})
 		items.append(child)
 	return items
