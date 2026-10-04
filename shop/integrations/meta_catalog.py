@@ -656,19 +656,72 @@ def build_item(product, settings, cfg: dict, ctx: dict) -> dict:
 	return data
 
 
+def _title_with_size(title: str, attrs: dict) -> str:
+	"""A single-variant product's title, with the size spelled out.
+
+	With no options to choose between, the size is the only thing telling the
+	buyer what they are getting, so it goes in the name: "REEBOK CONTINENTAL 80
+	(Size 43)". Meta shows the title as the product name in WhatsApp, and a real
+	variant group's members all share one title, so this is the only place the
+	size can live.
+
+	Only the size is added. Other attributes would crowd the name, and Meta
+	warns about titles that are mostly capitals or punctuation.
+	"""
+	size = str(attrs.get("size") or "").strip()
+	if not size:
+		return title[:TITLE_LIMIT]
+	suffix = f" (Size {size})"
+	if len(title) + len(suffix) <= TITLE_LIMIT:
+		return title + suffix
+	# Trim the product name, never the size: the size is what is being read.
+	return f"{title[: TITLE_LIMIT - len(suffix)].rstrip()}{suffix}"
+
+
 def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 	"""Every catalogue item for one product.
 
-	Simple products stay the single item they always were. A product with
-	variants becomes a Meta product group: one item per variant, all sharing
-	``item_group_id`` with the slug and carrying that variant's own size and
-	color, price, stock and availability. The group's "parent" is virtual —
-	Meta rejects a plain row whose id equals a group id — so the slug row
-	only exists while the product has no variants.
+	A product with one variant is pushed as a plain single item, never as a
+	group. A Meta product group whose only member is itself does not work in
+	WhatsApp: there is nothing to choose between, so the options never resolve
+	and add-to-cart fails. That is a property of a group of one, not of groups
+	— a group with two or more members lists its options and buys fine. So the
+	held size is written into the title instead of being offered as a choice,
+	and the row carries no ``item_group_id``, which leaves Meta filing it under
+	its own synthetic ``product_default_group<catalogue><retailer_id>`` rather
+	than a real product group. (Verified against the live catalogue: a plain
+	upsert under an id that a group once used is accepted, and reads back in
+	that synthetic group.)
+
+	A product with two or more variants still becomes a real group: one item
+	per variant, all sharing ``item_group_id`` with the slug and carrying that
+	variant's own size and color, price, stock and availability.
+
+	Nothing here changes what the shop sells or how it stores the product. This
+	is only the shape Meta receives, and the sole thing being decided by the
+	variant count: a group is worth creating when there is a choice in it.
 	"""
 	variant_codes = ctx["variants"].get(product.item) or []
 	if not variant_codes:
 		return [build_item(product, settings, cfg, ctx)]
+
+	if len(variant_codes) == 1:
+		code = variant_codes[0]
+		attrs = ctx["variant_attrs"].get(code) or {}
+		qty = ctx["qtys"].get(code, 0.0)
+		always_available = cint(settings.allow_out_of_stock) or not frappe.get_cached_value(
+			"Item", product.item, "is_stock_item"
+		)
+		in_stock = always_available or qty > 0
+		# build_item totals stock over every variant and prices at the
+		# product's lowest rate; with one variant that is already this
+		# variant's own, so only the title and availability need adjusting.
+		item = build_item(product, settings, cfg, ctx)
+		item["title"] = _title_with_size(item["title"], attrs)
+		item["availability"] = "in stock" if in_stock else "out of stock"
+		item["quantity_to_sell_on_facebook"] = max(int(qty), 1) if in_stock else 0
+		item.update(attrs)
+		return [item]
 
 	base = build_item(product, settings, cfg, ctx)
 	always_available = cint(settings.allow_out_of_stock) or not frappe.get_cached_value(
@@ -870,10 +923,11 @@ def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, kee
 
 	With pruning (a full sync): everything belonging to an unpublished Shop
 	Product — its own row and its variant-group members alike. For every
-	product just pushed, additionally its old single-item row (now that it
-	has variants) and variant items for versions no longer sold. Entries
-	that match no product at all — added by hand in Commerce Manager — are
-	never touched.
+	product just pushed, additionally variant items for versions no longer
+	sold, and for a product back down to a single variant, the group member
+	left over from when it was a group (see ``build_items``). Entries that
+	match no product at all — added by hand in Commerce Manager — are never
+	touched.
 	"""
 	stale: set[str] = set()
 	if prune:
@@ -888,6 +942,15 @@ def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, kee
 		codes = variants.get(row.item) or []
 		if not codes:
 			continue  # simple product: its own row is current
+		if len(codes) == 1:
+			# Pushed as a plain row under the slug, size in the title (see
+			# build_items). Any member still sitting in this product's group
+			# is left over from when it was a group of one, which does not
+			# work in WhatsApp, so it goes.
+			for rid, entry in catalog.items():
+				if entry["group"] == row.slug:
+					stale.add(rid)
+			continue
 		expected = {_child_id(row.slug, code) for code in codes}
 		if row.slug in catalog and not keep_legacy:
 			# the pre-variant single-item row; kept when the push errored so
@@ -952,11 +1015,15 @@ def _sync(
 		if progress:
 			progress.set("prune", "active", f"{len(stale)} outdated item{'s' if len(stale) != 1 else ''}")
 		if stale:
-			deleted, prune_errors, prune_warnings = _run_requests(
+			# _run_requests returns the count sent and appends to the lists it
+			# is handed, so the outcome is collected in local lists first.
+			prune_errors: list[str] = []
+			prune_warnings: list[str] = []
+			deleted = _run_requests(
 				cfg,
 				[{"method": "DELETE", "data": {"id": rid}} for rid in stale],
-				[],
-				[],
+				prune_errors,
+				prune_warnings,
 				progress=progress,
 				key="prune",
 			)
