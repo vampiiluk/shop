@@ -2,6 +2,14 @@
 
 import frappe
 
+# Bump whenever shop/public/js/storefront.js changes behaviour. It is served
+# from /assets, which Cloudflare caches immutably for a year, so a browser
+# holding an older copy of the page keeps asking for the same URL. The query
+# string is what gives the new file a cache key of its own. Every Builder Page
+# that loads the script has to be repointed as well as new pages picking this
+# up from here.
+STOREFRONT_JS_VERSION = 31
+
 
 def block(
 	element: str = "div",
@@ -152,7 +160,7 @@ def upsert_page(
 			"blocks": frappe.as_json(blocks),
 			"draft_blocks": None,
 			"page_data_script": data_script,
-			"body_html": '<script src="/assets/shop/js/storefront.js?v=30" defer></script>',
+			"body_html": f'<script src="/assets/shop/js/storefront.js?v={STOREFRONT_JS_VERSION}" defer></script>',
 			"authenticated_access": 1 if authenticated_access else 0,
 			"meta_description": meta_description,
 			"client_scripts": [],

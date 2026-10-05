@@ -1133,7 +1133,12 @@
 
 		const provinceMap = store.province_city_map || {};
 		const allProvinces = Object.keys(provinceMap);
-		const allCities = store.address_cities || [];
+		// page_data hands address_cities over as repeater rows ([{name}]), but
+		// province_city_map's values are already plain strings. Compare and
+		// render one shape, or every lookup here silently misses.
+		const allCities = (store.address_cities || [])
+			.map((row) => (row && typeof row === "object" ? row.name || "" : row))
+			.filter(Boolean);
 
 		const stateInput = form.querySelector('[name="state"]');
 		const cityInput = form.querySelector('[name="city"]');
@@ -1190,8 +1195,8 @@
 			else if (previous) select.value = previous;
 		});
 		// Native <select> pair (what the generated themes render): wire the
-		// bidirectional cascade — picking a city selects its province, and
-		// picking a province clears a city that is not one of its own.
+		// bidirectional cascade — picking a province narrows the city list to
+		// that province's cities, and picking a city selects its province.
 		if (stateInput && stateInput.tagName === "SELECT") {
 			if (cityInput && cityInput.tagName === "SELECT" && allProvinces.length) {
 				const cityToProvince = {};
@@ -1206,6 +1211,39 @@
 					);
 					return key ? provinceMap[key] : null;
 				};
+
+				// Rebuild the city's <option>s in place. Replacing the <select>
+				// itself would drop the name, id, required and aria-label the form
+				// reads on submit, so the options are swapped instead. The disabled
+				// empty placeholder added above is kept so the label still shows
+				// while nothing is chosen.
+				const setCityOptions = (cities) => {
+					const first = cityInput.options[0];
+					const placeholder =
+						first && !first.value && first.disabled ? first : null;
+					const previous = cityInput.value;
+					while (cityInput.options.length) cityInput.remove(0);
+					if (placeholder) cityInput.appendChild(placeholder);
+					cities.forEach((city) => {
+						const option = document.createElement("option");
+						option.value = city;
+						option.textContent = city;
+						cityInput.appendChild(option);
+					});
+					// Keep the chosen city when the new province still has it,
+					// otherwise leave the select on the placeholder rather than
+					// showing a value that is no longer in the list.
+					const kept = cities.some(
+						(c) => String(c).trim().toLowerCase() === previous.trim().toLowerCase()
+					);
+					cityInput.value = kept ? previous : "";
+					return kept;
+				};
+
+				// With no province chosen the full list stands: narrowing to
+				// nothing would make the city unselectable.
+				if (!stateInput.value.trim()) setCityOptions(allCities);
+
 				cityInput.addEventListener("change", () => {
 					const city = cityInput.value.trim();
 					if (!city) return;
@@ -1220,12 +1258,8 @@
 					}
 				});
 				stateInput.addEventListener("change", () => {
-					const city = cityInput.value.trim();
-					if (!city) return;
-					const cities = citiesFor(stateInput.value);
-					if (!(cities || []).some((c) => String(c).trim().toLowerCase() === city.toLowerCase())) {
-						cityInput.value = "";
-					}
+					const chosen = stateInput.value.trim();
+					setCityOptions(chosen ? citiesFor(chosen) || [] : allCities);
 				});
 			}
 			return;

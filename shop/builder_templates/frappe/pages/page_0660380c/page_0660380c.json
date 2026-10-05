@@ -3087,7 +3087,7 @@
    "tabletStyles": {}
   }
  ],
- "body_html": "<script src=\"/assets/shop/js/storefront.js?v=20\" defer></script>",
+ "body_html": "<script src=\"/assets/shop/js/storefront.js?v=31\" defer></script>",
  "client_scripts": [
   {
    "builder_script": "frappe-styles"
@@ -3102,14 +3102,14 @@
  "idx": 0,
  "is_standard": 0,
  "is_template": 1,
- "modified": "2026-09-26 15:32:42.354587",
+ "modified": "2026-10-03 23:55:35.981130",
  "modified_by": "Administrator",
  "name": "page-0660380c",
  "owner": "Administrator",
  "page_data_script": "result = frappe.call(\"shop.storefront.page_data.order_confirmation\")\ndata.update(result)",
  "page_name": "page-0660380c",
  "page_title": "Order Confirmed",
- "preview": "/assets/builder/images/fallback.png",
+ "preview": "/assets/shop/img/og-card.png",
  "project_folder": null,
  "published": 0,
  "published_at": null,

@@ -704,7 +704,7 @@
    "tabletStyles": {}
   }
  ],
- "body_html": "<script src=\"/assets/shop/js/storefront.js?v=20\" defer></script>",
+ "body_html": "<script src=\"/assets/shop/js/storefront.js?v=31\" defer></script>",
  "client_scripts": [
   {
    "builder_script": "frappe-styles"
@@ -719,14 +719,14 @@
  "idx": 0,
  "is_standard": 0,
  "is_template": 1,
- "modified": "2026-09-26 15:32:42.066321",
+ "modified": "2026-10-03 23:55:36.062985",
  "modified_by": "Administrator",
  "name": "page-fc736ff4",
  "owner": "Administrator",
  "page_data_script": "result = frappe.call(\"shop.storefront.page_data.collection_page\")\ndata.update(result)",
  "page_name": "page-fc736ff4",
  "page_title": "Collection",
- "preview": "/assets/builder/images/fallback.png",
+ "preview": "/assets/shop/img/og-card.png",
  "project_folder": null,
  "published": 0,
  "published_at": null,

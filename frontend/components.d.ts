@@ -34,6 +34,7 @@ declare module 'vue' {
     CatalogStockControl: typeof import('./src/components/CatalogStockControl.vue')['default']
     CatalogVariantImageDialog: typeof import('./src/components/CatalogVariantImageDialog.vue')['default']
     CatalogVariantsPanel: typeof import('./src/components/CatalogVariantsPanel.vue')['default']
+    CodCityPicker: typeof import('./src/components/CodCityPicker.vue')['default']
     CollectionDialog: typeof import('./src/components/CollectionDialog.vue')['default']
     CommandPalette: typeof import('./src/components/CommandPalette.vue')['default']
     CommandPaletteItem: typeof import('./src/components/CommandPaletteItem.vue')['default']
