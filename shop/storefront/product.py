@@ -60,8 +60,8 @@ def store_whatsapp_url(doc) -> str:
 	behind from before. With no number anywhere the key is '' and the
 	storefront's Buy on WhatsApp button hides itself (its visibility condition
 	is falsy)."""
-	from shop.integrations.meta_catalog import SITE_BASE
 	from shop.storefront import pickup
+	from shop.storefront.urls import SITE_BASE
 
 	settings = frappe.get_cached_doc("Shop Settings")
 	number = (settings.get("whatsapp_number") or "").strip()

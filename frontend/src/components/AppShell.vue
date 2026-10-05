@@ -35,7 +35,7 @@
 						</router-link>
 						<a
 							v-if="group.label === 'Store'"
-							href="/"
+							:href="storeHref"
 							target="_blank"
 							rel="noreferrer noopener"
 							class="flex items-center gap-2 rounded px-2 py-1.5 text-base text-ink-gray-7 transition hover:bg-surface-gray-2"
@@ -69,8 +69,16 @@ import { KeyboardShortcut } from 'frappe-ui'
 import AppCommandPalette from '@/components/AppCommandPalette.vue'
 import { session } from '@/stores/session'
 import { navGroups } from '@/utils/navigation'
+import { storefrontBase } from '@/utils/storefront'
 
 const route = useRoute()
+
+// Absolute, because the desk and the shop are different hosts: a relative "/"
+// here would open the desk again.
+const storeHref = ref('/')
+storefrontBase()
+	.then((base) => (storeHref.value = base || '/'))
+	.catch(() => {})
 const showCommandPalette = ref(false)
 
 const isActive = (item: { route: string }) => {

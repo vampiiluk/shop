@@ -132,6 +132,22 @@ EDITABLE = (
 
 
 @frappe.whitelist()
+def get_storefront_url() -> dict:
+	"""Where the storefront lives, for links out of the desk.
+
+	The desk is served from desk.reloop.pk and the shop from reloop.pk, so a
+	root-relative link in the desk opens the desk instead of the shop. Every
+	"view on the storefront" control needs the absolute origin.
+
+	This is its own endpoint rather than a field on get_settings because the
+	shell needs it on every page and only the settings screen loads that.
+	"""
+	from shop.storefront.urls import SITE_BASE
+
+	return {"storefront_base_url": SITE_BASE}
+
+
+@frappe.whitelist()
 def get_settings() -> dict:
 	only_managers()
 	settings = frappe.get_doc("Shop Settings")

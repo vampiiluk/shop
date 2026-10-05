@@ -50,7 +50,7 @@
 								<span>{{ row.reviewer_name }}</span>
 								<span>on</span>
 								<a
-									:href="`/product/${row.product}`"
+									:href="reviewHref(row.product)"
 									target="_blank"
 									class="text-ink-gray-6 underline hover:text-ink-gray-8"
 								>
@@ -84,6 +84,19 @@ import LucideTrash2 from '~icons/lucide/trash-2'
 import CatalogListState from '@/components/CatalogListState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import CatalogRatingStars from '@/components/CatalogRatingStars.vue'
+import { storefrontBase } from '@/utils/storefront'
+
+// Absolute, because the desk and the shop are different hosts: a relative
+// "/product/…" here opens the desk. One fetch for the page, and the hrefs become
+// absolute as soon as it lands.
+const storeBase = ref('')
+storefrontBase()
+	.then((base) => (storeBase.value = base))
+	.catch(() => {})
+
+function reviewHref(slug: string): string {
+	return storeBase.value ? `${storeBase.value}/product/${slug}` : `/product/${slug}`
+}
 
 interface ReviewRow {
 	name: string

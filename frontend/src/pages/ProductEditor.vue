@@ -200,7 +200,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, watchEffect } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Autocomplete, Button, FormControl, Switch, TextEditor, call, dialog, toast } from 'frappe-ui'
 
@@ -212,6 +212,7 @@ import CatalogOptionsEditor, { optionsError, type ProductOption } from '@/compon
 import CatalogProductHeader from '@/components/CatalogProductHeader.vue'
 import CatalogProductSkeleton from '@/components/CatalogProductSkeleton.vue'
 import CatalogSection from '@/components/CatalogSection.vue'
+import { productUrl } from '@/utils/storefront'
 import CatalogStockControl from '@/components/CatalogStockControl.vue'
 import CatalogVariantsPanel from '@/components/CatalogVariantsPanel.vue'
 
@@ -272,11 +273,26 @@ const title = computed(() => {
 	return isLink.value ? 'Link existing item' : 'New product'
 })
 
-const storefrontUrl = computed(() =>
-	isEdit.value && detail.value?.slug ? `/product/${detail.value.slug}` : undefined,
-)
+const storefrontUrl = ref<string>()
+const slugHint = ref('')
 
-const slugHint = computed(() => `Storefront URL: /product/${form.slug || detail.value?.slug || ''}`)
+watchEffect(() => {
+	const slug = (isEdit.value ? detail.value?.slug : '') || form.slug
+	if (!slug) {
+		storefrontUrl.value = undefined
+		slugHint.value = ''
+		return
+	}
+	productUrl(slug)
+		.then((url) => {
+			slugHint.value = `Storefront URL: ${url}`
+			storefrontUrl.value = isEdit.value && detail.value?.slug ? url : undefined
+		})
+		.catch(() => {
+			slugHint.value = `Storefront URL: /product/${slug}`
+			storefrontUrl.value = undefined
+		})
+})
 
 const variantPricing = computed(() =>
 	isEdit.value ? !!detail.value?.has_variants : isLink.value && itemHasVariants.value,
