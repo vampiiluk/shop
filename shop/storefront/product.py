@@ -3,7 +3,7 @@ from urllib.parse import quote
 import frappe
 
 from shop.phone import chat_url
-from shop.storefront import pricing, stock
+from shop.storefront import images, pricing, stock
 
 
 @frappe.whitelist(allow_guest=True)
@@ -27,7 +27,7 @@ def get_product(slug: str) -> dict:
 		"highlights": [
 			{"label": line.strip()} for line in (doc.highlights or "").splitlines() if line.strip()
 		],
-		"images": [{"image": row.image, "alt_text": row.alt_text} for row in doc.images],
+		"images": images.product_images(doc),
 		"collections": product_collections(doc),
 		"rating": reviews.summary(doc.name),
 	}

@@ -2,6 +2,7 @@ import frappe
 from frappe.utils import cint, flt
 
 from shop.storefront import pricing, stock
+from shop.storefront.images import first_images
 
 MAX_PAGE_SIZE = 60
 MAX_CATALOG_SIZE = 500
@@ -257,21 +258,6 @@ def apply_compare_at(target, price) -> None:
 def star_string(average: float) -> str:
 	full = int(flt(average) + 0.5)
 	return "★" * full + "☆" * (5 - full)
-
-
-def first_images(product_names: list[str]) -> dict:
-	if not product_names:
-		return {}
-	rows = frappe.get_all(
-		"Shop Product Image",
-		filters={"parent": ["in", product_names]},
-		fields=["parent", "image"],
-		order_by="parent, idx",
-	)
-	images = {}
-	for row in rows:
-		images.setdefault(row.parent, row.image)
-	return images
 
 
 def display_prices(products: list) -> dict:
