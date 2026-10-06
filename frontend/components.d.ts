@@ -47,6 +47,7 @@ declare module 'vue' {
     JsonTree: typeof import('./src/components/JsonTree.vue')['default']
     OrderStatusBadge: typeof import('./src/components/OrderStatusBadge.vue')['default']
     PickupLocationsEditor: typeof import('./src/components/PickupLocationsEditor.vue')['default']
+    ProviderHealthStrip: typeof import('./src/components/ProviderHealthStrip.vue')['default']
     ProvinceCityEditor: typeof import('./src/components/ProvinceCityEditor.vue')['default']
     RelatedOrdersPanel: typeof import('./src/components/RelatedOrdersPanel.vue')['default']
     ReturnRequestActions: typeof import('./src/components/ReturnRequestActions.vue')['default']

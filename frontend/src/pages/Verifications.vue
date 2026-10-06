@@ -17,6 +17,10 @@
 			</template>
 		</UiPageHeader>
 
+			<div class="mt-6">
+				<ProviderHealthStrip @attention="showAttentionOnly" />
+			</div>
+
 			<div class="mb-6 mt-6 grid grid-cols-4 gap-4">
 				<div class="rounded-lg border border-outline-gray-1 p-4">
 					<div class="text-sm text-ink-gray-5">Total Addresses</div>
@@ -41,21 +45,39 @@
 				<span>
 					{{
 						queueRunning
-							? `Processing verification queue — ${queuePending} addresses remaining`
-							: `${queuePending} addresses awaiting verification — press Process Queue to start`
+							? `Processing verification queue — ${queuePending} address${queuePending === 1 ? '' : 'es'} remaining`
+							: `${queuePending} address${queuePending === 1 ? '' : 'es'} awaiting verification — press Process Queue to start`
 					}}
 				</span>
 			</div>
 
-			<div class="mb-4 flex gap-3">
+			<div class="mb-4 flex flex-wrap items-center gap-3">
 				<Input v-model="vFilters.search" placeholder="Search addresses..." class="w-64" @input="loadVerifications" />
 				<Select v-model="vFilters.ors_status" :options="vOrsStatusOptions" placeholder="ORS Status" class="w-40" @change="loadVerifications" />
 				<Select v-model="vFilters.gms_status" :options="vGmsStatusOptions" placeholder="GMS Status" class="w-40" @change="loadVerifications" />
 				<Select v-model="vFilters.source" :options="vSourceOptions" placeholder="Source" class="w-40" @change="loadVerifications" />
+				<button
+					type="button"
+					class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
+					:class="vFilters.needs_attention
+						? 'border-amber-300 bg-amber-50 text-amber-800'
+						: 'border-outline-gray-2 text-ink-gray-6 hover:bg-surface-gray-2'"
+					@click="toggleAttention"
+				>
+					<span class="lucide-triangle-alert size-4" />
+					Needs attention
+					<span v-if="vAttentionCount" class="rounded bg-amber-200/70 px-1.5 text-xs font-medium text-amber-900">
+						{{ vAttentionCount }}
+					</span>
+				</button>
 				<Button v-if="vHasFilters" variant="ghost" size="sm" @click="clearVFilters">Clear</Button>
 			</div>
 
-			<div class="rounded-lg border border-outline-gray-1">
+			<!-- overflow-x-auto so a wider cell scrolls instead of clipping. Nine
+				columns at max-w-5xl leave ~20px of slack, and when the ORS cell
+				grew to two lines the table went past it and the Re-verify button -
+				the only action on the row - was cut off with no scrollbar to find it. -->
+			<div class="overflow-x-auto rounded-lg border border-outline-gray-1">
 				<div v-if="vLoading" class="flex justify-center py-12">
 					<Spinner class="size-5" />
 				</div>
@@ -80,11 +102,24 @@
 							class="border-b border-outline-gray-1 hover:bg-surface-gray-2 cursor-pointer"
 							@click="$router.push(`/verifications/${row.name}`)"
 						>
-							<td class="max-w-xs truncate px-3 py-2">{{ row.address_line1 }}</td>
+							<!-- max-w-[17rem] rather than max-w-xs (20rem): with nine columns the table
+								wanted 996px inside a 974px card, and the extra 48px came straight
+								out of this column. The address is already truncated with an
+								ellipsis and the full text is on the detail page, so nothing is lost. -->
+							<td class="max-w-[17rem] truncate px-3 py-2" :title="row.address_line1">{{ row.address_line1 }}</td>
 							<td class="px-3 py-2">{{ row.city }}</td>
 							<td class="px-3 py-2">{{ row.landmark }}</td>
 							<td class="px-3 py-2 text-center">
-								<UiStatusBadge :theme="statusTheme(row.ors_status)" :label="row.ors_status" />
+								<!-- "Failed" is two different problems wearing one word: the call
+									erroring, and the geocoder answering confidently with the wrong
+									place. Only the second is a rejection, and it is the one worth
+									spotting, because the score was written as if the customer were
+									risky when the provider was simply wrong. -->
+								<template v-if="row.ors_rejected">
+									<UiStatusBadge theme="amber" label="Rejected" />
+									<div class="mt-0.5 whitespace-nowrap text-[11px] text-ink-gray-4" :title="orsRejectionTitle(row)">no match</div>
+								</template>
+								<UiStatusBadge v-else :theme="statusTheme(row.ors_status)" :label="row.ors_status" />
 							</td>
 							<td class="px-3 py-2 text-center">
 								<UiStatusBadge :theme="statusTheme(row.gms_status)" :label="row.gms_status" />
@@ -148,6 +183,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Button, Dialog, Input, Select, Spinner, createResource, toast } from 'frappe-ui'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import ProviderHealthStrip from '@/components/ProviderHealthStrip.vue'
 
 const csrfToken = computed(() => (window as any).csrf_token || '')
 
@@ -163,11 +199,33 @@ const vRows = ref<any[]>([])
 const vTotal = ref(0)
 const vOffset = ref(0)
 const vPageSize = 50
-const vFilters = ref({ search: '', ors_status: '', gms_status: '', source: '' })
+const vFilters = ref({ search: '', ors_status: '', gms_status: '', source: '', needs_attention: '' })
 
 const vHasFilters = computed(() =>
-	vFilters.value.search || vFilters.value.ors_status || vFilters.value.gms_status || vFilters.value.source
+	!!(
+		vFilters.value.search
+		|| vFilters.value.ors_status
+		|| vFilters.value.gms_status
+		|| vFilters.value.source
+		|| vFilters.value.needs_attention
+	)
 )
+
+// Mirrors the count the health strip reports, so the filter chip can show what
+// it would select without a second round trip.
+const vAttentionCount = ref(0)
+
+function toggleAttention() {
+	vFilters.value.needs_attention = vFilters.value.needs_attention ? '' : '1'
+	vOffset.value = 0
+	loadVerifications()
+}
+
+function showAttentionOnly() {
+	vFilters.value.needs_attention = '1'
+	vOffset.value = 0
+	loadVerifications()
+}
 
 const vOrsStatusOptions = [
 	{ label: 'All', value: '' },
@@ -205,6 +263,7 @@ async function fetchVData() {
 	if (vFilters.value.ors_status) params.set('ors_status', vFilters.value.ors_status)
 	if (vFilters.value.gms_status) params.set('gms_status', vFilters.value.gms_status)
 	if (vFilters.value.source) params.set('source', vFilters.value.source)
+	if (vFilters.value.needs_attention) params.set('needs_attention', vFilters.value.needs_attention)
 	params.set('limit', String(vPageSize))
 	params.set('offset', String(vOffset.value))
 	const resp = await fetch(`/api/method/shop.api.verification.get_verifications?${params.toString()}`, {
@@ -221,13 +280,29 @@ async function loadVerifications() {
 		const data = await fetchVData()
 		vRows.value = data.rows
 		vTotal.value = data.total
+		// The attention count is the unfiltered size of that set, so read it from
+		// the stats endpoint rather than from the current rows, which may be a
+		// filtered and paginated page.
+		await refreshAttentionCount()
 	} finally {
 		vLoading.value = false
 	}
 }
 
+async function refreshAttentionCount() {
+	try {
+		const resp = await fetch('/api/method/shop.api.verification.get_provider_health?days=7', {
+			headers: { 'X-Frappe-CSRF-Token': csrfToken.value },
+		})
+		const json = await resp.json()
+		vAttentionCount.value = json.message?.needs_attention ?? 0
+	} catch {
+		vAttentionCount.value = 0
+	}
+}
+
 function clearVFilters() {
-	vFilters.value = { search: '', ors_status: '', gms_status: '', source: '' }
+	vFilters.value = { search: '', ors_status: '', gms_status: '', source: '', needs_attention: '' }
 	vOffset.value = 0
 	loadVerifications()
 }function vPrevPage() {
@@ -244,6 +319,19 @@ function statusTheme(status: string) {
 	if (status === 'Pending' || status === 'Queued') return 'amber'
 	if (status === 'Failed') return 'red'
 	return 'gray'
+}
+
+const REJECTION_HINTS: Record<string, string> = {
+	fallback_match: 'The geocoder returned a fallback match — a fallback is not a location. It found no street and gave back something plausible anyway.',
+	country_mismatch: 'The geocode resolved to a country this shop does not deliver to.',
+	not_found: 'The geocoder returned no result for this address.',
+}
+
+function orsRejectionTitle(row: any) {
+	return (
+		REJECTION_HINTS[row.ors_rejection_reason]
+		?? 'The geocoder answered, but not with this address. Nothing was charged to the customer for it.'
+	)
 }
 
 function countLinks(orders: string) {
