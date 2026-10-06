@@ -170,10 +170,13 @@ const SIGNAL_LABELS: Record<string, string> = {
 	user_country_mismatch: 'Country mismatch (IP vs stated)',
 	province_mismatch: 'Province mismatch',
 	wrong_country: 'Wrong country',
+	unknown_city: 'City not in the delivery list',
 	city_mismatch: 'City mismatch',
 	geo_not_found: 'Geocoder found nothing',
 	geo_unavailable: 'Geocoder unavailable',
+	geo_provider_failed: 'Geocoder could not answer',
 	missing_landmark: 'Landmark missing',
+	address_prior_failures: 'Previous deliveries failed here',
 	gms_landmark: 'Landmark confirmed on maps',
 }
 
@@ -183,18 +186,64 @@ const riskSignals = computed(() => {
 	for (const [key, label] of Object.entries(SIGNAL_LABELS)) {
 		if (!(key in d)) continue
 		const val = d[key]
-		if (typeof val === 'object' && val !== null && key === 'gms_landmark') {
-			rows.push({
-				label,
-				value: val.matched ? `matched (${val.hits}/${val.total_results})` : `not matched (${val.hits}/${val.total_results})`,
-				bad: !val.matched,
-			})
-		} else if (typeof val === 'boolean') {
+		if (val && typeof val === 'object') {
+			if (key === 'gms_landmark') {
+				rows.push({
+					label,
+					value: val.matched
+						? `matched (${val.hits}/${val.total_results})`
+						: `not matched (${val.hits}/${val.total_results})`,
+					bad: !val.matched,
+				})
+			}
+			continue
+		}
+		if (typeof val === 'boolean') {
 			rows.push({ label, value: val ? 'yes' : 'no', bad: val })
+			continue
+		}
+		// A string value is the signal's subject, not a truth value: the country
+		// a geocode resolved to, the province the customer named. Rendering only
+		// booleans hid "Wrong country: United States" entirely, which is the one
+		// line on this page worth reading.
+		if (val !== null && val !== undefined && String(val).trim() !== '') {
+			rows.push({ label, value: String(val), bad: true })
 		}
 	}
 	if (d.geo && typeof d.geo === 'object') {
-		rows.push({ label: 'Geocode confidence', value: String(d.geo.confidence ?? '—'), bad: (d.geo.confidence ?? 0) < 0.5 })
+		rows.push({
+			label: 'Geocode confidence',
+			value: String(d.geo.confidence ?? '—'),
+			bad: (d.geo.confidence ?? 0) < 0.5,
+		})
+		if (d.geo.match_type) {
+			rows.push({ label: 'Geocode match type', value: d.geo.match_type, bad: d.geo.match_type === 'fallback' })
+		}
+		if (d.geo.label) {
+			rows.push({ label: 'Geocode resolved to', value: d.geo.label })
+		}
+	}
+
+	// The Maps side, including how far the two providers disagreed. It was in
+	// the stored JSON and nowhere on the page, so a geocode 11,937 km from the
+	// Maps result read as an ordinary confidence number.
+	const g = d.gms
+	if (g && typeof g === 'object') {
+		rows.push({ label: 'Maps results', value: String(g.result_count ?? 0) })
+		if (g.distance_km !== undefined && g.distance_km !== null) {
+			const km = Number(g.distance_km)
+			rows.push({
+				label: 'Distance from geocode',
+				value: km >= 1000 ? `${Math.round(km).toLocaleString()} km` : `${km.toFixed(1)} km`,
+				bad: g.coords_mismatch || km > 5,
+			})
+		}
+		if (g.no_results) {
+			rows.push({ label: 'Maps found nothing', value: 'yes', bad: true })
+		}
+		if (Array.isArray(g.categories) && g.categories.length) {
+			rows.push({ label: 'Maps categories', value: g.categories.join(', ') })
+		}
 	}
 	return rows
 })

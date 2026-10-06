@@ -8,43 +8,46 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
-  "field_order": [
-   "address_hash",
-   "address_line1",
-   "city",
-   "landmark",
-   "column_break_addr",
-   "country",
-   "pincode",
-   "latitude",
-   "longitude",
-   "section_break_status",
-   "status",
-   "section_break_ors",
-   "ors_status",
-   "ors_confidence",
-   "ors_match_type",
-   "column_break_ors",
-   "ors_result_json",
-   "section_break_gms",
-   "gms_status",
-   "gms_result_count",
-   "gms_result_text",
-   "column_break_gms",
-   "gms_result_json",
-   "section_break_address_risk",
-   "address_risk_status",
-   "address_risk_score",
-   "column_break_address_risk",
-   "address_risk_json",
-   "section_break_meta",
-   "source",
-   "linked_orders",
-   "linked_phones",
-   "column_break_meta",
-   "linked_fingerprints",
-   "last_verified_on"
-  ],
+ "field_order": [
+  "address_hash",
+  "address_line1",
+  "city",
+  "landmark",
+  "province",
+  "column_break_addr",
+  "country",
+  "pincode",
+  "latitude",
+  "longitude",
+  "section_break_status",
+  "status",
+  "section_break_ors",
+  "ors_status",
+  "ors_confidence",
+  "ors_match_type",
+  "ors_verified_on",
+  "column_break_ors",
+  "ors_result_json",
+  "section_break_gms",
+  "gms_status",
+  "gms_result_count",
+  "gms_result_text",
+  "gms_verified_on",
+  "column_break_gms",
+  "gms_result_json",
+  "section_break_address_risk",
+  "address_risk_status",
+  "address_risk_score",
+  "column_break_address_risk",
+  "address_risk_json",
+  "section_break_meta",
+  "source",
+  "linked_orders",
+  "linked_phones",
+  "column_break_meta",
+  "linked_fingerprints",
+  "last_verified_on"
+ ],
  "fields": [
   {
    "fieldname": "address_hash",
@@ -59,7 +62,7 @@
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "label": "Address"
-   },
+  },
   {
    "fieldname": "city",
    "fieldtype": "Data",
@@ -74,8 +77,17 @@
    "label": "Landmark"
   },
   {
+   "fieldname": "province",
+   "fieldtype": "Data",
+   "label": "Province / State",
+   "description": "What the customer chose at checkout. Kept because the score compares it against the city: the record had a country column but no province, so province_mismatch could never fire.",
+   "insert_after": "country",
+   "idx": null
+  },
+  {
    "fieldname": "column_break_addr",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "insert_after": "province"
   },
   {
    "fieldname": "country",
@@ -91,13 +103,17 @@
    "fieldname": "latitude",
    "fieldtype": "Float",
    "label": "Latitude",
-   "precision": "6"
+   "precision": "6",
+   "not_nullable": 0,
+   "description": "Null when ORS did not return a usable geocode for this address - a fallback match or a result in another country. Null rather than stale, because these are copied onto the Address by sync_address_summary and a leftover pin from an earlier run is how a wrong location survives a failed lookup."
   },
   {
    "fieldname": "longitude",
    "fieldtype": "Float",
    "label": "Longitude",
-   "precision": "6"
+   "precision": "6",
+   "not_nullable": 0,
+   "description": "Null when ORS did not return a usable geocode for this address - a fallback match or a result in another country. Null rather than stale, because these are copied onto the Address by sync_address_summary and a leftover pin from an earlier run is how a wrong location survives a failed lookup."
   },
   {
    "fieldname": "section_break_status",
@@ -138,8 +154,18 @@
    "label": "ORS Match Type"
   },
   {
+   "fieldname": "ors_verified_on",
+   "fieldtype": "Datetime",
+   "label": "ORS verified on",
+   "description": "When ORS last returned a geocode that passed geocode_is_usable. Kept apart from last_verified_on because the two providers run at different times and a single shared timestamp let a stale Maps result look fresh.",
+   "insert_after": "ors_result_json",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "column_break_ors",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "insert_after": "ors_verified_on"
   },
   {
    "fieldname": "ors_result_json",
@@ -172,8 +198,18 @@
    "label": "GMS Result Text"
   },
   {
+   "fieldname": "gms_verified_on",
+   "fieldtype": "Datetime",
+   "label": "Maps verified on",
+   "description": "When Google Maps last answered for this address, for the same reason as ors_verified_on.",
+   "insert_after": "gms_result_json",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "column_break_gms",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "insert_after": "gms_verified_on"
   },
   {
    "fieldname": "gms_result_json",
@@ -193,7 +229,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Address Risk Status",
-   "options": "Pending\nComplete\nFailed\nSkipped"
+   "options": "Pending\nComplete\nPartial\nFailed\nSkipped",
+   "description": "Partial when only one provider produced anything usable. compute_verification_risk has always returned it - one provider disabled, or a geocode rejected - but the options list never had it, so saving raised a ValidationError."
   },
   {
    "fieldname": "address_risk_score",
@@ -217,7 +254,7 @@
    "fieldname": "section_break_meta",
    "fieldtype": "Section Break",
    "label": "Metadata"
-   },
+  },
   {
    "default": "Order Placement",
    "fieldname": "source",

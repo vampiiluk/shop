@@ -586,6 +586,7 @@ def compute_verification_risk(
 	if pincode and not re.fullmatch(r"\d{5}", pincode):
 		score += w["address_bad_pincode"]
 	if city and city.lower() not in _canonical_cities():
+		result["unknown_city"] = city
 		score += w["address_unknown_city"]
 	failures = address_failure_count(address)
 	if failures:
@@ -593,7 +594,14 @@ def compute_verification_risk(
 		score += min(failures * w["address_prior_failure_per"], w["address_prior_failure_cap"])
 
 	# --- ORS signals ---
-	if ors_result and ors_result.get("found"):
+	# A geocode the provider itself disowned is not scored: run_ors_verification
+	# marks it rejected_because when the match was a fallback or came back in a
+	# country the shop does not serve, and that is the geocoder failing, not the
+	# customer. Checked before `found`, which stays True on a rejected result
+	# because ORS did return a feature - it was just not this address.
+	ors_rejected = ors_result.get("rejected_because") if ors_result else None
+
+	if ors_result and ors_result.get("found") and not ors_rejected:
 		result["geo"] = {
 			"label": ors_result.get("label"),
 			"confidence": ors_result.get("confidence"),
@@ -625,8 +633,11 @@ def compute_verification_risk(
 				result["city_mismatch"] = True
 				score += w["geo_city_mismatch"]
 	elif ors_result is not None:
-		result["geo_not_found"] = True
-		score += w["geo_not_found"]
+		if ors_rejected:
+			result["geo_provider_failed"] = ors_rejected
+		else:
+			result["geo_not_found"] = True
+			score += w["geo_not_found"]
 	else:
 		result["geo_unavailable"] = True
 
@@ -645,6 +656,11 @@ def compute_verification_risk(
 
 			ors_lat = ors_result.get("lat") if ors_result else None
 			ors_lng = ors_result.get("lng") if ors_result else None
+			# Only meaningful when ORS actually geocoded this address. A rejected
+			# result still carries the coordinates it returned, and comparing them
+			# would charge the customer for the distance to the provider's mistake.
+			if ors_rejected:
+				ors_lat = ors_lng = None
 			if ors_lat and ors_lng and gms_results:
 				first = gms_results[0] if isinstance(gms_results[0], dict) else {}
 				gms_lat = first.get("lat")
@@ -683,7 +699,18 @@ def compute_verification_risk(
 			if isinstance(r, dict):
 				name = norm_text(r.get("name") or "")
 				cat = norm_text(r.get("category") or "")
-				if landmark_norm in name or name in landmark_norm or landmark_norm in cat:
+				# The address is searched too, and it is where a landmark usually
+				# shows up: Maps returns "bypass road, Rahim Yar Khan, 64200,
+				# Pakistan" for a customer whose landmark is "Sui gas road", and
+				# the business name and category match neither. Comparing only
+				# name and category called that a miss.
+				addr_text = norm_text(r.get("address") or "")
+				if landmark_norm and (
+					landmark_norm in name
+					or name in landmark_norm
+					or landmark_norm in cat
+					or landmark_norm in addr_text
+				):
 					hits += 1
 		result["gms_landmark"] = {
 			"hits": hits,
@@ -696,7 +723,8 @@ def compute_verification_risk(
 			score += w.get("landmark_gms_miss", 3)
 
 	score = max(0, min(score, 80))
-	ors_available = ors_result is not None and ors_result.get("found")
+	# A rejected geocode is not a completed verification, whatever `found` says.
+	ors_available = bool(ors_result and ors_result.get("found") and not ors_rejected)
 	gms_available = gms_results is not None
 	status = "Complete" if (ors_available and gms_available) else "Partial"
 	return {"score": score, "status": status, "details": result}

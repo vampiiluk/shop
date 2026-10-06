@@ -78,6 +78,35 @@ def _call_ors(full_address: str, api_key: str) -> dict | None:
 		return None
 
 
+def geocode_is_usable(summary: dict | None, home_countries=()) -> tuple[bool, str]:
+	"""Whether an ORS summary may be stored as this address's location.
+
+	OpenRouteService answers every query. When it cannot match a street it still
+	returns a feature, with ``match_type: "fallback"`` and coordinates of
+	something else entirely - for a Rahimyarkhan address it returned a hotel in
+	York County, Virginia, with confidence 0.8. Storing that as the address's
+	location puts a pin 11,937 km away on the order and then charges the customer
+	for the geocoder's failure, because the score sees a wrong-country result and
+	a Maps result nowhere near it.
+
+	So a fallback is treated as no match at all, and so is a result in a country
+	the shop does not serve. ``home_countries`` is the lowercase set from
+	``fraud.home_country_codes``; an empty set skips only the country check.
+
+	Returns ``(usable, reason)``, and the reason is stored alongside the raw
+	result so a rejected geocode is auditable rather than merely absent.
+	"""
+	if not summary or not summary.get("found"):
+		return False, "not_found"
+	if (summary.get("match_type") or "").strip().lower() == "fallback":
+		return False, "fallback_match"
+	allowed = {str(c).strip().lower() for c in (home_countries or ()) if c}
+	returned = (summary.get("country") or "").strip().lower()
+	if allowed and returned and returned not in allowed:
+		return False, "country_mismatch"
+	return True, ""
+
+
 def _summarize_ors(payload: dict | None) -> dict | None:
 	"""Reduce an ORS response to the fields we score on."""
 	if not payload:

@@ -69,14 +69,22 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 		"Shop Address Verification",
 		{"address_hash": hkey},
 		["name", "ors_status", "gms_status", "ors_result_json", "gms_result_json",
-		 "last_verified_on", "latitude", "longitude", "linked_orders",
-		 "linked_phones", "linked_fingerprints"],
+		 "ors_verified_on", "gms_verified_on", "last_verified_on", "latitude", "longitude",
+		 "linked_orders", "linked_phones", "linked_fingerprints"],
 		as_dict=True,
 	)
 
 	if existing:
-		ors_fresh = _is_fresh(existing.last_verified_on, ttl) if existing.ors_status == "Complete" else False
-		gms_fresh = _is_fresh(existing.last_verified_on, ttl) if existing.gms_status == "Complete" else False
+		# Each provider against its own stamp: one shared last_verified_on made a
+		# stale Maps answer look fresh because ORS had just re-run.
+		ors_stamp = existing.ors_verified_on or existing.last_verified_on
+		gms_stamp = existing.gms_verified_on or existing.last_verified_on
+		ors_fresh = (
+			_is_fresh(ors_stamp, ttl) if existing.ors_status == "Complete" and ors_stamp else False
+		)
+		gms_fresh = (
+			_is_fresh(gms_stamp, ttl) if existing.gms_status == "Complete" and gms_stamp else False
+		)
 		return {
 			"name": existing.name,
 			"ors_status": existing.ors_status,
@@ -99,6 +107,7 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 		"city": address.get("city") or "",
 		"landmark": address.get("landmark") or "",
 		"country": address.get("country") or "",
+		"province": address.get("province") or address.get("state") or "",
 		"pincode": address.get("pincode") or "",
 		"ors_status": "Skipped",
 		"gms_status": "Disabled",
@@ -175,9 +184,57 @@ def _append_unique(existing: str, value: str) -> str:
 # ORS verification
 # ---------------------------------------------------------------------------
 
+def _ors_values(summary: dict | None, home_countries) -> dict:
+	"""The record fields for one ORS result.
+
+	One place decides whether a geocode is stored, because the single-record path
+	and the queue's batch path both write these fields and they had drifted: the
+	batch wrote `Complete` and the coordinates unconditionally, so fixing the
+	single path alone still left every queued address with the provider's
+	mistake pinned to it.
+
+	A fallback match, or one in a country the shop does not serve, is stored as a
+	rejection - the raw response is kept so it can be read, but the coordinates
+	are cleared rather than left as they were, since a stale pin from an earlier
+	run is how a wrong location outlives the lookup that found it. The status is
+	not Complete, so freshness fails and the queue retries instead of trusting it.
+	"""
+	import json as _json
+
+	from shop.integrations.geocoding import geocode_is_usable
+
+	usable, reason = geocode_is_usable(summary, home_countries)
+	if not usable:
+		summary["accepted"] = False
+		summary["rejected_because"] = reason
+		return {
+			"ors_status": "Failed",
+			"ors_result_json": _json.dumps(summary, default=str),
+			"ors_confidence": summary.get("confidence"),
+			"ors_match_type": summary.get("match_type", ""),
+			"latitude": None,
+			"longitude": None,
+			"ors_verified_on": None,
+		}
+
+	summary["accepted"] = True
+	summary.pop("rejected_because", None)
+	return {
+		"ors_status": "Complete",
+		"ors_result_json": _json.dumps(summary, default=str),
+		"ors_confidence": summary.get("confidence"),
+		"ors_match_type": summary.get("match_type", ""),
+		"latitude": summary.get("lat"),
+		"longitude": summary.get("lng"),
+		"ors_verified_on": now_datetime(),
+		"last_verified_on": now_datetime(),
+	}
+
+
 def run_ors_verification(verification_name: str) -> dict:
 	"""Call ORS for a verification record. Update results + status."""
-	from shop.integrations.geocoding import _call_ors, _ors_key, _summarize_ors, norm_text
+	from shop.integrations.fraud import home_country_codes
+	from shop.integrations.geocoding import _call_ors, _ors_key, _summarize_ors
 
 	ver = frappe.db.get_value(
 		"Shop Address Verification", verification_name,
@@ -217,18 +274,10 @@ def run_ors_verification(verification_name: str) -> dict:
 		frappe.db.commit()
 		return {"error": "ORS API call failed"}
 
-	if not summary.get("found"):
-		summary["lat"] = summary["lng"] = None
-
-	frappe.db.set_value("Shop Address Verification", verification_name, {
-		"ors_status": "Complete",
-		"ors_result_json": json.dumps(summary, default=str),
-		"ors_confidence": summary.get("confidence"),
-		"ors_match_type": summary.get("match_type", ""),
-		"latitude": summary.get("lat"),
-		"longitude": summary.get("lng"),
-		"last_verified_on": now_datetime(),
-	})
+	frappe.db.set_value(
+		"Shop Address Verification", verification_name,
+		_ors_values(summary, home_country_codes(settings)),
+	)
 	frappe.db.commit()
 
 	return summary
@@ -239,27 +288,39 @@ def run_ors_verification(verification_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def is_ors_fresh(verification_name: str) -> bool:
-	"""Check if ORS result is within TTL."""
+	"""Check if ORS result is within TTL.
+
+	Measured from ors_verified_on, not last_verified_on: the two providers run
+	independently, so Maps answering today used to make a six-week-old geocode
+	look fresh. Falls back to last_verified_on for rows written before the
+	per-provider timestamps existed.
+	"""
 	ver = frappe.db.get_value(
 		"Shop Address Verification", verification_name,
-		["ors_status", "last_verified_on"],
+		["ors_status", "ors_verified_on", "last_verified_on"],
 		as_dict=True,
 	)
-	if not ver or ver.ors_status != "Complete" or not ver.last_verified_on:
+	if not ver or ver.ors_status != "Complete":
 		return False
-	return _is_fresh(ver.last_verified_on, _get_ttl())
+	stamp = ver.ors_verified_on or ver.last_verified_on
+	if not stamp:
+		return False
+	return _is_fresh(stamp, _get_ttl())
 
 
 def is_gms_fresh(verification_name: str) -> bool:
-	"""Check if GMS result is within TTL."""
+	"""Check if GMS result is within TTL. Same per-provider stamp as ORS above."""
 	ver = frappe.db.get_value(
 		"Shop Address Verification", verification_name,
-		["gms_status", "last_verified_on"],
+		["gms_status", "gms_verified_on", "last_verified_on"],
 		as_dict=True,
 	)
-	if not ver or ver.gms_status != "Complete" or not ver.last_verified_on:
+	if not ver or ver.gms_status != "Complete":
 		return False
-	return _is_fresh(ver.last_verified_on, _get_ttl())
+	stamp = ver.gms_verified_on or ver.last_verified_on
+	if not stamp:
+		return False
+	return _is_fresh(stamp, _get_ttl())
 
 
 def _is_fresh(last_verified, ttl_days: int) -> bool:
@@ -285,7 +346,7 @@ def sync_address_summary(verification_name: str) -> int:
 	custom_address_hash matches this record. Returns number of addresses updated."""
 	ver = frappe.db.get_value(
 		"Shop Address Verification", verification_name,
-		["address_hash", "status", "address_risk_score", "ors_confidence",
+		["address_hash", "status", "address_risk_score", "ors_confidence", "ors_status",
 		 "latitude", "longitude", "gms_result_count", "last_verified_on"],
 		as_dict=True,
 	)
@@ -300,12 +361,17 @@ def sync_address_summary(verification_name: str) -> int:
 	if not names:
 		return 0
 
+	# Only a completed geocode has coordinates worth copying. A failed ors_status
+	# means the lookup produced nothing usable, and writing whatever the column
+	# happens to hold would stamp a stale pin onto the customer's saved address.
+	have_location = ver.ors_status == "Complete" and ver.latitude is not None
+
 	frappe.db.set_value("Address", {"name": ["in", names]}, {
 		"custom_verification_status": ver.status,
 		"custom_address_risk_score": ver.address_risk_score,
 		"custom_ors_confidence": ver.ors_confidence,
-		"custom_latitude": ver.latitude,
-		"custom_longitude": ver.longitude,
+		"custom_latitude": ver.latitude if have_location else None,
+		"custom_longitude": ver.longitude if have_location else None,
 		"custom_gms_result_count": ver.gms_result_count or 0,
 		"custom_last_verified_on": ver.last_verified_on,
 		"custom_address_verification": verification_name,
@@ -419,7 +485,7 @@ def get_queue_items(limit: int | None = None) -> list[frappe._dict]:
 	ors_enabled = _ors_enabled()
 	limit = cint(limit) or 100
 	rows = frappe.db.sql(
-		f"""SELECT name, address_line1, city, landmark, country, pincode,
+		f"""SELECT name, address_line1, city, landmark, country, province, pincode,
 			status, ors_status, gms_status, last_verified_on
 		FROM `tabShop Address Verification`
 		WHERE status IS NULL OR status NOT IN ('Complete')
@@ -564,7 +630,7 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 		_format_maps_results,
 		_search_google_maps_batch_by_id,
 	)
-	from shop.integrations.fraud import compute_verification_risk
+	from shop.integrations.fraud import compute_verification_risk, home_country_codes
 
 	settings_doc = frappe.get_cached_doc("Shop Settings")
 	gms_enabled = _gms_enabled()
@@ -616,17 +682,11 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 					{"ors_status": "Failed"}, update_modified=False,
 				)
 				continue
-			if not summary.get("found"):
-				summary["lat"] = summary["lng"] = None
-			frappe.db.set_value("Shop Address Verification", r.name, {
-				"ors_status": "Complete",
-				"ors_result_json": _json.dumps(summary, default=str),
-				"ors_confidence": summary.get("confidence"),
-				"ors_match_type": summary.get("match_type", ""),
-				"latitude": summary.get("lat"),
-				"longitude": summary.get("lng"),
-				"last_verified_on": now_datetime(),
-			}, update_modified=False)
+			frappe.db.set_value(
+				"Shop Address Verification", r.name,
+				_ors_values(summary, home_country_codes(settings_doc)),
+				update_modified=False,
+			)
 		frappe.db.commit()
 	else:
 		# ORS disabled — mark all as skipped
@@ -684,6 +744,7 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 					"gms_result_json": _json.dumps(gms_results, default=str),
 					"gms_result_text": text,
 					"gms_result_count": len(gms_results),
+					"gms_verified_on": now_datetime(),
 					"last_verified_on": now_datetime(),
 				})
 
@@ -692,6 +753,7 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 				"city": r.city or "",
 				"landmark": r.landmark or "",
 				"country": r.country or "",
+				"state": r.province or "",
 				"pincode": r.pincode or "",
 			}
 			risk = compute_verification_risk(
@@ -700,7 +762,13 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 				gms_results=gms_results,
 				settings_doc=settings_doc,
 			)
-			ors_ok = ors_enabled and (ors_out.get(r.name) is not None)
+			ors_summary = ors_out.get(r.name)
+			# "Returned something" is not "verified": a fallback or wrong-country
+			# match comes back non-None and would otherwise mark the record
+			# Complete, which is what made this look like a passed check.
+			ors_ok = bool(
+				ors_enabled and ors_summary is not None and not ors_summary.get("rejected_because")
+			)
 			gms_ok = (not gms_enabled) or (gms_results is not None)
 			vstatus = "Complete" if (ors_ok and gms_ok) else ("Partial" if (ors_ok or gms_ok) else "Failed")
 
@@ -969,6 +1037,13 @@ def on_address_update(doc, method: str | None = None) -> None:
 		"address_line2": doc.address_line2,
 		"city": doc.city,
 		"pincode": doc.pincode,
+		# Both were missing here, and the verification record has a column for
+		# each. Without them user_country_mismatch and province_mismatch could
+		# never fire on this path - the main one, since it is how a saved
+		# address gets verified - so a customer naming the wrong country or
+		# province was scored as clean.
+		"country": doc.country,
+		"state": doc.state,
 		"landmark": doc.get("custom_landmark"),
 	}
 	hkey = address_hash(addr)

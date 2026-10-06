@@ -342,6 +342,9 @@ custom_fields = {
 			"label": "Latitude",
 			"fieldtype": "Float",
 			"precision": "6",
+			# Nullable: there is no location to record when the geocode was
+			# rejected, and a stale pin from an earlier run is worse than none.
+			"not_nullable": 0,
 			"read_only": 1,
 			"no_copy": 1,
 			"insert_after": "custom_ors_confidence",
@@ -351,6 +354,9 @@ custom_fields = {
 			"label": "Longitude",
 			"fieldtype": "Float",
 			"precision": "6",
+			# Nullable: there is no location to record when the geocode was
+			# rejected, and a stale pin from an earlier run is worse than none.
+			"not_nullable": 0,
 			"read_only": 1,
 			"no_copy": 1,
 			"insert_after": "custom_latitude",
