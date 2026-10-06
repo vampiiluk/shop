@@ -53,6 +53,7 @@ declare module 'vue' {
     ReturnRequestActions: typeof import('./src/components/ReturnRequestActions.vue')['default']
     ReturnsPanel: typeof import('./src/components/ReturnsPanel.vue')['default']
     ReturnStatusDialog: typeof import('./src/components/ReturnStatusDialog.vue')['default']
+    RiskScoreMeter: typeof import('./src/components/RiskScoreMeter.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SetupGuide: typeof import('./src/components/SetupGuide.vue')['default']

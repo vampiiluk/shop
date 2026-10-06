@@ -777,6 +777,7 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 				"address_risk_status": risk["status"],
 				"address_risk_score": risk["score"],
 				"address_risk_json": _json.dumps(risk["details"], default=str),
+				"address_risk_breakdown": _json.dumps(risk.get("breakdown") or {}, default=str),
 			})
 			_propagate_to_orders(r.name, gms_results, gms_enabled)
 			sync_address_summary(r.name)
@@ -974,6 +975,7 @@ def import_verified_csv(csv_content: str) -> dict:
 			values["address_risk_status"] = risk["status"]
 			values["address_risk_score"] = risk["score"]
 			values["address_risk_json"] = _json.dumps(risk["details"], default=str)
+			values["address_risk_breakdown"] = _json.dumps(risk.get("breakdown") or {}, default=str)
 
 			if existing:
 				frappe.db.set_value("Shop Address Verification", existing, values, update_modified=False)

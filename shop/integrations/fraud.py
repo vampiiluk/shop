@@ -562,6 +562,29 @@ def compute_verification_risk(
 	w = weights or _get_weights(settings_doc)
 	result = {"geo": None, "gms": None, "gms_landmark": None}
 	score = 0
+
+	# Every point the address scores passes through here, so the breakdown on the
+	# report page *is* the score rather than a second reading of it. Reconstructing
+	# the contributions afterwards from `details` would drift the moment a weight
+	# or a branch changed, and a chart that disagrees with the number above it is
+	# worse than no chart at all.
+	contributions: list[dict] = []
+
+	def add(key: str, points) -> None:
+		"""Charge `points` to the signal `key` and record it.
+
+		setdefault, not assignment: a caller that has already stored the signal's
+		subject - the country it resolved to, the count of prior failures - keeps
+		that, and only a bare flag is backfilled. That keeps the signal list and
+		the contribution list describing the same set of facts.
+		"""
+		nonlocal score
+		points = int(points or 0)
+		if not points:
+			return
+		score += points
+		result.setdefault(key, True)
+		contributions.append({"key": key, "points": points})
 	a1 = (address.get("address_line1") or address.get("line1") or "").strip()
 	city = (address.get("city") or "").strip()
 	pincode = (address.get("pincode") or "").strip()
@@ -571,27 +594,27 @@ def compute_verification_risk(
 	# --- Heuristics ---
 	if stated_country and stated_country.lower() not in _home_country_codes(settings_doc):
 		result["user_country_mismatch"] = stated_country
-		score += w["user_country_mismatch"]
+		add("user_country_mismatch", w["user_country_mismatch"])
 
 	if stated_province:
 		expected = _province_for_city(city, settings_doc)
 		if expected and stated_province.lower() != expected.lower():
 			result["province_mismatch"] = stated_province
-			score += w["province_mismatch"]
+			add("province_mismatch", w["province_mismatch"])
 
 	if len(a1) < 5:
-		score += w["address_short_line1"]
+		add("address_short_line1", w["address_short_line1"])
 	elif not re.search(r"\d", a1):
-		score += w["address_no_house_number"]
+		add("address_no_house_number", w["address_no_house_number"])
 	if pincode and not re.fullmatch(r"\d{5}", pincode):
-		score += w["address_bad_pincode"]
+		add("address_bad_pincode", w["address_bad_pincode"])
 	if city and city.lower() not in _canonical_cities():
 		result["unknown_city"] = city
-		score += w["address_unknown_city"]
+		add("address_unknown_city", w["address_unknown_city"])
 	failures = address_failure_count(address)
 	if failures:
 		result["address_prior_failures"] = failures
-		score += min(failures * w["address_prior_failure_per"], w["address_prior_failure_cap"])
+		add("address_prior_failures", min(failures * w["address_prior_failure_per"], w["address_prior_failure_cap"]))
 
 	# --- ORS signals ---
 	# A geocode the provider itself disowned is not scored: run_ors_verification
@@ -614,13 +637,13 @@ def compute_verification_risk(
 
 		if wrong_country:
 			result["wrong_country"] = country
-			score += w["geo_wrong_country"]
+			add("geo_wrong_country", w["geo_wrong_country"])
 		elif ors_result.get("match_type") == "exact" and flt(ors_result.get("confidence")) >= 0.8:
-			score += w["geo_exact_match_bonus"]
+			add("geo_exact_match_bonus", w["geo_exact_match_bonus"])
 		elif ors_result.get("match_type") == "fallback":
-			score += w["geo_fallback_vague"]
+			add("geo_fallback_vague", w["geo_fallback_vague"])
 		if not wrong_country and not ors_result.get("house_number"):
-			score += w["geo_no_house_number"]
+			add("geo_no_house_number", w["geo_no_house_number"])
 
 		geo_area = norm_text(ors_result.get("local_area") or ors_result.get("admin_area"))
 		label_norm = norm_text(ors_result.get("label"))
@@ -631,13 +654,13 @@ def compute_verification_risk(
 				norm_text(c) in mismatch_target for c in _canonical_cities(settings_doc) if len(c) > 3
 			):
 				result["city_mismatch"] = True
-				score += w["geo_city_mismatch"]
+				add("geo_city_mismatch", w["geo_city_mismatch"])
 	elif ors_result is not None:
 		if ors_rejected:
 			result["geo_provider_failed"] = ors_rejected
 		else:
 			result["geo_not_found"] = True
-			score += w["geo_not_found"]
+			add("geo_not_found", w["geo_not_found"])
 	else:
 		result["geo_unavailable"] = True
 
@@ -648,10 +671,10 @@ def compute_verification_risk(
 		gms_info = {"result_count": gms_count}
 
 		if gms_count == 0:
-			score += w["gms_no_results"]
+			add("gms_no_results", w["gms_no_results"])
 			gms_info["no_results"] = True
 		else:
-			score += w["gms_results_bonus"]
+			add("gms_results_bonus", w["gms_results_bonus"])
 			gms_info["has_results"] = True
 
 			ors_lat = ors_result.get("lat") if ors_result else None
@@ -670,7 +693,7 @@ def compute_verification_risk(
 						dist = haversine_km(float(ors_lat), float(ors_lng), float(gms_lat), float(gms_lng))
 						gms_info["distance_km"] = round(dist, 2)
 						if dist > 5.0:
-							score += w["gms_coords_mismatch_ors"]
+							add("gms_coords_mismatch_ors", w["gms_coords_mismatch_ors"])
 							gms_info["coords_mismatch"] = True
 					except (ValueError, TypeError):
 						pass
@@ -680,7 +703,7 @@ def compute_verification_risk(
 				if isinstance(r, dict) and r.get("category"):
 					categories.add(r["category"].lower())
 			if gms_count > 0 and not categories:
-				score += w["gms_residential_area"]
+				add("gms_residential_area", w["gms_residential_area"])
 				gms_info["no_business_categories"] = True
 
 			gms_info["categories"] = list(categories)[:5]
@@ -690,7 +713,7 @@ def compute_verification_risk(
 	# --- Landmark validation (part of the address; checked against GMS results) ---
 	landmark = (address.get("landmark") or "").strip()
 	if not landmark:
-		score += w["address_missing_landmark"]
+		add("missing_landmark", w["address_missing_landmark"])
 		result["missing_landmark"] = True
 	elif gms_results is not None:
 		landmark_norm = norm_text(landmark)
@@ -718,16 +741,27 @@ def compute_verification_risk(
 			"matched": hits > 0,
 		}
 		if hits > 0:
-			score += w.get("landmark_gms_hit_bonus", 0)
+			add("landmark_gms_hit_bonus", w.get("landmark_gms_hit_bonus", 0))
 		else:
-			score += w.get("landmark_gms_miss", 3)
+			add("landmark_gms_miss", w.get("landmark_gms_miss", 3))
 
+	raw_score = score
 	score = max(0, min(score, 80))
+	# Largest first, so the page reads top-down as "this is why it scored what it
+	# scored". raw_score is carried because the bars add up to the unclamped
+	# total, and a chart that does not add up to the number beside it misleads by
+	# omission.
+	breakdown = {
+		"score": score,
+		"raw_score": raw_score,
+		"capped": raw_score > 80,
+		"contributions": sorted(contributions, key=lambda c: c["points"], reverse=True),
+	}
 	# A rejected geocode is not a completed verification, whatever `found` says.
 	ors_available = bool(ors_result and ors_result.get("found") and not ors_rejected)
 	gms_available = gms_results is not None
 	status = "Complete" if (ors_available and gms_available) else "Partial"
-	return {"score": score, "status": status, "details": result}
+	return {"score": score, "status": status, "details": result, "breakdown": breakdown}
 
 
 def _get_weights(settings_doc=None):

@@ -19,6 +19,10 @@
 			<!-- Where the providers pointed. Above everything else on purpose: this is
 				the finding, and the address fields below are the evidence for it. -->
 			<div class="mt-6">
+				<RiskScoreMeter :score="ver.address_risk_score" :breakdown="riskBreakdown" />
+			</div>
+
+			<div class="mt-6">
 				<VerificationMap
 					:ors-lat="ver.latitude"
 					:ors-lng="ver.longitude"
@@ -160,6 +164,8 @@ import CatalogListState from '@/components/CatalogListState.vue'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 import VerificationMap from '@/components/VerificationMap.vue'
+import RiskScoreMeter from '@/components/RiskScoreMeter.vue'
+import { SIGNAL_LABELS, signalLabel } from '@/utils/riskSignals'
 
 const props = defineProps<{ name: string }>()
 
@@ -208,26 +214,23 @@ const gmsResults = computed<any[]>(() => {
 	return Array.isArray(parsed) ? parsed : []
 })
 const riskDetails = computed<Record<string, any>>(() => parseJson(ver.value?.address_risk_json) || {})
+const riskBreakdown = computed<any>(() => parseJson(ver.value?.address_risk_breakdown) || null)
 
-const SIGNAL_LABELS: Record<string, string> = {
-	user_country_mismatch: 'Country mismatch (IP vs stated)',
-	province_mismatch: 'Province mismatch',
-	wrong_country: 'Wrong country',
-	unknown_city: 'City not in the delivery list',
-	city_mismatch: 'City mismatch',
-	geo_not_found: 'Geocoder found nothing',
-	geo_unavailable: 'Geocoder unavailable',
-	geo_provider_failed: 'Geocoder could not answer',
-	missing_landmark: 'Landmark missing',
-	address_prior_failures: 'Previous deliveries failed here',
-	gms_landmark: 'Landmark confirmed on maps',
-}
+
+// Structural keys: not signals, and rendering them as one is noise.
+const NON_SIGNAL_KEYS = new Set(['geo', 'gms', 'gms_landmark', 'score'])
 
 const riskSignals = computed(() => {
 	const rows: { label: string; value: string; bad?: boolean }[] = []
 	const d = riskDetails.value
-	for (const [key, label] of Object.entries(SIGNAL_LABELS)) {
-		if (!(key in d)) continue
+	// Iterating the data rather than the label map. Driving this from SIGNAL_LABELS
+	// meant any signal the map did not have was skipped without trace - which is
+	// how "no house number in the address line" cost 5 points and appeared nowhere
+	// on this page. An unlabelled key now falls back to a readable name instead of
+	// vanishing.
+	for (const key of Object.keys(d)) {
+		if (NON_SIGNAL_KEYS.has(key)) continue
+		const label = SIGNAL_LABELS[key] || signalLabel(key)
 		const val = d[key]
 		if (val && typeof val === 'object') {
 			if (key === 'gms_landmark') {

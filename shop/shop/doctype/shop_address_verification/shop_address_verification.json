@@ -38,6 +38,7 @@
   "section_break_address_risk",
   "address_risk_status",
   "address_risk_score",
+  "address_risk_breakdown",
   "column_break_address_risk",
   "address_risk_json",
   "section_break_meta",
@@ -240,8 +241,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "address_risk_breakdown",
+   "fieldtype": "Code",
+   "label": "Risk breakdown",
+   "options": "JSON",
+   "read_only": 1,
+   "no_copy": 1,
+   "hidden": 1,
+   "insert_after": "address_risk_json",
+   "description": "Per-signal points that add up to address_risk_score, so the report page can draw where the score came from instead of asking you to infer it. Kept out of address_risk_json because agent/tools.py renders every key of that field into the assistant's summary text, and a list of contributions would be dumped in as a risk flag."
+  },
+  {
    "fieldname": "column_break_address_risk",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "insert_after": "address_risk_breakdown"
   },
   {
    "fieldname": "address_risk_json",
