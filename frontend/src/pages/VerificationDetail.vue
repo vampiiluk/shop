@@ -16,6 +16,20 @@
 				</template>
 			</UiPageHeader>
 
+			<!-- Where the providers pointed. Above everything else on purpose: this is
+				the finding, and the address fields below are the evidence for it. -->
+			<div class="mt-6">
+				<VerificationMap
+					:ors-lat="ver.latitude"
+					:ors-lng="ver.longitude"
+					:ors-label="orsResult?.label || ''"
+					:ors-rejected="orsRejected"
+					:rejection-label="orsRejectionText"
+					:gms-enabled="gmsEnabled"
+					:gms-pins="gmsResults.map((r) => ({ lat: r.lat, lng: r.lng, label: [r.name, r.address].filter(Boolean).join(' — ') }))"
+				/>
+			</div>
+
 			<div class="mt-6 grid gap-6 lg:grid-cols-3">
 				<!-- Address + ORS -->
 				<section class="rounded-lg border border-outline-gray-1 p-4 lg:col-span-2">
@@ -145,6 +159,7 @@ import { Button, createResource, toast } from 'frappe-ui'
 import CatalogListState from '@/components/CatalogListState.vue'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
+import VerificationMap from '@/components/VerificationMap.vue'
 
 const props = defineProps<{ name: string }>()
 
@@ -160,6 +175,34 @@ const ver = computed(() => detail.data?.verification)
 const linkedOrders = computed(() => detail.data?.linked_orders || [])
 
 const orsResult = computed(() => parseJson(ver.value?.ors_result_json))
+
+// A rejected geocode keeps found:true in the stored JSON - ORS did answer, it
+// just did not answer about this address - so presence of coordinates, not
+// found, is what says whether there is a location to plot.
+const orsRejected = computed(() => {
+	const j = orsResult.value
+	if (!j || typeof j !== 'object') return false
+	if (j.rejected_because) return true
+	return ver.value?.ors_status === 'Failed' && ver.value?.latitude == null
+})
+
+const REJECTION_TEXT: Record<string, string> = {
+	fallback_match: 'The geocoder could not match the street and returned a fallback result instead',
+	country_mismatch: 'The geocoder resolved this address to a country the shop does not deliver to',
+	not_found: 'The geocoder returned no result at all',
+}
+
+const orsRejectionText = computed(() => {
+	const why = orsResult.value?.rejected_because
+	if (!orsRejected.value) return ''
+	const base = REJECTION_TEXT[why] || 'The geocode returned did not describe this address'
+	// Where it wrongly pointed is quoted from that record's own stored response,
+	// so the sentence is specific to this address rather than a standing example.
+	const label = orsResult.value?.label
+	return label ? `${base} — it pointed at ${label}.` : `${base}.`
+})
+
+const gmsEnabled = computed(() => ver.value?.gms_status !== 'Disabled')
 const gmsResults = computed<any[]>(() => {
 	const parsed = parseJson(ver.value?.gms_result_json)
 	return Array.isArray(parsed) ? parsed : []

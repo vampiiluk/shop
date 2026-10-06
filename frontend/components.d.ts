@@ -66,6 +66,7 @@ declare module 'vue' {
     UiSparkline: typeof import('./src/components/UiSparkline.vue')['default']
     UiStatTile: typeof import('./src/components/UiStatTile.vue')['default']
     UiStatusBadge: typeof import('./src/components/UiStatusBadge.vue')['default']
+    VerificationMap: typeof import('./src/components/VerificationMap.vue')['default']
     WalkthroughCard: typeof import('./src/components/WalkthroughCard.vue')['default']
     WalkthroughGuide: typeof import('./src/components/WalkthroughGuide.vue')['default']
     WalkthroughText: typeof import('./src/components/WalkthroughText.vue')['default']
