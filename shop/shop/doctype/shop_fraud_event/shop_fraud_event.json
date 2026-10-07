@@ -50,7 +50,8 @@
    "fieldname": "payment_method",
    "fieldtype": "Select",
    "label": "Payment Method",
-   "options": "cod\ngateway"
+   "options": "cod\ngateway\nadvance\npickup",
+   "description": "Must stay in step with Sales Order.custom_payment_method, which the storefront fills with cod / gateway / advance / pickup. It did not: only cod and gateway were allowed here, so logging a pickup or advance order raised a ValidationError. That was worse than a missing log line - log_fraud_event runs before the commit in reevaluate_order_for_verification, so the exception rolled back the re-scored fraud verdict on the order as well. Every pickup order kept whatever score it was placed with."
   },
   {
    "fieldname": "device_fingerprint",

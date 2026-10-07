@@ -56,6 +56,7 @@
 				<Select v-model="vFilters.ors_status" :options="vOrsStatusOptions" placeholder="ORS Status" class="w-40" @change="loadVerifications" />
 				<Select v-model="vFilters.gms_status" :options="vGmsStatusOptions" placeholder="GMS Status" class="w-40" @change="loadVerifications" />
 				<Select v-model="vFilters.source" :options="vSourceOptions" placeholder="Source" class="w-40" @change="loadVerifications" />
+				<Select v-model="vFilters.review_state" :options="vReviewOptions" placeholder="Review" class="w-40" @change="loadVerifications" />
 				<button
 					type="button"
 					class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
@@ -89,6 +90,7 @@
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">Landmark</th>
 							<th class="px-3 py-2 text-center font-medium text-ink-gray-6">ORS</th>
 							<th class="px-3 py-2 text-center font-medium text-ink-gray-6">GMS</th>
+							<th class="px-3 py-2 text-center font-medium text-ink-gray-6">Review</th>
 							<th class="px-3 py-2 text-center font-medium text-ink-gray-6">Results</th>
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">Source</th>
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">Linked Orders</th>
@@ -124,6 +126,10 @@
 							<td class="px-3 py-2 text-center">
 								<UiStatusBadge :theme="statusTheme(row.gms_status)" :label="row.gms_status" />
 							</td>
+							<td class="px-3 py-2 text-center">
+								<UiStatusBadge :theme="reviewTheme(row.review_state)" :label="row.review_state" />
+								<div v-if="row.reviewed_by" class="mt-0.5 text-[11px] text-ink-gray-4">{{ row.reviewed_by }}</div>
+							</td>
 							<td class="px-3 py-2 text-center text-ink-gray-6">{{ row.gms_result_count || 0 }}</td>
 							<td class="px-3 py-2 text-ink-gray-6">{{ row.source }}</td>
 							<td class="px-3 py-2 text-ink-gray-6">{{ countLinks(row.linked_orders) }}</td>
@@ -138,7 +144,7 @@
 							</td>
 						</tr>
 						<tr v-if="!vRows.length">
-							<td colspan="9" class="px-3 py-8 text-center text-ink-gray-4">No verification records found</td>
+							<td colspan="10" class="px-3 py-8 text-center text-ink-gray-4">No verification records found</td>
 						</tr>
 					</tbody>
 				</table>
@@ -199,7 +205,7 @@ const vRows = ref<any[]>([])
 const vTotal = ref(0)
 const vOffset = ref(0)
 const vPageSize = 50
-const vFilters = ref({ search: '', ors_status: '', gms_status: '', source: '', needs_attention: '' })
+const vFilters = ref({ search: '', ors_status: '', gms_status: '', source: '', review_state: '', needs_attention: '' })
 
 const vHasFilters = computed(() =>
 	!!(
@@ -207,6 +213,7 @@ const vHasFilters = computed(() =>
 		|| vFilters.value.ors_status
 		|| vFilters.value.gms_status
 		|| vFilters.value.source
+		|| vFilters.value.review_state
 		|| vFilters.value.needs_attention
 	)
 )
@@ -241,6 +248,13 @@ const vGmsStatusOptions = [
 	{ label: 'Failed', value: 'Failed' },
 	{ label: 'Disabled', value: 'Disabled' },
 ]
+const vReviewOptions = [
+	{ label: 'All', value: '' },
+	{ label: 'Unreviewed', value: 'Unreviewed' },
+	{ label: 'Verified', value: 'Verified' },
+	{ label: 'Rejected', value: 'Rejected' },
+	{ label: 'Needs lookup', value: 'Needs Lookup' },
+]
 const vSourceOptions = [
 	{ label: 'All', value: '' },
 	{ label: 'Order Placement', value: 'Order Placement' },
@@ -263,6 +277,7 @@ async function fetchVData() {
 	if (vFilters.value.ors_status) params.set('ors_status', vFilters.value.ors_status)
 	if (vFilters.value.gms_status) params.set('gms_status', vFilters.value.gms_status)
 	if (vFilters.value.source) params.set('source', vFilters.value.source)
+	if (vFilters.value.review_state) params.set('review_state', vFilters.value.review_state)
 	if (vFilters.value.needs_attention) params.set('needs_attention', vFilters.value.needs_attention)
 	params.set('limit', String(vPageSize))
 	params.set('offset', String(vOffset.value))
@@ -302,7 +317,7 @@ async function refreshAttentionCount() {
 }
 
 function clearVFilters() {
-	vFilters.value = { search: '', ors_status: '', gms_status: '', source: '', needs_attention: '' }
+	vFilters.value = { search: '', ors_status: '', gms_status: '', source: '', review_state: '', needs_attention: '' }
 	vOffset.value = 0
 	loadVerifications()
 }function vPrevPage() {
@@ -312,6 +327,13 @@ function clearVFilters() {
 function vNextPage() {
 	vOffset.value += vPageSize
 	loadVerifications()
+}
+
+function reviewTheme(state: string) {
+	if (state === 'Verified') return 'green'
+	if (state === 'Rejected') return 'red'
+	if (state === 'Needs Lookup') return 'amber'
+	return 'gray'
 }
 
 function statusTheme(status: string) {

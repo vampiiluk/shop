@@ -231,6 +231,64 @@ def _ors_values(summary: dict | None, home_countries) -> dict:
 	}
 
 
+REVIEW_STATES = ("Unreviewed", "Verified", "Rejected", "Needs Lookup")
+
+
+def set_review_state(verification_name: str, state: str, note: str = "") -> dict:
+	"""Record a human's judgement about an address.
+
+	Setting this to Verified takes the address out of the fraud maths, which makes
+	re-deriving the orders it already held the other half of the job: an order
+	that was pushed to Advance Required by an address nobody had ever looked at
+	stays that way until someone rescores it.
+
+	Re-evaluation runs on *every* state change, not only on Verified. Only
+	re-running on the way down would make the override a one-way ratchet - you
+	could talk an order out of Advance Required by verifying its address, but
+	revoking that judgement would leave the order on the score it should no longer
+	be carrying. The judgement and the consequences of it have to move together.
+
+	The review fields are separate from everything the pipeline writes, so a
+	re-verification cannot quietly clear a human's judgement - which is the whole
+	point of it, and the reason it does not live in `status`.
+	"""
+	if state not in REVIEW_STATES:
+		frappe.throw(_("Unknown review state"))
+	if not frappe.db.exists("Shop Address Verification", verification_name):
+		frappe.throw(_("Verification record not found"))
+
+	values = {
+		"review_state": state,
+		"reviewed_on": now_datetime(),
+		"review_note": (note or "").strip()[:500],
+	}
+	# Clearing back to Unreviewed drops the attribution too - an unreviewed
+	# record has no reviewer, and leaving one there implies someone vouched for
+	# it and then stopped caring.
+	values["reviewed_by"] = (
+		frappe.session.user if state != "Unreviewed" else None
+	)
+
+	frappe.db.set_value("Shop Address Verification", verification_name, values)
+	frappe.db.commit()
+
+	from shop.integrations.fraud import reevaluate_order_for_verification
+
+	reevaluate_order_for_verification(verification_name)
+	frappe.db.commit()
+
+	return {
+		"name": verification_name,
+		"review_state": state,
+		"orders_rescored": len(_linked_order_names(verification_name)),
+	}
+
+
+def _linked_order_names(verification_name: str) -> list:
+	raw = frappe.db.get_value("Shop Address Verification", verification_name, "linked_orders")
+	return [o.strip() for o in (raw or "").split(",") if o.strip()]
+
+
 def run_ors_verification(verification_name: str) -> dict:
 	"""Call ORS for a verification record. Update results + status."""
 	from shop.integrations.fraud import home_country_codes

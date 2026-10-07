@@ -116,6 +116,74 @@
 
 				<!-- Side column -->
 				<div class="space-y-6">
+					<!-- Human review. First in the column because it is the only
+					     control on this page that changes a decision, as opposed to
+					     reporting one. -->
+					<section class="rounded-lg border p-4" :class="reviewCardClass">
+						<div class="flex items-center justify-between gap-2">
+							<h2 class="text-base font-medium text-ink-gray-8">Human review</h2>
+							<UiStatusBadge :theme="reviewTheme" :label="reviewState" />
+						</div>
+
+						<p v-if="reviewState === 'Unreviewed'" class="mt-2 text-xs text-ink-gray-5">
+							Nobody has looked at this address by hand. Until someone does, its risk score
+							re-charges every order placed from it.
+						</p>
+						<p v-else-if="reviewState === 'Verified'" class="mt-2 text-xs text-ink-gray-6">
+							Contributes <span class="font-medium">nothing</span> to any order's fraud score. The raw
+							score above is kept as history. Verifying releases the orders it was holding.
+						</p>
+						<p v-else class="mt-2 text-xs text-ink-gray-6">
+							Workflow state only — it does not change the score, because a rejected address has
+							not been shown to be good.
+						</p>
+
+						<div v-if="ver.reviewed_by" class="mt-2 flex items-center gap-1.5 text-xs text-ink-gray-5">
+							<span class="lucide-user-check size-3.5" />
+							{{ ver.reviewed_by }} · {{ fmtDate(ver.reviewed_on) }}
+						</div>
+						<p v-if="ver.review_note" class="mt-1.5 rounded bg-surface-gray-2 px-2 py-1.5 text-xs text-ink-gray-6">
+							{{ ver.review_note }}
+						</p>
+
+						<textarea
+							v-model="reviewNote"
+							rows="2"
+							placeholder="Why — shown wherever this state is"
+							class="mt-3 w-full rounded border border-outline-gray-2 p-2 text-xs"
+						/>
+
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							<Button
+								size="sm"
+								variant="subtle"
+								theme="green"
+								:disabled="savingReview || reviewState === 'Verified'"
+								@click="saveReview('Verified')"
+							>Verified</Button>
+							<Button
+								size="sm"
+								variant="subtle"
+								theme="red"
+								:disabled="savingReview || reviewState === 'Rejected'"
+								@click="saveReview('Rejected')"
+							>Rejected</Button>
+							<Button
+								size="sm"
+								variant="subtle"
+								:disabled="savingReview || reviewState === 'Needs Lookup'"
+								@click="saveReview('Needs Lookup')"
+							>Needs lookup</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								:disabled="savingReview || reviewState === 'Unreviewed'"
+								@click="saveReview('Unreviewed')"
+							>Clear</Button>
+						</div>
+						<p v-if="reviewMessage" class="mt-2 text-xs" :class="reviewMessageClass">{{ reviewMessage }}</p>
+					</section>
+
 					<section class="rounded-lg border border-outline-gray-1 p-4">
 						<h2 class="text-base font-medium text-ink-gray-8">Verification</h2>
 						<div class="mt-3 space-y-2 text-sm">
@@ -176,6 +244,55 @@ const detail = createResource({
 })
 
 const reverifying = ref(false)
+const savingReview = ref(false)
+const reviewNote = ref('')
+const reviewMessage = ref('')
+const reviewMessageClass = ref('text-ink-gray-5')
+
+const reviewState = computed(() => ver.value?.review_state || 'Unreviewed')
+
+const reviewTheme = computed(() =>
+	({ Verified: 'green', Rejected: 'red', 'Needs Lookup': 'amber', Unreviewed: 'gray' })[reviewState.value] || 'gray'
+)
+
+const reviewCardClass = computed(() =>
+	reviewState.value === 'Verified'
+		? 'border-green-200 bg-green-50/40'
+		: reviewState.value === 'Rejected'
+			? 'border-red-200 bg-red-50/40'
+			: 'border-outline-gray-1'
+)
+
+async function saveReview(state: string) {
+	savingReview.value = true
+	reviewMessage.value = ''
+	try {
+		const resp = await fetch('/api/method/shop.api.verification.set_review', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': (window as any).csrf_token || '' },
+			body: JSON.stringify({ name: props.name, state, note: reviewNote.value }),
+		})
+		const json = await resp.json()
+		if (!resp.ok || !json.message) throw new Error(json._server_messages || resp.statusText)
+		// Re-read rather than patching local state: the orders linked to this
+		// address were rescored server-side, and the row here is not the only
+		// thing that changed.
+		await detail.reload()
+		reviewNote.value = ''
+		reviewMessageClass.value = 'text-ink-gray-5'
+		reviewMessage.value =
+			state === 'Verified'
+				? `Verified. ${json.message.orders_rescored || 0} linked order${json.message.orders_rescored === 1 ? '' : 's'} rescored.`
+				: state === 'Unreviewed'
+					? 'Cleared. Linked orders rescored without the override.'
+					: `Marked ${state}. Linked orders rescored.`
+	} catch (e: any) {
+		reviewMessageClass.value = 'text-red-600'
+		reviewMessage.value = `Could not save: ${String(e.message || e).slice(0, 140)}`
+	} finally {
+		savingReview.value = false
+	}
+}
 
 const ver = computed(() => detail.data?.verification)
 const linkedOrders = computed(() => detail.data?.linked_orders || [])

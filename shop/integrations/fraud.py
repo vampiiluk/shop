@@ -976,6 +976,12 @@ def _score_order(inputs: dict, w: dict, settings_doc, as_of=None, exclude_order:
 		contribution = min(cint(addr.get("score") or 0), ADDRESS_SCORE_CAP)
 		signals["address_score"] = cint(addr.get("score") or 0)
 		signals["address_score_capped_to"] = ADDRESS_SCORE_CAP
+		if addr.get("human_verified"):
+			# Recorded so the event log and the verdict explain themselves: an
+			# order scoring well with a low address score should not read as the
+			# model having found nothing wrong with it.
+			signals["address_human_verified"] = True
+			signals["address_score_before_review"] = cint(addr.get("raw_score") or 0)
 		score += contribution
 		for key in (
 			"geo_not_found", "city_mismatch", "wrong_country", "geo_unavailable",
@@ -1543,7 +1549,7 @@ def evaluate_risk(
 	ver = frappe.db.get_value(
 		"Shop Address Verification",
 		{"address_hash": _addr_hash(address)},
-		["address_risk_status", "address_risk_score", "address_risk_json"],
+		["address_risk_status", "address_risk_score", "address_risk_json", "review_state"],
 		as_dict=True,
 	)
 	addr = None
@@ -1556,6 +1562,22 @@ def evaluate_risk(
 	if addr is None and ver:
 		# The record exists but has not produced a risk score yet.
 		addr = {"score": 0, "verification_unavailable": True}
+
+	# A human's "verified" outranks the geocoders.
+	#
+	# Every point of the address score comes from text the customer typed, checked
+	# against two geocoders that can only guess at a street. Once someone has
+	# confirmed an address is real and deliverable, keeping charging those points
+	# on every subsequent order from it is not caution - it is the model refusing
+	# to be told. So a verified address contributes nothing, while the raw score
+	# stays on the record and in `raw_score` for anyone reading the history.
+	#
+	# Only "Verified" does this. Rejected and Needs Lookup are workflow states:
+	# a rejected address has not been shown to be good, so it keeps scoring.
+	if addr and (ver.review_state or "Unreviewed") == "Verified":
+		addr["raw_score"] = addr.get("score") or 0
+		addr["score"] = 0
+		addr["human_verified"] = True
 
 	ip_flagged = bool(
 		ip_intel

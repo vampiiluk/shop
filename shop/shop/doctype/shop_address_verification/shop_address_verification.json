@@ -47,6 +47,11 @@
   "linked_phones",
   "column_break_meta",
   "linked_fingerprints",
+  "review_state",
+  "reviewed_by",
+  "reviewed_on",
+  "review_note",
+  "section_break_review",
   "last_verified_on"
  ],
  "fields": [
@@ -294,6 +299,51 @@
    "fieldname": "linked_fingerprints",
    "fieldtype": "Small Text",
    "label": "Linked Fingerprints"
+  },
+  {
+   "fieldname": "review_state",
+   "fieldtype": "Select",
+   "label": "Review",
+   "description": "A human's judgement about this address, independent of what the geocoders say. Verified means someone confirmed it is real and deliverable: from then on it contributes nothing to any order's fraud score, because an address that has been checked once should not re-accrue risk on every order forever. Rejected and Needs Lookup are workflow states and do not change the score.",
+   "insert_after": "source",
+   "options": "Unreviewed\nVerified\nRejected\nNeeds Lookup",
+   "reqd": 1,
+   "default": "Unreviewed",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed by",
+   "description": "Who set the review state.",
+   "insert_after": "review_state",
+   "options": "User",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Reviewed on",
+   "description": "When the review state was last set.",
+   "insert_after": "reviewed_by",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_note",
+   "fieldtype": "Small Text",
+   "label": "Review note",
+   "description": "Why. Shown wherever the review state is.",
+   "insert_after": "reviewed_on",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "section_break_review",
+   "fieldtype": "Section Break",
+   "label": "Human review",
+   "insert_after": "linked_fingerprints",
+   "collapsible": 1
   },
   {
    "fieldname": "last_verified_on",

@@ -31,6 +31,9 @@ def get_verifications(filters=None, limit=50, offset=0):
 		cond += " AND (address_line1 LIKE %s OR landmark LIKE %s OR city LIKE %s)"
 		s = f"%{flt['search']}%"
 		params.extend([s, s, s])
+	if flt.get("review_state"):
+		cond += " AND review_state = %s"
+		params.append(flt["review_state"])
 	if flt.get("needs_attention"):
 		# A provider that is enabled but did not produce something usable. The
 		# per-status dropdowns cannot express this: a fallback match and a dropped
@@ -62,7 +65,8 @@ def get_verifications(filters=None, limit=50, offset=0):
 			CASE WHEN LEFT(ors_result_json, 1) = '{{'
 				THEN JSON_UNQUOTE(JSON_EXTRACT(ors_result_json, '$.rejected_because')) END
 				AS ors_rejection_reason,
-			source, linked_orders, last_verified_on
+			source, linked_orders, last_verified_on,
+			review_state, reviewed_by, reviewed_on
 		FROM `tabShop Address Verification`
 		WHERE {cond}
 		ORDER BY modified DESC
@@ -127,6 +131,21 @@ def bulk_reverify(filters: dict = None, providers: str = "both"):
 	from shop.integrations.verification import start_queue_job
 	job_id = start_queue_job(limit=None)
 	return {"status": "queued", "job_id": job_id}
+
+
+@frappe.whitelist()
+def set_review(name: str, state: str, note: str = ""):
+	"""Record a human's judgement about an address.
+
+	Manager-only, which only_managers() already enforces on every other endpoint
+	here. A Verified override is a real reduction in fraud protection for that
+	address until someone changes it back, so it is deliberately not something a
+	packer can do from the orders list on a hunch.
+	"""
+	only_managers()
+	from shop.integrations.verification import set_review_state as _set
+
+	return _set(name, state, note)
 
 
 @frappe.whitelist()
