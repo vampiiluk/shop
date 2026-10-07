@@ -135,9 +135,11 @@ EDITABLE = (
 def get_storefront_url() -> dict:
 	"""Where the storefront lives, for links out of the desk.
 
-	The desk is served from desk.reloop.pk and the shop from reloop.pk, so a
-	root-relative link in the desk opens the desk instead of the shop. Every
-	"view on the storefront" control needs the absolute origin.
+	The desk and the shop share a host, so a root-relative path would resolve
+	to the right place today. The links are built absolute anyway: the origin
+	has one home in shop.storefront.urls, so it is a single edit to change and
+	every "view on the storefront" control survives the desk moving back to a
+	hostname of its own.
 
 	This is its own endpoint rather than a field on get_settings because the
 	shell needs it on every page and only the settings screen loads that.

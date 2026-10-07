@@ -1,12 +1,15 @@
 """Where the storefront lives, as an absolute origin.
 
-The desk and the shop are served from different hosts - the desk on
-desk.reloop.pk, the shop on reloop.pk - so a relative path in the desk resolves
-against the desk, not the shop. Anything linking from the desk to the storefront
-has to be absolute, and the origin lives here so there is one copy of it.
+The desk and the shop share a host now - both are reloop.pk, the desk at /desk
+and the shop at its own routes - so a root-relative path would happen to resolve
+correctly today. It is still built absolute on purpose, for two reasons. One
+copy of the origin lives here, so moving the shop is a server-side edit rather
+than a change scattered through the frontend; and the day the desk goes back to
+a hostname of its own, every "view on storefront" link stays right without a
+single call site being revisited.
 
-frappe.utils.get_url() is not usable: behind this proxy it reports the bench's
-own http://…:8000 address, which is not reachable from outside.
+frappe.utils.get_url() is not usable either way: behind this proxy it reports
+the bench's own http://…:8000 address, which is not reachable from outside.
 """
 
 SITE_BASE = "https://reloop.pk"

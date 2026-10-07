@@ -3,10 +3,10 @@ import { call } from 'frappe-ui'
 /**
  * Absolute storefront links for the desk.
  *
- * The desk runs on desk.reloop.pk and the shop on reloop.pk, so a root-relative
- * path resolves against the desk: "View on storefront" opened the desk, and
- * "View store" did the same. Anything pointing out of the desk has to be
- * absolute.
+ * The desk and the shop share a host now, so a root-relative path would resolve
+ * to the right place today. The links are built absolute anyway: the origin is
+ * fetched once from the server rather than written into this bundle, so there is
+ * one copy of it and moving the shop's domain stays a server-side edit.
  *
  * The origin is fetched once from the server rather than written into the
  * bundle, so there is one copy of it and moving the shop's domain is a
