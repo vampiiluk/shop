@@ -616,12 +616,34 @@
 
 	function initVariantPicker() {
 		const product = state.product;
-		if (!product || !product.has_variants) return;
+		if (!product) return;
+		if (!product.has_variants) {
+			// Stock state has to be applied here too, not only for variant
+			// products. This used to return immediately for anything without
+			// variants, so the one and only thing that ever disabled Add to cart
+			// or relabelled it "Out of stock" was the variant picker - and the
+			// majority of products have no variants. A product with actual_qty 0
+			// kept a live, clickable Add to cart button, because nothing in the
+			// non-variant path ever consulted product.in_stock.
+			applyStockToButtons(product.in_stock);
+			return;
+		}
 		const defaultVariant = product.variants.find(
 			(variant) => variant.item_code === product.default_item_code
 		);
 		if (defaultVariant) state.selection = Object.assign({}, defaultVariant.attributes);
 		syncVariantUI();
+	}
+
+	function applyStockToButtons(inStock) {
+		document.querySelectorAll('[data-shop="add-to-cart"], [data-shop="buy-now"]').forEach((button) => {
+			button.disabled = !inStock;
+			if (!inStock) {
+				button.textContent = button.dataset.outOfStockLabel || "Out of stock";
+			} else if (button.dataset.label) {
+				button.textContent = button.dataset.label;
+			}
+		});
 	}
 
 	function selectOption(button) {
@@ -653,11 +675,8 @@
 		}
 		buttons.forEach((button) => {
 			button.dataset.itemCode = variant.item_code;
-			button.disabled = !variant.in_stock;
-			if (!variant.in_stock)
-				button.textContent = button.dataset.outOfStockLabel || "Out of stock";
-			else if (button.dataset.label) button.textContent = button.dataset.label;
 		});
+		applyStockToButtons(variant.in_stock);
 		if (variant.formatted_price) {
 			document.querySelectorAll('[data-shop="pdp-price"]').forEach((price) => {
 				price.textContent = variant.formatted_price;

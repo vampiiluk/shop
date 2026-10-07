@@ -28,8 +28,39 @@ def add_item(item_code: str, qty: float = 1) -> dict:
 		frappe.throw(_("Cart is full"))
 	else:
 		cart.append("items", {"item_code": item_code, "shop_product": shop_product, "qty": max(flt(qty), 1)})
+	# Stock is checked here rather than only at checkout. It used to be checked
+	# only at checkout, which meant a sold-out product could be added to the cart
+	# and the shopper found out after typing their whole address: "Only 0 of
+	# CLARK-STEP-URBAN-MIX left in stock". The product page's own button was no
+	# help either, because the out-of-stock state was only ever applied by the
+	# variant picker, which does not run for a product with no variants.
+	validate_stock_for_row(cart, item_code)
 	save_cart(cart)
 	return cart_payload(cart)
+
+
+def validate_stock_for_row(cart, item_code: str) -> None:
+	"""Refuse to put more of an item in the cart than there is to buy.
+
+	Deliberately silent when the shop allows out-of-stock selling, and for items
+	that are not stock-managed, so this never fights the setting.
+	"""
+	from shop.storefront import stock
+
+	settings = frappe.get_cached_doc("Shop Settings")
+	if settings.allow_out_of_stock:
+		return
+	if not frappe.get_cached_value("Item", item_code, "is_stock_item"):
+		return
+
+	available = stock.get_stock([item_code]).get(item_code, 0)
+	row = find_row(cart, item_code)
+	wanted = flt(row.qty) if row else 0
+
+	if available <= 0:
+		frappe.throw(_("{0} is out of stock").format(item_code))
+	if flt(wanted) > available:
+		frappe.throw(_("Only {0} of {1} left in stock").format(int(available), item_code))
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
