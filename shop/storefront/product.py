@@ -30,12 +30,6 @@ def get_product(slug: str) -> dict:
 		"images": images.product_images(doc),
 		"collections": product_collections(doc),
 		"rating": reviews.summary(doc.name),
-		# The condition tag is hidden when there is nothing left to buy: a
-		# sold-out product should read "Sold out", not "New" as though it were
-		# still on the shelf. condition itself is left alone - it is the truth
-		# about the goods, and other things read it.
-		"condition_tag": "" if stock.availability(doc.item) == "sold_out" else (doc.condition or "").strip(),
-		**stock.stock_tags(doc.item),
 	}
 	if doc.has_variants:
 		payload.update(variant_details(doc.item, doc.compare_at_price))

@@ -227,7 +227,6 @@ def decorate(products: list) -> None:
 	images = first_images([p.name for p in products])
 	prices = display_prices(products)
 	availability = display_stock(products)
-	stock_tags_map = display_stock_tags(products)
 	ratings = reviews.summaries([p.name for p in products])
 	for product in products:
 		product.route = f"/product/{product.slug}"
@@ -239,14 +238,6 @@ def decorate(products: list) -> None:
 		product.price = price.get("rate")
 		product.formatted_price = price.get("formatted")
 		product.in_stock = availability.get(product.item, False)
-		# Same rule as on the product page: a sold-out card shows "Sold out" in
-		# place of the condition, and a nearly-gone one is flagged beside it.
-		# The condition value itself is left alone - it is the truth about the
-		# goods, and the agent and the catalogue both read it.
-		tags = stock_tags_map.get(product.item, {})
-		product.sold_out_tag = tags.get("sold_out_tag", "")
-		product.limited_tag = tags.get("limited_tag", "")
-		product.condition_tag = "" if product.sold_out_tag else product.condition
 		apply_compare_at(product, product.price)
 		rating = ratings.get(product.name)
 		product.rating_average = rating["average"] if rating else None
@@ -293,36 +284,12 @@ def display_stock(products: list) -> dict:
 
 
 def variants_by_template(templates: list[str]) -> dict[str, list[str]]:
-	return stock.variants_of(templates)
-
-
-def display_stock_tags(products: list) -> dict:
-	"""Per-product Sold out / Limited stock tag text, in one pass.
-
-	Batch like display_stock is: a card listing asking for stock one item at a
-	time turns a page render into a hundred Bin queries.
-	"""
-	settings = frappe.get_cached_doc("Shop Settings")
-	if settings.allow_out_of_stock:
-		# Nothing is being counted, so no tag may claim anything about stock.
-		return {p.item: {"sold_out_tag": "", "limited_tag": ""} for p in products}
-
-	managed = [
-		p.item
-		for p in products
-		if frappe.get_cached_value("Item", p.item, "is_stock_item")
-	]
-	totals = stock.total_stock_map(managed)
-	threshold = stock.low_stock_threshold()
-	out: dict[str, dict] = {}
-	for product in products:
-		total = totals.get(product.item)
-		if total is None:
-			out[product.item] = {"sold_out_tag": "", "limited_tag": ""}
-		elif total <= 0:
-			out[product.item] = {"sold_out_tag": stock.SOLD_OUT_TAG, "limited_tag": ""}
-		elif threshold and total < threshold:
-			out[product.item] = {"sold_out_tag": "", "limited_tag": stock.LIMITED_TAG}
-		else:
-			out[product.item] = {"sold_out_tag": "", "limited_tag": ""}
-	return out
+	if not templates:
+		return {}
+	rows = frappe.get_all(
+		"Item", filters={"variant_of": ["in", templates]}, fields=["name", "variant_of"]
+	)
+	grouped = {}
+	for row in rows:
+		grouped.setdefault(row.variant_of, []).append(row.name)
+	return grouped

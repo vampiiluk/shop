@@ -201,10 +201,6 @@ PALETTE = {
 	# colour-scheme rule of its own and cannot drift from the palette.
 	"dots": ("#D1D1D4", "#26262B"),
 	"success": ("#15803D", "#4ADE80"),
-	# Amber, for "Limited stock". The palette had red (accent) and green
-	# (success) but nothing between them, and a nearly-gone product is neither
-	# a warning nor a reason to panic.
-	"warning": ("#B45309", "#FBBF24"),
 }
 
 
@@ -2162,58 +2158,6 @@ def condition_tag(refs, key, size="10px", padding="5px 12px"):
 	)
 
 
-def stock_tag(refs, key, text, color):
-	"""A stock-state pill, gated on a field that is either the text or "".
-
-	Each tag is gated on its own field because the builder's
-	visibilityCondition takes a single key and cannot express a comparison, so
-	"availability is limited" is not something a page can ask. The backend
-	decides which of the three strings is non-empty and the page just obeys.
-	"""
-	return block(
-		"span",
-		text=text,
-		name=text,
-		visibilityCondition={"key": key, "comesFrom": "dataScript"},
-		styles={
-			**mono(size="10px", color=color, spacing="0.14em"),
-			"borderColor": color,
-			"borderRadius": "999px",
-			"borderStyle": "solid",
-			"borderWidth": "1px",
-			"padding": "5px 12px",
-		},
-		dynamicValues=[dv(key, "innerHTML")],
-	)
-
-
-def stock_tags_row(refs, prefix="", size="10px", padding="5px 12px"):
-	"""Condition / Sold out / Limited stock, in one row above the product name.
-
-	Exactly one of them is ever visible for a given product, except that
-	Limited stock sits beside the condition: a preloved bag with one left is
-	still a preloved bag. Sold out hides the condition outright, because a
-	sold-out product reading "New" above its name tells the shopper it is on the
-	shelf when it is not.
-	"""
-	return block(
-		"div",
-		name="Tags",
-		styles={
-			"alignItems": "center",
-			"display": "flex",
-			"flexWrap": "wrap",
-			"gap": "6px",
-			"width": "100%",
-		},
-		children=[
-			condition_tag(refs, f"{prefix}condition_tag", size=size, padding=padding),
-			stock_tag(refs, f"{prefix}sold_out_tag", "Sold out", refs["accent"]),
-			stock_tag(refs, f"{prefix}limited_tag", "Limited stock", refs["warning"]),
-		],
-	)
-
-
 def product_card(refs):
 	well = block(
 		"div",
@@ -2305,7 +2249,7 @@ def product_card(refs):
 		dynamicValues=[dv("route", "href", "attribute")],
 		children=[
 			well,
-			stock_tags_row(refs),
+			condition_tag(refs, "condition"),
 			block(
 				"h3",
 				text="Product",
@@ -3229,7 +3173,7 @@ def pdp_details(refs):
 		name="Details",
 		styles={"display": "flex", "flexDirection": "column", "gap": "18px", "width": "100%"},
 		children=[
-			stock_tags_row(refs, "product.", size="11px", padding="7px 16px"),
+			condition_tag(refs, "product.condition", size="11px", padding="7px 16px"),
 			block(
 				"h1",
 				text="Product",
