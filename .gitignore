@@ -67,3 +67,7 @@ shop/www/shop.html
 
 # stray workspace symlink must never be committed (breaks pilot app install validation)
 shop/public/node_modules
+
+# Dated Builder state exports. Large, and they accumulate: keep them on disk
+# (/home/frappe/builder-backups) and out of git history.
+shop/builder_templates/_backups/*.json
