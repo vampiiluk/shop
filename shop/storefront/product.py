@@ -1,3 +1,4 @@
+import re
 from urllib.parse import quote
 
 import frappe
@@ -170,9 +171,63 @@ def attribute_options(template: str, variants: list[dict]) -> list[dict]:
 
 
 def ordered_values(attribute: str) -> list[str]:
-	return frappe.get_all(
+	"""The attribute's values in the order the storefront offers them.
+
+	Stored `idx` order is the intent, so it is what we use - except when the
+	attribute carries numbers. Sizes like 36, 41.5 and 38-39 are only ever
+	appended as they are added, which leaves the picker reading 40, 38, 36, 37,
+	39. Sorting those by size keeps the picker ascending no matter what order
+	the values were entered in.
+	"""
+	values = frappe.get_all(
 		"Item Attribute Value",
 		filters={"parent": attribute},
 		order_by="idx",
 		pluck="attribute_value",
 	)
+	return sorted(values, key=size_order) if any(measures_a_size(v) for v in values) else values
+
+
+def measures_a_size(value: str) -> bool:
+	"""True when `value` is a number or a number range, so it has a size to compare."""
+	text = str(value).strip()
+	return bool(SIZE_NUMBER.fullmatch(text) or SIZE_RANGE.fullmatch(text))
+
+
+SIZE_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# Only the lower bound is captured: the decimal part of each number is
+# non-capturing so group(1) is the whole bound rather than ".5" or None.
+SIZE_RANGE = re.compile(r"(\d+(?:\.\d+)?)\s*[-–/]\s*\d+(?:\.\d+)?")
+
+# Named sizes keep the lead - Extra Small through Extra Large read in that order
+# whatever the rows say - then plain numbers, then ranges by their lower bound.
+NAMED_SIZES = {
+	"xxs": 0,
+	"xs": 1,
+	"extra small": 1,
+	"s": 2,
+	"small": 2,
+	"m": 3,
+	"medium": 3,
+	"l": 4,
+	"large": 4,
+	"xl": 5,
+	"extra large": 5,
+	"xxl": 6,
+	"xxxl": 7,
+	"one size": 8,
+}
+
+
+def size_order(value: str) -> tuple[int, float, str]:
+	"""Sort key placing values into named, plain-number, then range groups."""
+	text = str(value).strip()
+	lowered = text.lower()
+	if lowered in NAMED_SIZES:
+		return (0, float(NAMED_SIZES[lowered]), lowered)
+	if SIZE_NUMBER.fullmatch(text):
+		return (1, float(text), lowered)
+	span = SIZE_RANGE.fullmatch(text)
+	if span:
+		return (2, float(span.group(1)), lowered)
+	return (3, 0.0, lowered)
