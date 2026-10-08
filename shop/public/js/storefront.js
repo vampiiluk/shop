@@ -5,11 +5,14 @@
 		cart: (window.page_data && window.page_data.cart) || null,
 	};
 
-	// Device fingerprint — supports four providers:
+	// Device fingerprint — supports three providers:
 	//   thumbmarkjs      – free, no API key, self-hosted via CDN
 	//   fingerprintjs-oss – free, no API key, self-hosted via CDN
-	//   fingerprintjs-pro – paid API, requires public key
 	//   creepjs           – free, self-hosted via CDN, most signals
+	//
+	// fingerprintjs-pro used to be a fourth option. It needed the paid API to be
+	// reachable over the network, and this bench no longer talks to that host, so
+	// the branch was removed rather than left to fail on every page load.
 	// Checkout whitelists store fields flat on page_data; other pages nest
 	// them under store. Fall back so both shapes resolve.
 	function storeContext() {
@@ -18,7 +21,7 @@
 	}
 	function loadFingerprint() {
 		const store = storeContext();
-		const provider = store.fingerprint_provider || "thumbmarkjs";
+		let provider = store.fingerprint_provider || "thumbmarkjs";
 
 		// Loud, because the alternative is invisible. A provider that never
 		// reaches the page falls back to thumbmarkjs here, and every order then
@@ -35,26 +38,16 @@
 		}
 
 		if (provider === "fingerprintjs-pro") {
-			if (!store.fp_public_key) {
-				return Promise.resolve({ visitorId: "", requestId: "", provider: "fingerprintjs-pro" });
-			}
-			return import(
-				"https://metrics.sananahmad.dpdns.org/web/v4/" + encodeURIComponent(store.fp_public_key)
-			)
-				.then((Fingerprint) => Fingerprint.start({
-					region: store.fp_region || "ap",
-					endpoint: "https://metrics.sananahmad.dpdns.org",
-				}))
-				.then((agent) => agent.get())
-				.then((result) => ({
-					visitorId: result.visitorId || result.visitor_id || "",
-					requestId: result.requestId || result.event_id || "",
-					provider: "fingerprintjs-pro",
-				}))
-				.catch((error) => {
-					console.warn("fingerprintjs-pro unavailable:", error && error.message);
-					return { visitorId: "", requestId: "", provider: "fingerprintjs-pro" };
-				});
+			// Loud on purpose. Shop Settings still offers this option, so a value
+			// set before the branch was removed would otherwise fall through to
+			// thumbmarkjs and every order would record "thumbmarkjs" - reading as
+			// a setting that was applied and silently was not.
+			console.warn(
+				'[shop] Shop Settings.fingerprint_provider is "fingerprintjs-pro", ' +
+					"which is no longer supported. Falling back to thumbmarkjs. " +
+					"Change the setting in Shop Settings."
+			);
+			provider = "thumbmarkjs";
 		}
 
 		if (provider === "fingerprintjs-oss") {
