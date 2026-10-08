@@ -309,7 +309,13 @@ def filter_url(form, changes: dict, path: str = "/products") -> str:
 
 @frappe.whitelist(allow_guest=True)
 def product_page() -> dict:
-	detail = product.get_product(frappe.form_dict.slug)
+	slug = frappe.form_dict.get("slug")
+	if not slug:
+		# Builder previews this page without the route's :slug (see
+		# order_confirmation). Only the absent case renders empty — a real
+		# request for an unknown slug must still raise so the page 404s.
+		return {"store": store_details(), "product": None, "related_products": [], "reviews": []}
+	detail = product.get_product(slug)
 	detail["image"] = detail["images"][0]["image"] if detail["images"] else None
 	detail["buy_item_code"] = detail.get("default_item_code") or detail["item"]
 	detail["description_text"] = frappe.utils.strip_html(detail.get("description") or "")
@@ -348,7 +354,11 @@ def collection_page() -> dict:
 	form = frappe.form_dict
 	# See listing(): the echoed search must never carry markup into the page.
 	safe_search = frappe.utils.escape_html(form.get("search") or "")
-	slug = form.slug
+	slug = form.get("slug")
+	if not slug:
+		# See product_page(): the Builder preview has no :slug, and only the
+		# absent case renders empty so an unknown slug still 404s below.
+		return {"store": store_details(), "collection": None, "filters": [], "products": [], "facets": []}
 	collection = frappe.db.get_value(
 		"Shop Collection",
 		{"slug": slug, "published": 1},
@@ -453,9 +463,13 @@ def checkout_page() -> dict:
 @frappe.whitelist(allow_guest=True)
 def order_confirmation() -> dict:
 	form = frappe.form_dict
+	# The Builder previews this page without the route's :order_id, and
+	# get_order_summary is typed name: str, so passing form.order_id through
+	# unguarded raised FrappeTypeError before any of it could be rendered.
+	order_id = form.get("order_id")
 	return {
 		"store": store_details(),
-		"order": orders.get_order_summary(form.order_id, form.get("token")),
+		"order": orders.get_order_summary(order_id, form.get("token")) if order_id else None,
 	}
 
 
