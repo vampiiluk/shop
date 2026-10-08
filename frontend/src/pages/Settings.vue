@@ -515,7 +515,6 @@
 							{ label: 'ThumbmarkJS (free, no API key)', value: 'thumbmarkjs' },
 							{ label: 'FingerprintJS OSS (free, no API key)', value: 'fingerprintjs-oss' },
 							{ label: 'CreepJS (free, self-hosted, most signals)', value: 'creepjs' },
-							{ label: 'FingerprintJS Pro (paid, requires API key)', value: 'fingerprintjs-pro' },
 						]"
 					/>
 					<p class="text-p-sm text-ink-gray-5">
@@ -528,39 +527,7 @@
 						<span v-else-if="fingerprint.fingerprint_provider === 'creepjs'">
 							CreepJS captures 20+ browser signals (canvas, WebGL, audio, fonts, screen). Preloaded on checkout page, cached for 24h. No API key needed.
 						</span>
-						<span v-else>
-							FingerprintJS Pro provides server-verified bot, tamper and proxy signals.
-							<a href="https://fingerprint.com/signup/" target="_blank" class="text-brand-blue hover:underline">Create a free account here</a>.
-						</span>
 					</p>
-					<template v-if="fingerprint.fingerprint_provider === 'fingerprintjs-pro'">
-						<div class="grid max-w-lg grid-cols-2 gap-4">
-							<FormControl
-								v-model="fingerprint.fingerprint_public_key"
-								label="Public key"
-								placeholder="e.g. 73Ia25Y0GgzY0HwWAWfD"
-							/>
-							<FormControl
-								v-model="fingerprint.fingerprint_region"
-								type="select"
-								label="Region"
-								:options="[
-									{ label: 'Asia (Mumbai) — ap', value: 'ap' },
-									{ label: 'Global (US) — us', value: 'us' },
-									{ label: 'EU (Frankfurt) — eu', value: 'eu' },
-								]"
-							/>
-							<Password
-								v-model="fingerprint.fingerprint_secret_key"
-
-								label="Secret key"
-								placeholder="Enter to change"
-							/>
-							<p v-if="data.fingerprint_secret_key_set && !fingerprint.fingerprint_secret_key" class="text-xs text-green-600">
-								✓ Key stored — leave blank to keep it, type to replace
-							</p>
-						</div>
-					</template>
 				</div>
 				<template #footer>
 					<Button
