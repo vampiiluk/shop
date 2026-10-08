@@ -514,8 +514,8 @@
    "fieldname": "fingerprint_provider",
    "fieldtype": "Select",
    "label": "Fingerprint Provider",
-   "options": "thumbmarkjs\nfingerprintjs-oss\nfingerprintjs-pro\ncreepjs",
-   "description": "Client-side device fingerprinting. ThumbmarkJS (free, no API key), FingerprintJS OSS (free, no API key), CreepJS (free, self-hosted, most signals), or FingerprintJS Pro (paid, requires API key)."
+   "options": "thumbmarkjs\nfingerprintjs-oss\ncreepjs",
+   "description": "Client-side device fingerprinting. ThumbmarkJS (free, no API key), FingerprintJS OSS (free, no API key), or CreepJS (free, self-hosted, most signals)."
   },
   {
    "fieldname": "fingerprint_public_key",
