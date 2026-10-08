@@ -70,11 +70,26 @@ def get_or_create_verification(address: dict, source: str = "Order Placement") -
 		{"address_hash": hkey},
 		["name", "ors_status", "gms_status", "ors_result_json", "gms_result_json",
 		 "ors_verified_on", "gms_verified_on", "last_verified_on", "latitude", "longitude",
-		 "linked_orders", "linked_phones", "linked_fingerprints"],
+		 "linked_orders", "linked_phones", "linked_fingerprints", "source"],
 		as_dict=True,
 	)
 
 	if existing:
+		# The address was already on file, so the row keeps whatever source created
+		# it. Without this an address a staff member entered by hand stays labelled
+		# "Manual" forever, even once three orders have been placed to it - which
+		# made the source filter report the opposite of what happened.
+		#
+		# "Manual" is the weakest provenance claim, so it yields to anything
+		# stronger and never the reverse: an order arriving at an order-created
+		# row must not downgrade it to look unused.
+		if existing.source == "Manual" and source != "Manual":
+			frappe.db.set_value(
+				"Shop Address Verification", existing.name, {"source": source},
+				update_modified=False,
+			)
+			existing.source = source
+
 		# Each provider against its own stamp: one shared last_verified_on made a
 		# stale Maps answer look fresh because ORS had just re-run.
 		ors_stamp = existing.ors_verified_on or existing.last_verified_on
