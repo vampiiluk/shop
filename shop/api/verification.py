@@ -24,6 +24,13 @@ def get_verifications(filters=None, limit=50, offset=0):
 	if flt.get("gms_status"):
 		cond += " AND gms_status = %s"
 		params.append(flt["gms_status"])
+	if flt.get("provider_status"):
+		# One dropdown for both providers. OR rather than AND: a row where ORS
+		# failed and GMS completed is a row that "Failed" should return, which is
+		# the case worth looking at. AND would match only rows where both
+		# providers failed, which is both rarer and less interesting.
+		cond += " AND (ors_status = %s OR gms_status = %s)"
+		params.extend([flt["provider_status"], flt["provider_status"]])
 	if flt.get("source"):
 		cond += " AND source = %s"
 		params.append(flt["source"])

@@ -52,11 +52,10 @@
 			</div>
 
 			<div class="mb-4 flex flex-wrap items-center gap-3">
-				<Input v-model="vFilters.search" placeholder="Search addresses..." class="w-64" @input="loadVerifications" />
-				<Select v-model="vFilters.ors_status" :options="vOrsStatusOptions" placeholder="ORS Status" class="w-40" @change="loadVerifications" />
-				<Select v-model="vFilters.gms_status" :options="vGmsStatusOptions" placeholder="GMS Status" class="w-40" @change="loadVerifications" />
-				<Select v-model="vFilters.source" :options="vSourceOptions" placeholder="Source" class="w-40" @change="loadVerifications" />
-				<Select v-model="vFilters.review_state" :options="vReviewOptions" placeholder="Review" class="w-40" @change="loadVerifications" />
+				<Input v-model="vFilters.search" placeholder="Search addresses..." class="w-64" />
+				<Select v-model="vFilters.provider_status" :options="vProviderStatusOptions" placeholder="Provider Status" class="w-40" />
+				<Select v-model="vFilters.source" :options="vSourceOptions" placeholder="Source" class="w-40" />
+				<Select v-model="vFilters.review_state" :options="vReviewOptions" placeholder="Review" class="w-40" />
 				<button
 					type="button"
 					class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
@@ -185,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Button, Dialog, Input, Select, Spinner, createResource, toast } from 'frappe-ui'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
@@ -205,13 +204,12 @@ const vRows = ref<any[]>([])
 const vTotal = ref(0)
 const vOffset = ref(0)
 const vPageSize = 50
-const vFilters = ref({ search: '', ors_status: '', gms_status: '', source: '', review_state: '', needs_attention: '' })
+const vFilters = ref({ search: '', provider_status: '', source: '', review_state: '', needs_attention: '' })
 
 const vHasFilters = computed(() =>
 	!!(
 		vFilters.value.search
-		|| vFilters.value.ors_status
-		|| vFilters.value.gms_status
+		|| vFilters.value.provider_status
 		|| vFilters.value.source
 		|| vFilters.value.review_state
 		|| vFilters.value.needs_attention
@@ -222,30 +220,40 @@ const vHasFilters = computed(() =>
 // it would select without a second round trip.
 const vAttentionCount = ref(0)
 
+// Reload whenever any filter changes. Watching the state rather than binding
+// @input / @change on the controls: reka-ui's SelectRoot never emits `change`
+// at all, so those handlers simply never ran, and Input emits `input` before
+// it emits `update:modelValue`, so the handler read the previous search term.
+let vFilterTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+	vFilters,
+	() => {
+		vOffset.value = 0
+		if (vFilterTimer) clearTimeout(vFilterTimer)
+		// Debounced so a search does not fire a request per keystroke; the
+		// dropdowns pay the same 250ms, which is not worth branching for.
+		vFilterTimer = setTimeout(loadVerifications, 250)
+	},
+	{ deep: true }
+)
+
 function toggleAttention() {
 	vFilters.value.needs_attention = vFilters.value.needs_attention ? '' : '1'
-	vOffset.value = 0
-	loadVerifications()
 }
 
 function showAttentionOnly() {
 	vFilters.value.needs_attention = '1'
-	vOffset.value = 0
-	loadVerifications()
 }
 
-const vOrsStatusOptions = [
+// ORS and GMS share one dropdown. Skipped and Disabled both mean "this
+// provider did not run" - ORS writes Skipped, GMS writes Disabled - so they
+// are listed rather than collapsed, since a row can carry one of each.
+const vProviderStatusOptions = [
 	{ label: 'All', value: '' },
 	{ label: 'Complete', value: 'Complete' },
 	{ label: 'Pending', value: 'Pending' },
 	{ label: 'Failed', value: 'Failed' },
 	{ label: 'Skipped', value: 'Skipped' },
-]
-const vGmsStatusOptions = [
-	{ label: 'All', value: '' },
-	{ label: 'Complete', value: 'Complete' },
-	{ label: 'Pending', value: 'Pending' },
-	{ label: 'Failed', value: 'Failed' },
 	{ label: 'Disabled', value: 'Disabled' },
 ]
 const vReviewOptions = [
@@ -272,17 +280,18 @@ const vStatsRes = createResource({
 })
 
 async function fetchVData() {
-	const params = new URLSearchParams()
-	if (vFilters.value.search) params.set('search', vFilters.value.search)
-	if (vFilters.value.ors_status) params.set('ors_status', vFilters.value.ors_status)
-	if (vFilters.value.gms_status) params.set('gms_status', vFilters.value.gms_status)
-	if (vFilters.value.source) params.set('source', vFilters.value.source)
-	if (vFilters.value.review_state) params.set('review_state', vFilters.value.review_state)
-	if (vFilters.value.needs_attention) params.set('needs_attention', vFilters.value.needs_attention)
-	params.set('limit', String(vPageSize))
-	params.set('offset', String(vOffset.value))
-	const resp = await fetch(`/api/method/shop.api.verification.get_verifications?${params.toString()}`, {
-		headers: { 'X-Frappe-CSRF-Token': csrfToken.value },
+	// The endpoint declares `filters` as a dict, so it has to arrive as one.
+	// Sending them as flat query params put them in form_dict, where the
+	// isinstance(filters, dict) check discarded them and every filter silently
+	// returned the unfiltered set. export_csv in this file already posts a body.
+	const filters = Object.fromEntries(Object.entries(vFilters.value).filter(([, v]) => v))
+	const resp = await fetch('/api/method/shop.api.verification.get_verifications', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Frappe-CSRF-Token': csrfToken.value,
+		},
+		body: JSON.stringify({ filters, limit: vPageSize, offset: vOffset.value }),
 	})
 	const json = await resp.json()
 	return json.message || { rows: [], total: 0 }
@@ -317,9 +326,7 @@ async function refreshAttentionCount() {
 }
 
 function clearVFilters() {
-	vFilters.value = { search: '', ors_status: '', gms_status: '', source: '', review_state: '', needs_attention: '' }
-	vOffset.value = 0
-	loadVerifications()
+	vFilters.value = { search: '', provider_status: '', source: '', review_state: '', needs_attention: '' }
 }function vPrevPage() {
 	vOffset.value = Math.max(0, vOffset.value - vPageSize)
 	loadVerifications()
