@@ -135,6 +135,7 @@ def page_links(path: str, form, page: int, total: int) -> dict:
 	next_url = url_for(page + 1) if page < page_count else ""
 	return {
 		"page_count": page_count,
+		"page_label": f"{page} / {page_count}",
 		"prev_url": prev_url,
 		"next_url": next_url,
 		# Builder binds a visibility condition to a plain key, not an
