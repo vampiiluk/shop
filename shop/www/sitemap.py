@@ -105,11 +105,17 @@ def _lastmod(value) -> str:
 	needs; the time only adds bytes and a second way to be invalid. Anything
 	unparseable falls back to today rather than emitting a broken value, since a
 	wrong-but-valid date is more dangerous than an absent one.
+
+	The day is read in UTC, not in the site's timezone. ``lastmod`` is defined in
+	UTC, and this site runs on Asia/Karachi, so for the five hours after 19:00 UTC
+	the local date is already tomorrow: ``/about`` and ``/contact`` were being
+	published as ``2026-10-10`` while the rest of the world was still on the 9th.
+	A future lastmod is a documented reason for a crawler to distrust an entry.
 	"""
 	import datetime as dt
 
 	if isinstance(value, (dt.datetime, dt.date)):
-		return value.strftime("%Y-%m-%d")
+		return _not_future(value.strftime("%Y-%m-%d"))
 
 	text = str(value or "").strip()
 	# Shape is not validity: "2026-13-45" is the right shape and not a real date,
@@ -117,10 +123,18 @@ def _lastmod(value) -> str:
 	# out-of-range date would otherwise go to Google to be rejected again.
 	for candidate in (text, text[:10]):
 		try:
-			return dt.datetime.strptime(candidate, "%Y-%m-%d").strftime("%Y-%m-%d")
+			return _not_future(dt.datetime.strptime(candidate, "%Y-%m-%d").strftime("%Y-%m-%d"))
 		except ValueError:
 			continue
-	return dt.date.today().strftime("%Y-%m-%d")
+	return dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+
+
+def _not_future(day: str) -> str:
+	"""Clamp a day to today. A lastmod in the future helps nobody."""
+	import datetime as dt
+
+	today = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
+	return day if day <= today else today
 
 
 def _shop_routes():
