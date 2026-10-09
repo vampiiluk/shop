@@ -246,7 +246,62 @@ def _organization(settings: dict) -> dict:
 		address["postalCode"] = postal
 	if address:
 		node["address"] = {"@type": "PostalAddress", **address}
+	_disambiguate(node, settings)
 	return node
+
+
+# A short name is worth very little to a search engine, and a short name that
+# another business also uses is worse than none. `reloop` is also a German DJ
+# and audio equipment brand, so an Organization node carrying nothing but
+# `"name": "reloop"` gave the two entities the same evidence and a search
+# summary would merge them: clothing next to mixers and turntables.
+#
+# These four properties are what lets the two be told apart without the shop
+# having to rename itself. `description` says what the business is,
+# `disambiguatingDescription` is schema.org's field for exactly this case,
+# `knowsAbout` lists the subject matter, and `alternateName` gives the
+# qualified spellings people actually type.
+_DISAMBIGUATION = {
+	"description": (
+		"An online shop in {country} selling new and preloved clothing, footwear, "
+		"bags, accessories and everyday essentials."
+	),
+	"disambiguatingDescription": (
+		"{name} here is the online clothing and lifestyle shop at {host}. It is not "
+		"the DJ and audio equipment manufacturer that shares this name."
+	),
+	"knowsAbout": [
+		"preloved clothing",
+		"thrift fashion",
+		"second-hand fashion",
+		"footwear",
+		"bags and accessories",
+		"sustainable fashion",
+	],
+	"alternateName": ["{name} Shop", "{name} Pakistan"],
+}
+
+
+def _disambiguate(node: dict, settings: dict) -> None:
+	"""Describe the business so it is not merged with a namesake.
+
+	Only the text that needs no configuration is emitted. `sameAs` is left out
+	deliberately: it is the strongest identity signal available, but it must
+	point at profiles that are genuinely this shop's, and the app has no field
+	for them to be configured in. Guessing a handle would be worse than
+	omitting it -- a wrong `sameAs` is an active false claim, and this is
+	exactly the case where a wrong handle merges two unrelated brands.
+	"""
+	name = settings["shop_name"]
+	# The ISO code belongs in the PostalAddress, but this text is read by a person,
+	# so it takes the country as the shop wrote it ("Pakistan", not "PK").
+	country = (settings.get("address_country") or "").strip() or "Pakistan"
+	host = urlparse(site_url("/")).netloc.removeprefix("www.")
+	for key, template in _DISAMBIGUATION.items():
+		if isinstance(template, list):
+			node[key] = [item.format(name=name) for item in template]
+		else:
+			node[key] = template.format(name=name, country=country, host=host)
 
 
 # Addressed the way a human types it, which is how Default Country is filled in.
