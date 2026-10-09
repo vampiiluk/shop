@@ -19,10 +19,57 @@ def setup():
 	sync_templates()
 	ensure_user_fonts()
 	apply_default_theme()
+	set_default_pdf_generator()
 	sync_agent()
 	enable_customer_signup()
 	warn_if_server_scripts_disabled()
 	download_gms_background()
+
+
+def set_default_pdf_generator():
+	"""Print through the chrome-headless-shell Frappe ships, not wkhtmltopdf.
+
+	Frappe resolves a print format's engine as: the format's own setting, then
+	the site default, then a hardcoded "wkhtmltopdf". There is no wkhtmltopdf
+	binary on this platform - arm64 Linux has no official build - but the bench
+	carries its own chrome-headless-shell under `chromium/`, which Frappe
+	downloads for itself.
+
+	So without a default set here, every print format that did not carry an
+	explicit engine printed to a binary that does not exist and failed with
+	"No wkhtmltopdf executable found". Setting the default fixes those formats
+	and every format created later, which is what makes a fresh install print
+	out of the box.
+
+	Skipped when the site has deliberately chosen something else, so an admin
+	who installs wkhtmltopdf and prefers it keeps their choice.
+	"""
+	if frappe.db.get_default("pdf_generator"):
+		return
+	if not _chrome_available():
+		# Nothing to fall back to but wkhtmltopdf; saying so beats silently
+		# setting a default that cannot run.
+		click.secho(
+			"No chrome-headless-shell found under the bench's chromium/ directory. "
+			"Run: bench setup-chromium --yes (or install wkhtmltopdf).",
+			fg="yellow",
+		)
+		return
+	frappe.db.set_default("pdf_generator", "chrome")
+	frappe.db.commit()
+
+
+def _chrome_available() -> bool:
+	import os
+
+	bench = frappe.utils.get_bench_path()
+	chromium = os.path.join(bench, "chromium")
+	if not os.path.isdir(chromium):
+		return False
+	for root, _dirs, files in os.walk(chromium):
+		if any(f in files for f in ("headless_shell", "chrome-headless-shell", "chrome")):
+			return True
+	return False
 
 
 def apply_custom_fields():
