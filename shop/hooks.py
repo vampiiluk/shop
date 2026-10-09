@@ -430,6 +430,18 @@ custom_fields = {
 			"description": "How often the scheduler drains the verification queue.",
 			"insert_after": "geocode_cache_ttl",
 		},
+		{
+			"fieldname": "social_profiles",
+			"label": "Social Profiles",
+			"fieldtype": "Small Text",
+			"description": (
+				"One profile URL per line, e.g. https://www.instagram.com/yourhandle/. "
+				"Published as schema.org sameAs, which is how a search engine confirms "
+				"these accounts belong to this shop. Use the profile URL, not a share or "
+				"post link - those resolve to one post and stop identifying anything."
+			),
+			"insert_after": "queue_schedule",
+		},
 	],
 }
 

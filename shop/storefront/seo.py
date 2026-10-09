@@ -105,6 +105,7 @@ def store_settings() -> dict:
 		"return_window_days",
 		"flat_shipping_rate",
 		"free_shipping_above",
+		"social_profiles",
 	):
 		try:
 			settings[field] = frappe.db.get_single_value("Shop Settings", field)
@@ -285,12 +286,12 @@ _DISAMBIGUATION = {
 def _disambiguate(node: dict, settings: dict) -> None:
 	"""Describe the business so it is not merged with a namesake.
 
-	Only the text that needs no configuration is emitted. `sameAs` is left out
-	deliberately: it is the strongest identity signal available, but it must
-	point at profiles that are genuinely this shop's, and the app has no field
-	for them to be configured in. Guessing a handle would be worse than
-	omitting it -- a wrong `sameAs` is an active false claim, and this is
-	exactly the case where a wrong handle merges two unrelated brands.
+	`sameAs` carries the configured social profiles. It is the strongest identity
+	signal available - it is how a search engine confirms that a set of accounts
+	belongs to this business - so it is worth being strict about it. A URL is
+	only accepted when it is a bare profile URL; a share or post link resolves to
+	one post rather than to the account, and publishing it would assert a link to
+	that post as part of the business's identity.
 	"""
 	name = settings["shop_name"]
 	# The ISO code belongs in the PostalAddress, but this text is read by a person,
@@ -302,6 +303,23 @@ def _disambiguate(node: dict, settings: dict) -> None:
 			node[key] = [item.format(name=name) for item in template]
 		else:
 			node[key] = template.format(name=name, country=country, host=host)
+	if profiles := _social_profiles(settings):
+		node["sameAs"] = profiles
+
+
+def _social_profiles(settings: dict) -> list[str]:
+	"""The shop's own profile URLs, as schema.org sameAs."""
+	raw = settings.get("social_profiles") or ""
+	profiles = []
+	for line in raw.splitlines():
+		url = line.strip()
+		if not url or not url.startswith(("http://", "https://")):
+			continue
+		# A share or post link identifies one post, not the account behind it.
+		if "/share/" in url or "/posts/" in url or "/p/" in url or "/reel/" in url:
+			continue
+		profiles.append(url)
+	return profiles
 
 
 # Addressed the way a human types it, which is how Default Country is filled in.
