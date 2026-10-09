@@ -1,4 +1,5 @@
 import random
+from urllib.parse import urlencode
 
 import frappe
 from frappe.utils import cint
@@ -103,6 +104,47 @@ def clear_stocked_cache(_doc=None, _method=None) -> None:
 	frappe.cache().delete_value(seo.CATALOG_CACHE_KEY)
 
 
+def page_links(path: str, form, page: int, total: int) -> dict:
+	"""Prev/next URLs and the page count for the listing pager.
+
+	The catalogue pages fine - `start`, `limit` and `has_more` all work - but
+	`/products` rendered only the first page with nothing pointing at the rest,
+	so products past PAGE_SIZE were unreachable without hand-editing the URL.
+
+	Every filter the shopper applied is carried across, because a pager that
+	drops the sort or the size filter silently changes what they are looking
+	at. `page=1` is left off so the first page keeps its bare canonical URL,
+	which is what `seo_for` advertises.
+	"""
+	page_count = max(1, -(-total // PAGE_SIZE))  # ceiling division
+	carried = {
+		key: form.get(key)
+		for key in ("search", "sort", "price", "stock", "size", "color", "collection")
+		if form.get(key)
+	}
+
+	def url_for(target: int) -> str:
+		if target == page:
+			return ""
+		query = dict(carried)
+		if target > 1:
+			query["page"] = target
+		return f"{path}?{urlencode(query)}" if query else path
+
+	prev_url = url_for(page - 1) if page > 1 else ""
+	next_url = url_for(page + 1) if page < page_count else ""
+	return {
+		"page_count": page_count,
+		"prev_url": prev_url,
+		"next_url": next_url,
+		# Builder binds a visibility condition to a plain key, not an
+		# expression: `page_count > 1` is not a safe data key, so it renders as
+		# an empty dict and the block is dropped. Strings, not booleans, to
+		# match the other page flags.
+		"pager_visible": "true" if page_count > 1 else None,
+	}
+
+
 @frappe.whitelist(allow_guest=True)
 def listing() -> dict:
 	form = frappe.form_dict
@@ -140,6 +182,7 @@ def listing() -> dict:
 		"no_results": None if result["products"] else "true",
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
+		**page_links("/products", form, page, result["total"]),
 		**result,
 		# This page is always /products whatever the query string says, so the
 		# canonical it advertises is /products and not the filtered URL: a
@@ -405,6 +448,7 @@ def collection_page() -> dict:
 		"no_results": None if result["products"] else "true",
 		"page": page,
 		"has_more": page * PAGE_SIZE < result["total"],
+		**page_links(path, form, page, result["total"]),
 		**result,
 		**seo.seo_for(path),
 	}
