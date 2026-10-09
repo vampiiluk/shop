@@ -285,8 +285,56 @@ def reset_stock():
 def teardown():
 	delete_products_and_collections()
 	delete_stock_entries()
+	clear_repost_queue()
 	delete_prices()
 	delete_items()
+
+
+def clear_repost_queue():
+	"""Clear the ERPNext stock-valuation repost queue for demo items.
+
+	Cancelling a stock entry makes ERPNext queue a ``Repost Item Valuation`` for
+	every item it moved, so `delete_stock_entries` immediately fills that queue -
+	and those rows then block `delete_items`, which falls back to disabling the
+	items instead of deleting them. A later run deletes the items and leaves the
+	orphaned repost rows behind, still queued for items that no longer exist.
+
+	Each row has to be run to completion first: ERPNext refuses to cancel a
+	repost while its status is Queued or In Progress, with a message telling you
+	to try again in an hour. Reposting an item whose stock entries are all gone
+	and whose stock value is zero is a no-op, so running it is both the supported
+	way out and harmless here.
+	"""
+	if not frappe.db.exists("DocType", "Repost Item Valuation"):
+		return
+
+	for name in frappe.get_all(
+		"Repost Item Valuation", filters={"item_code": ["like", f"{DEMO_PREFIX}%"]}, pluck="name"
+	):
+		row = frappe.get_doc("Repost Item Valuation", name)
+		row.flags.ignore_permissions = True
+		if row.status in ("Queued", "In Progress"):
+			try:
+				row.repost_now()
+			except Exception as exc:
+				frappe.log_error(
+					title="Demo teardown: repost did not complete",
+					message=f"{name} ({row.item_code}): {exc}",
+				)
+				frappe.clear_messages()
+				continue
+		if row.docstatus == 1:
+			try:
+				row.cancel()
+			except Exception as exc:
+				frappe.log_error(
+					title="Demo teardown: repost could not be cancelled",
+					message=f"{name} ({row.item_code}): {exc}",
+				)
+				frappe.clear_messages()
+				continue
+		frappe.delete_doc("Repost Item Valuation", name, ignore_permissions=True, force=True)
+	frappe.db.commit()
 
 
 def delete_products_and_collections():
