@@ -6,12 +6,24 @@
    therefore does nothing: frappe/www/sitemap.xml wins the template lookup, so
    frappe/www/sitemap.py is loaded alongside it and this app's controller is never
    reached. Byte-identical to Frappe's, so the override changes which links appear
-   and nothing about the XML itself. #}
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+   and nothing about the XML itself, except the image extension below. #}
+
+{# The image namespace is the one Google defines for image sitemaps, and it must be
+   declared on <urlset> itself or every <image:image> below is silently ignored.
+   Without it a product appears as a bare URL: a crawler reads the page, but nothing
+   points it at the catalogue photography, which is what a product or image search
+   is actually asking for. #}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 	{% for link in links %}
 	<url>
 		<loc>{{ link.loc }}</loc>
 		<lastmod>{{ link.lastmod }}</lastmod>
+		{% for image in link.images or [] %}
+		<image:image>
+			<image:loc>{{ image }}</image:loc>
+		</image:image>
+		{% endfor %}
 	</url>
 	{% endfor %}
 </urlset>

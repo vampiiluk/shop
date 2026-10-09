@@ -17,6 +17,8 @@ It defers to Frappe's two sources rather than replacing them, so a new Builder p
 or a newly web-viewable doctype is picked up here too without touching this file.
 """
 
+import os
+
 import frappe
 from frappe.utils import get_url, nowdate
 from frappe.website.router import get_pages
@@ -34,9 +36,12 @@ no_cache = 1
 
 def get_context(context):
 	links = {}
+	images = {}
 
-	def add(loc, lastmod):
+	def add(loc, lastmod, image_urls=None):
 		links.setdefault(loc, _lastmod(lastmod))
+		if image_urls:
+			images.setdefault(loc, image_urls)
 
 	for route, page in get_pages().items():
 		if page.sitemap:
@@ -46,12 +51,16 @@ def get_context(context):
 		if route:
 			add(get_url(route), data["modified"])
 
-	for route, modified in _shop_routes():
-		add(get_url(route), modified)
+	for route, modified, image_urls in _shop_routes():
+		add(get_url(route), modified, image_urls)
 
 	add(get_url("") or "/", _home_modified())
 
-	return {"links": [{"loc": loc, "lastmod": lastmod} for loc, lastmod in links.items()]}
+	return {
+		"links": [
+			{"loc": loc, "lastmod": lastmod, "images": images.get(loc)} for loc, lastmod in links.items()
+		]
+	}
 
 
 def _home_modified():
@@ -155,9 +164,55 @@ def _shop_routes():
 		for row in rows:
 			route = f"{prefix}/{row.slug}"
 			if allowed(route):
-				out.append((route, row.modified))
+				out.append((route, row.modified, _product_images(row.slug) if prefix == "/product" else None))
 
 	return out
+
+
+def _product_images(slug: str) -> list[str]:
+	"""Absolute URLs of a published product's images, in gallery order.
+
+	An image sitemap is what points a crawler at the catalogue photography.
+	Without it a product is listed as a bare URL: the crawler fetches the page
+	fine, but an image or product search has nothing to attach a picture to.
+
+	Only images whose file is actually on disk are listed. The child rows can
+	outlive the file they point at, and a sitemap entry that 404s is worse than
+	none -- it spends crawl budget discovering that the shop does not have the
+	image it advertised.
+
+	`/private/` files are skipped: a crawler has no session, so a private URL in
+	a public sitemap is a guaranteed 404.
+	"""
+	if not _has("Shop Product Image"):
+		return []
+
+	try:
+		rows = frappe.get_all(
+			"Shop Product Image",
+			filters={"parent": ("in", frappe.get_all("Shop Product", filters={"slug": slug, "published": 1}, pluck="name"))},
+			fields=["image"],
+			order_by="idx asc",
+		)
+	except Exception as exc:
+		frappe.log_error(f"shop sitemap: images unreadable for {slug}: {exc}", "Shop Sitemap")
+		frappe.clear_messages()
+		return []
+
+	public = frappe.get_site_path("public")
+	urls, seen = [], set()
+	for row in rows:
+		url = (row.get("image") or "").strip()
+		if not url or url.startswith("/private/") or not url.startswith("/files/"):
+			continue
+		absolute = f"{get_url()}{url}"
+		if absolute in seen:
+			continue
+		if not os.path.isfile(os.path.join(public, url.lstrip("/"))):
+			continue
+		seen.add(absolute)
+		urls.append(absolute)
+	return urls
 
 
 def _has(doctype):
