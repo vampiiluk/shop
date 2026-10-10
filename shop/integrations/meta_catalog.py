@@ -737,6 +737,13 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 		child = {
 			"id": _child_id(product.slug, code),
 			"item_group_id": product.slug,
+			# VARIANT is what makes Meta render the group as one product with a
+			# variant picker. Without it Meta reads these as independent
+			# products that merely share a group, and since a variant group's
+			# members are meant to share a title, the group shows up in the
+			# catalogue as N separate items with an identical name - which is
+			# how Daily Fashion Slides ended up as 15 repeats of itself.
+			"product_type": "VARIANT",
 			# Meta keeps the title stable while the buyer picks a variant,
 			# so every member carries the product's own name.
 			"title": base["title"],
