@@ -71,6 +71,17 @@ def get_products(
 		products = [p for p in products if matches_facet(attributes, p, "size", size)]
 	if color:
 		products = [p for p in products if matches_facet(attributes, p, "color", color)]
+	# Sold items sink to the bottom, and only under `ranking` - the sort the
+	# shop curates. An explicit price or name sort is the shopper's own order and
+	# is left alone, because pushing sold items below "cheapest first" would
+	# make the price they can see disagree with the order it arrives in.
+	#
+	# Python rather than SQL: stock is summed across a product's variants by
+	# `decorate`, so it is not knowable at the point the rows are fetched. The
+	# partition is stable, so ranking within each half is the order the query
+	# asked for.
+	if sort == "ranking":
+		products.sort(key=lambda p: not p.get("in_stock"))
 	if sort in ("price_asc", "price_desc"):
 		products.sort(key=lambda p: p.price if p.price is not None else float("inf"))
 		if sort == "price_desc":
@@ -238,6 +249,11 @@ def decorate(products: list) -> None:
 		product.price = price.get("rate")
 		product.formatted_price = price.get("formatted")
 		product.in_stock = availability.get(product.item, False)
+		# A second tag rather than a replacement for `condition`: "Sold" has to
+		# read alongside "New" / "Preloved", which is what tells the shopper the
+		# item is preloved AND gone. Empty hides the tag, the same way a blank
+		# condition does.
+		product.sold_label = "" if product.in_stock else "Sold"
 		apply_compare_at(product, product.price)
 		rating = ratings.get(product.name)
 		product.rating_average = rating["average"] if rating else None
