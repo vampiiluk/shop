@@ -427,6 +427,12 @@ async function saveExisting() {
 	const doc = await call('shop.api.products.save_product', { payload: payload() })
 	detail.value = doc
 	form.slug = doc.slug || ''
+	// The server renames image files to {slug}-{n} as it saves, so the urls
+	// that were just posted are stale the moment the response comes back.
+	// Without this the form keeps the pre-rename urls, the editor's own
+	// thumbnails go blank, and the next save writes those dead urls back -
+	// which is how an image ends up "uploaded" but invisible on the storefront.
+	form.images = (doc.images || []).map((row: { image: string }) => row.image)
 	baseline.value = snapshot()
 	toast.success('Product saved')
 }

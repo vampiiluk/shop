@@ -139,6 +139,8 @@ def shrink_uploaded_image(doc):
 	- so file_url, file_name, is_private and file_type are already set and can be
 	corrected here when the format changes.
 	"""
+	_undo_duplicate_entry(doc)
+
 	path = site_file_path(doc.file_url or "")
 	if not path:
 		return
@@ -196,6 +198,73 @@ def shrink_uploaded_image(doc):
 		_cleanup(loser)
 	except Exception:
 		frappe.log_error(f"shrink_uploaded_image failed for {doc.file_url}: {frappe.get_traceback()}")
+
+
+def _undo_duplicate_entry(doc) -> None:
+	"""Make a deduplicated upload keep its own bytes instead of a stranger's.
+
+	Frappe deduplicates uploads by content hash, and it does so in
+	`File.save_file`, *before* writing anything: if some other File has the same
+	`content_hash` and its bytes are still on disk, the new File is pointed at
+	that file's url and the upload's own bytes are never written at all. It is
+	deliberate, and normally a good idea.
+
+	It is wrong for this shop. Every image here is renamed after it is attached
+	- to `{slug}-{n}` when the product is saved - so the File holding a given
+	hash gets renamed out from under the index and several rows end up sharing
+	one hash. Uploading a photo that happens to match one already in the
+	catalogue then silently adopts a stranger's url: the admin uploads their
+	second product shot, the upload reports 200, and the storefront serves the
+	first product's picture. The new File row also keeps the *uploaded* name,
+	type and size while pointing at a file that has none of them, so anything
+	trusting those fields is wrong too.
+
+	The flag that disables this, `flags.ignore_duplicate_entry_error`, is read
+	inside `File.before_insert`, and `Document.hook` composes the class method
+	*before* the doc_event - so there is no hook point early enough to set it.
+	The bytes are therefore written here, which is the same effect and needs no
+	change to core.
+
+	Detection is exact rather than heuristic: `File.save_file_on_filesystem`
+	derives the url from `file_name`, so a url whose basename is not this
+	document's own `file_name` can only have come from the dedup branch.
+	"""
+	if doc.is_remote_file or doc.flags.get("copy_from_existing_file"):
+		return
+	name = (doc.file_name or "").strip()
+	if not name or (doc.file_url or "").rsplit("/", 1)[-1] == name:
+		return  # the ordinary path: url and name always agree
+
+	from frappe.core.doctype.file.utils import generate_file_name, get_files_path
+
+	content = doc.get_content()
+	if not content:
+		return  # attached by url rather than uploaded; nothing of ours to keep
+
+	# The same collision-avoiding name Frappe would have picked had it not
+	# deduplicated, so an unrelated file of the same name is never overwritten.
+	own_name = generate_file_name(
+		name=name, suffix=(doc.content_hash or "")[-6:], is_private=bool(doc.is_private)
+	)
+	target = get_files_path(own_name, is_private=bool(doc.is_private))
+	try:
+		with open(target, "wb") as handle:
+			handle.write(content)
+		os.chmod(target, 0o664)
+	except OSError:
+		frappe.log_error(
+			title="Deduplicated upload could not be written",
+			message=f"{name} -> {target}: {frappe.get_traceback()}",
+		)
+		return
+
+	prefix = "/private/files/" if doc.is_private else "/files/"
+	doc.file_name = own_name
+	doc.file_url = f"{prefix}{own_name}"
+	frappe.logger().info(
+		f"shop.files: upload matched an existing file by content hash "
+		f"({doc.content_hash[:8]}); wrote its own copy as {doc.file_url}"
+	)
 
 
 def webp_ready(image: Image.Image) -> Image.Image:
@@ -384,8 +453,23 @@ def already_named(filename: str, slug: str) -> bool:
 	Anchored on the real slug rather than a loose digit pattern: a slug can end
 	in a digit ("...-solar-red-1"), so "/.+-\\d+/" would also match an unrelated
 	upload and skip a rename that still had to happen.
+
+	The optional trailing run is Frappe's own collision hash, and it has to be
+	accepted here. When `{slug}-{n}.webp` is already taken on disk,
+	`generate_file_name` returns `{slug}-{n}<6 hex chars>.webp` instead of
+	overwriting. A strict `{slug}-\\d+\\.ext` test does not match that, so the
+	image looked un-renamed on every later save and was renamed again, to a
+	fresh hash, on every later save - the url changed each time, which breaks
+	caches and leaves the storefront pointing at names the origin no longer
+	serves. Matching the hashed form makes the rename idempotent, which is the
+	whole point of a name that is supposed to be derived from the product.
 	"""
-	return bool(re.fullmatch(rf"{re.escape(slug)}-\d+\.[A-Za-z0-9]+", filename or ""))
+	if not slug or not filename:
+		return False
+	# `{slug}-{n}` optionally followed by a lowercase 6-character hex run. The
+	# hex length is Frappe's `generate_hash(length=6)`; anything longer is not a
+	# collision suffix this module produced, so it is left for the rename.
+	return bool(re.fullmatch(rf"{re.escape(slug)}-\d+(?:[0-9a-f]{{6}})?\.[A-Za-z0-9]+", filename))
 
 
 def product_alt_text(doc) -> str:
@@ -427,6 +511,18 @@ def rename_product_images(doc) -> None:
 	"""
 	slug = (doc.slug or "").strip()
 	rows = [row for row in (doc.get("images") or []) if (row.image or "").strip()]
+	# Capture what the database says this product points at, before the save
+	# overwrites it. `validate` is the last point at which the previous rows are
+	# still readable, and prune_product_images - which runs later in this same
+	# pass - is the only thing that can tell a dropped photo from one that was
+	# never there.
+	doc.flags.reloop_previous_images = _saved_image_names(doc.name)
+
+	# Release the photos this save drops *before* naming the ones replacing them.
+	# The name a replacement wants is `{slug}-{n}`, and the file occupying that
+	# slot is usually the photo being replaced by this very save.
+	prune_product_images(doc)
+
 	if not rows:
 		return
 	if not slug:
@@ -454,6 +550,211 @@ def rename_product_images(doc) -> None:
 			row.alt_text = desired
 
 
+# ---------------------------------------------------------------------------
+# Reclaiming the files a save drops.
+#
+# Replacing or removing a photo drops the Shop Product Image row, but nothing
+# used to touch the File: the row went, the bytes stayed, and the File doc
+# stayed. That orphan is not merely untidy - it permanently occupies the
+# `{slug}-{n}` name the *next* photo at that position wants, which is what
+# forces Frappe to append a collision hash, which is what made every later save
+# rename the image again. So the sweep is not cosmetic: it is what lets the
+# naming settle instead of churning.
+#
+# It has to happen *before* the rename, not after. The name a replacement wants
+# is decided in validate, and the file it would collide with is the very one
+# being dropped by this same save - so releasing it afterwards leaves the first
+# replacement hashed and only ever fixes the second.
+# ---------------------------------------------------------------------------
+
+
+def prune_product_images(doc) -> None:
+	"""Shop Product hook: delete image files this product no longer uses.
+
+	Called from `validate`, ahead of the rename, so a freed `{slug}-{n}` slot is
+	free by the time the replacement photo asks for it. `validate` is also the
+	only point at which the rows being replaced are still readable from the
+	database, which is how a dropped photo is told from one that was never there.
+
+	Only files this product claimed are considered, and one is removed only when
+	nothing anywhere still references it: a photo shared with another product,
+	or sitting in a collection, the shop logo, or a variant's Item row, is left
+	alone however few products name it.
+
+	The bytes go after the commit, not during it. The File deletion is part of
+	the transaction and rolls back with everything else; unlinking the file
+	inside the transaction would leave a committed row pointing at bytes that a
+	later exception had already destroyed.
+	"""
+	slug = (doc.slug or "").strip()
+	if not slug:
+		return
+
+	current = {os.path.basename(row.image.strip()) for row in (doc.get("images") or []) if row.image}
+	previous = set(doc.flags.get("reloop_previous_images") or ())
+	if not previous:
+		return
+
+	for name in sorted((previous - current) & _names_in_namespace(slug)):
+		url = _public_or_private_url(name)
+		if not url or _referenced_elsewhere(url, exclude_parent=doc.name):
+			continue
+		path = site_file_path(url)
+		if not path or not os.path.isfile(path):
+			continue
+		try:
+			frappe.delete_doc("File", {"file_url": url}, ignore_permissions=True, force=True)
+		except Exception:
+			# A File that cannot be deleted is not a reason to block the save;
+			# the next save will simply try again.
+			frappe.log_error(
+				title="Product image prune failed",
+				message=f"{doc.name} {url}: {frappe.get_traceback()}",
+			)
+			continue
+		releasing = doc.flags.setdefault("reloop_releasing", {})
+		# Absolute, and matching what `_target_name` and `_named_image` key on.
+		# `site_file_path` is relative whenever the bench is driven from the
+		# sites directory, so a relative key would never match and the queued
+		# delete would remove the image the rename had just put there.
+		releasing[name] = (os.path.abspath(path), _file_stamp(path))
+		frappe.db.after_commit.add(lambda n=name, p=path, d=doc: _finish_release(d, n, p))
+		frappe.logger().info(f"shop.files: released dropped product image {url}")
+
+
+def _file_stamp(path: str) -> tuple | None:
+	"""Size and mtime of `path`, as a later delete has to match to proceed."""
+	try:
+		info = os.stat(path)
+	except OSError:
+		return None
+	return (info.st_size, info.st_mtime_ns)
+
+
+def _finish_release(doc, name: str, path: str) -> None:
+	"""Delete the bytes of a released image, unless the rename reused its path.
+
+	Runs after the commit, because unlinking inside the transaction would
+	destroy bytes a later exception could still roll the database back to.
+
+	If the rename claimed this exact name - replacing the photo rather than
+	sitting beside it - the file there is now the new image and must be left
+	alone. The path is not enough on its own to tell the two apart, so the size
+	and mtime recorded at release time are checked as well: only the exact
+	bytes that were released are ever unlinked.
+	"""
+	releasing = doc.flags.get("reloop_releasing") or {}
+	entry = releasing.pop(name, None)
+	if not entry:
+		return
+	released_path, stamp = entry
+	if _file_stamp(released_path) != stamp:
+		return
+	_cleanup(path)
+
+
+def _saved_image_names(product: str) -> set[str]:
+	"""The image file names this product's rows hold in the database right now."""
+	rows = frappe.db.sql(
+		"""select image from `tabShop Product Image`
+		where parent=%s and parenttype='Shop Product' and image is not null""",
+		(product,),
+	)
+	return {os.path.basename(r[0].strip()) for r in rows if r[0] and r[0].strip()}
+
+
+def _names_in_namespace(slug: str) -> set[str]:
+	"""Every file name on disk that this product's naming scheme could have produced."""
+	pattern = re.compile(rf"{re.escape(slug)}-\d+(?:[0-9a-f]{{6}})?\.[A-Za-z0-9]+$")
+	found = set()
+	for folder in _file_folders():
+		if not os.path.isdir(folder):
+			continue
+		for entry in os.listdir(folder):
+			if pattern.match(entry):
+				found.add(entry)
+	return found
+
+
+def _file_folders() -> list[str]:
+	"""The two directories a site file can live in, public/files and private/files."""
+	site = frappe.local.site_path
+	return [
+		os.path.abspath(os.path.join(site, "public", "files")),
+		os.path.abspath(os.path.join(site, "private", "files")),
+	]
+
+
+def _public_or_private_url(name: str) -> str | None:
+	"""The site-relative url for `name`, or None if it is in neither folder."""
+	for index, folder in enumerate(_file_folders()):
+		if os.path.isfile(os.path.join(folder, name)):
+			return f"{'/private/files/' if index else '/files/'}{name}"
+	return None
+
+
+def _referenced_elsewhere(url: str, exclude_parent: str | None = None) -> bool:
+	"""True when anything other than `exclude_parent` still points at `url`.
+
+	Checked across every place a storefront image can be held: another product's
+	image row, a collection, the shop logo, and an Item's variant photo. A file
+	still in use by any of those is not an orphan, however few products name it.
+	"""
+	if frappe.db.sql(
+		"""select name from `tabShop Product Image`
+		where image=%s and parenttype='Shop Product' and parent <> %s limit 1""",
+		(url, exclude_parent or ""),
+	):
+		return True
+	for doctype, fieldname in STOREFRONT_IMAGE_FIELDS:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		if is_single(doctype):
+			if frappe.db.get_single_value(doctype, fieldname) == url:
+				return True
+		elif frappe.db.sql(f"select name from `tab{doctype}` where `{fieldname}`=%s limit 1", (url,)):
+			return True
+	# Item.image is where a variant's own photo is kept (shop.api.variants).
+	if frappe.db.exists("DocType", "Item") and frappe.db.sql(
+		"select name from `tabItem` where image=%s limit 1", (url,)
+	):
+		return True
+	return False
+
+
+def _target_name(doc, slug: str, index: int, extension: str, private: bool, directory: str) -> str:
+	"""The name this image should take, preferring the clean `{slug}-{n}`.
+
+	`generate_file_name` only hands back the clean name when nothing is on disk
+	under it. The photo this save is replacing is deleted after the commit, so
+	its bytes are still there while the rename runs and the clean slot looks
+	taken - leaving every replacement permanently carrying a collision hash. So
+	a slot that this same save is releasing is treated as free, and claiming it
+	cancels the pending delete, because the rename has just overwritten it.
+
+	Anything genuinely occupied by someone else's file still gets Frappe's
+	collision suffix, which `already_named` recognises so the rename settles.
+	"""
+	plain = f"{slug}-{index}{extension}"
+	releasing = doc.flags.get("reloop_releasing") or {}
+	if not os.path.exists(os.path.join(directory, plain)):
+		return plain
+	if releasing.pop(plain, None):
+		# Overwritten by the rename below, so its queued cleanup must not fire.
+		return plain
+	if os.path.abspath(os.path.join(directory, plain)) in {
+		os.path.abspath(entry[0]) for entry in releasing.values() if entry
+	}:
+		# The occupying file is one this save is releasing. Its bytes are still
+		# here until the commit, so claim the name; the queued delete then finds
+		# the file changed and leaves the new image alone.
+		return plain
+
+	from frappe.core.doctype.file.utils import generate_file_name
+
+	return generate_file_name(plain, is_private=private)
+
+
 def _named_image(doc, row, slug: str, index: int) -> None:
 	"""Move one image to its `{slug}-{n}` name and repoint everything at it."""
 	old_url = row.image.strip()
@@ -469,11 +770,8 @@ def _named_image(doc, row, slug: str, index: int) -> None:
 	directory = os.path.dirname(path)
 	extension_ = os.path.splitext(current)[1].lower() or ".webp"
 
-	from frappe.core.doctype.file.utils import generate_file_name
-
-	wanted = generate_file_name(
-		f"{slug}-{index}{extension_}", is_private=old_url.startswith("/private/")
-	)
+	private = old_url.startswith("/private/")
+	wanted = _target_name(doc, slug, index, extension_, private, directory)
 	target = os.path.join(directory, wanted)
 	if os.path.abspath(target) == path:
 		return
