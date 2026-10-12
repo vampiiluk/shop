@@ -694,9 +694,12 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 	upsert under an id that a group once used is accepted, and reads back in
 	that synthetic group.)
 
-	A product with two or more variants still becomes a real group: one item
-	per variant, all sharing ``item_group_id`` with the slug and carrying that
-	variant's own size and color, price, stock and availability.
+	A product with two or more variants still becomes a real group: a parent
+	item carrying the shared copy, and one ``VARIANT`` item per variant sharing
+	its ``item_group_id``, each carrying that variant's own size and color,
+	price, stock and availability. The parent is not optional - Meta lists a
+	group by its parent, so children on their own appear as N separate products
+	all wearing the group's title.
 
 	Nothing here changes what the shop sells or how it stores the product. This
 	is only the shape Meta receives, and the sole thing being decided by the
@@ -730,22 +733,41 @@ def build_items(product, settings, cfg: dict, ctx: dict) -> list[dict]:
 	)
 	compare_at = flt(product.compare_at_price)
 	currency = settings.currency or "PKR"
-	items = []
+
+	# The parent row. A variant group needs one item to hang the variants off,
+	# and it is that item the catalogue lists and Commerce Manager opens.
+	#
+	# Without it, children alone are not enough: they carry `item_group_id` and
+	# `product_type: VARIANT`, but there is no item for that group to mean, so
+	# Meta lists each child on its own. Every member of a variant group shares
+	# the group's title - that is what makes it a group - so the result is the
+	# same product name repeated once per size. Daily Fashion Slides turned up
+	# fifteen times, which is exactly what this fixes.
+	#
+	# Its `retailer_id` is the slug, which is what the children's
+	# `item_group_id` points at, so the association is by name. The parent does
+	# not carry that `item_group_id` itself: set explicitly, Meta warns that the
+	# product's content id collides with the group id and files it oddly. Left
+	# out, Meta derives the same group from the id and reads it back correctly
+	# (verified on the live catalogue).
+	#
+	# Not VARIANT: this is the product itself. Marking the parent as a variant
+	# of itself is what the earlier shape accidentally produced.
+	parent = dict(base)
+	parent.pop("item_group_id", None)
+	parent.pop("product_type", None)
+	items = [parent]
+
 	for code in variant_codes:
 		qty = ctx["qtys"].get(code, 0.0)
 		in_stock = always_available or qty > 0
 		child = {
 			"id": _child_id(product.slug, code),
 			"item_group_id": product.slug,
-			# VARIANT is what makes Meta render the group as one product with a
-			# variant picker. Without it Meta reads these as independent
-			# products that merely share a group, and since a variant group's
-			# members are meant to share a title, the group shows up in the
-			# catalogue as N separate items with an identical name - which is
-			# how Daily Fashion Slides ended up as 15 repeats of itself.
 			"product_type": "VARIANT",
 			# Meta keeps the title stable while the buyer picks a variant,
-			# so every member carries the product's own name.
+			# so every member carries the product's own name. It is on the
+			# parent, so the buyer sees one product with a size picker.
 			"title": base["title"],
 			"availability": "in stock" if in_stock else "out of stock",
 			"quantity_to_sell_on_facebook": max(int(qty), 1) if in_stock else 0,
@@ -926,7 +948,7 @@ def _explain(exc: Exception) -> str:
 	return detail[:80] if detail else type(exc).__name__
 
 
-def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, keep_legacy: bool = False) -> list[str]:
+def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool) -> list[str]:
 	"""Catalogue ids that no longer belong.
 
 	With pruning (a full sync): everything belonging to an unpublished Shop
@@ -936,6 +958,14 @@ def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, kee
 	left over from when it was a group (see ``build_items``). Entries that
 	match no product at all — added by hand in Commerce Manager — are never
 	touched.
+
+	A variant product's own row is *not* stale. It is the group's parent: it
+	carries the slug as its `retailer_id`, and the children point at that slug
+	as their `item_group_id`. Before the parent existed, a row under the slug
+	was by definition the leftover of when the product was a single item, and
+	saying so here deleted the parent the moment it was pushed. The upsert
+	rewrites that same `retailer_id` in place, so there is no separate leftover
+	to collect.
 	"""
 	stale: set[str] = set()
 	if prune:
@@ -960,10 +990,6 @@ def _stale_ids(rows: list, catalog: dict[str, dict], ctx: dict, prune: bool, kee
 					stale.add(rid)
 			continue
 		expected = {_child_id(row.slug, code) for code in codes}
-		if row.slug in catalog and not keep_legacy:
-			# the pre-variant single-item row; kept when the push errored so
-			# a failed batch can't leave the product out of the catalogue
-			stale.add(row.slug)
 		for rid, entry in catalog.items():
 			if entry["group"] == row.slug and rid not in expected:
 				stale.add(rid)  # a variant that no longer exists
@@ -1019,7 +1045,7 @@ def _sync(
 			)
 
 	if catalog is not None:
-		stale = _stale_ids(rows, catalog, ctx, prune, keep_legacy=bool(push_errors))
+		stale = _stale_ids(rows, catalog, ctx, prune)
 		if progress:
 			progress.set("prune", "active", f"{len(stale)} outdated item{'s' if len(stale) != 1 else ''}")
 		if stale:
