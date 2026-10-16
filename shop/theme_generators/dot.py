@@ -867,6 +867,15 @@ a[data-active="true"] {{
 	.carousel__list > a {{ transition: none; }}
 }}
 #reviews {{ scroll-margin-top: 100px; }}
+/* Anchored scrolling animates rather than jumping. The navbar is a fixed pill
+   and every in-page anchor has to clear it, so a jump drops the target's first
+   line under the navbar; smooth makes the offset legible instead of a teleport.
+   `prefers-reduced-motion` takes it straight back - the motion is decoration,
+   and the offset lands identically without it. */
+html {{ scroll-behavior: smooth; }}
+@media (prefers-reduced-motion: reduce) {{
+	html {{ scroll-behavior: auto; }}
+}}
 """
 
 
