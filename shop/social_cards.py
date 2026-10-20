@@ -54,9 +54,17 @@ PAPER = (244, 244, 245)
 FONT_DIR = Path(__file__).parent / "public" / "fonts"
 
 # Canvas per channel. Instagram's feed takes 4:5; TikTok is 9:16.
+#
+# "cards" says how many a product gets on that channel. Instagram gets one
+# - the product, its name and its price - because the description goes in
+# the caption of the post, where there is room to write it and where it can
+# be changed without redrawing anything. TikTok gets one per photograph,
+# each carrying the name, the description and the price, because TikTok is
+# watched with the sound off and the caption running along the bottom, so
+# the words have to be on the card itself.
 CHANNELS = {
-	"instagram": {"label": "Instagram", "size": (1080, 1350)},
-	"tiktok": {"label": "TikTok", "size": (1080, 1920)},
+	"instagram": {"label": "Instagram", "size": (1080, 1350), "cards": "front"},
+	"tiktok": {"label": "TikTok", "size": (1080, 1920), "cards": "all"},
 }
 
 # Padding from the card edge to the content.
@@ -446,17 +454,55 @@ def crop_to_product(image: Image.Image) -> Image.Image:
 	return rgb.crop((x0, y0, x1, y1))
 
 
+def panel_shape(image: Image.Image) -> float:
+	"""The shape a picture is shown in: square, or four by three.
+
+	A card set should look like it was made at one size, so the shape is
+	not whatever the photograph happens to be - a card that is 1.4 to 1
+	next to one that is 0.8 to 1 reads as a mistake rather than a set.
+
+	A square picture is shown square. A wider one is trimmed to four by
+	three. A taller one is shown square rather than trimmed to a wide
+	shape, because trimming a tall picture that way would cut the product
+	in half, and a small product beats a chopped one.
+	"""
+	aspect = image.width / image.height
+	return 4 / 3 if aspect > 1.02 else 1.0
+
+
+def cover(image: Image.Image, aspect: float) -> Image.Image:
+	"""Trim a picture to a shape, keeping what fits and centring the rest.
+
+	The picture has already been cropped in on the product, so the centre
+	is where the product is and centring the trim is what keeps it.
+	"""
+	width, height = image.size
+	current = width / height
+	if abs(current - aspect) < 0.01:
+		return image
+	if current > aspect:
+		# Too wide: trim the sides.
+		new_width = round(height * aspect)
+		left = (width - new_width) // 2
+		return image.crop((left, 0, left + new_width, height))
+	# Too tall: trim the top and the bottom.
+	new_height = round(width / aspect)
+	top = (height - new_height) // 2
+	return image.crop((0, top, width, top + new_height))
+
+
 def prepare_photo(photo: Image.Image | None, max_width: int, max_height: int):
-	"""The photograph, sized to the space it has been given.
+	"""The photograph, in its standard shape and sized to the space it has.
 
 	Enlarged as far as ``MAX_UPSCALE`` allows, so the product fills the
 	panel instead of sitting in the middle of it at its native size.
 	"""
 	if not photo:
 		return None, max_width, max(240, max_height)
-	ratio = min(max_width / photo.width, max_height / photo.height, MAX_UPSCALE)
-	size = (max(1, round(photo.width * ratio)), max(1, round(photo.height * ratio)))
-	return photo.resize(size, Image.LANCZOS), size[0], size[1]
+	shaped = cover(photo, panel_shape(photo))
+	ratio = min(max_width / shaped.width, max_height / shaped.height, MAX_UPSCALE)
+	size = (max(1, round(shaped.width * ratio)), max(1, round(shaped.height * ratio)))
+	return shaped.resize(size, Image.LANCZOS), size[0], size[1]
 
 
 def paste_rounded(base: Image.Image, image: Image.Image, box, radius: int, shadow: bool = True):
@@ -534,25 +580,27 @@ def discount_flag(draw, x: int, y: int, text: str, fnt) -> int:
 # --- cards ----------------------------------------------------------------------
 
 
-def front_card(detail: dict, channel: str) -> Image.Image:
-	"""The card that carries the product's name, description and price."""
-	width, height = CHANNELS[channel]["size"]
+def instagram_card(detail: dict, photo) -> Image.Image:
+	"""The one card Instagram needs: the product, its name and its price.
+
+	The description is left off. It goes in the caption of the post, where
+	there is room to write it properly and where it can be changed without
+	redrawing a card.
+	"""
+	width, height = CHANNELS["instagram"]["size"]
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
 	eyebrow_font = font("mono", 26, 500)
 	name_font = font("display", 62, 700)
-	body_font = font("display", 32, 300)
 	price_font = font("mono", 30, 500)
 	compare_font = font("mono", 28, 400)
+	mark_font = font("mono", 24, 500)
 
 	content_width = width - MARGIN * 2
 	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
-	body_lines = wrap(draw, detail["description"], body_font, content_width, 2)
-
 	name_height = len(name_lines) * 76
-	body_height = len(body_lines) * 46
-	text_height = name_height + (18 if body_lines else 0) + body_height + 44 + 62
+	text_height = name_height + 44 + 62
 
 	# The photo and the words are one group, and the group is placed in the
 	# frame rather than hung from the top of it, so a tall canvas does not
@@ -563,7 +611,7 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 	room = bottom - eyebrow_bottom - text_height - 56
 	photo_height = max(240, min(room, int(height * 0.62)))
 
-	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, photo_height)
+	photo, photo_w, photo_h = prepare_photo(photo, content_width, photo_height)
 
 	group_height = photo_h + 56 + text_height
 	group_top = eyebrow_bottom + round((bottom - eyebrow_bottom - group_height) * 0.32)
@@ -601,12 +649,6 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 		draw.text((MARGIN, y), line, font=name_font, fill=ink)
 		y += 76
 
-	if body_lines:
-		y += 18
-		for line in body_lines:
-			draw.text((MARGIN, y), line, font=body_font, fill=quiet)
-			y += 46
-
 	y += 44
 	x = MARGIN
 	x += price_label(draw, x, y, detail["price"], price_font) + 18
@@ -619,7 +661,6 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 
 	# The shop's name, bottom right, small enough to be a mark rather than
 	# a claim.
-	mark_font = font("mono", 24, 500)
 	mark = detail["store_name"].upper()
 	mark_width = tracked_width(draw, mark, mark_font, 5.0)
 	draw_tracked(draw, (width - MARGIN - mark_width, bottom + 10), mark, mark_font, faint, 5.0)
@@ -627,30 +668,44 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 	return canvas
 
 
-def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
-	"""One of the remaining photographs, on the same ground.
+def tiktok_card(detail: dict, photo) -> Image.Image:
+	"""A TikTok frame: half the product, half the words.
 
-	No words on it. The name and the price belong to the front card, and
-	these are the pictures that go with it - a set of frames of the same
-	product, on a background that complements it, that a shop can run
-	through as a sequence. A card that repeated the name and the price on
-	every frame would be saying the same thing five times.
+	The frame is split in half - the product above, the name, the
+	description and the price below - so a set of them reads as a sequence
+	of the same product from different angles, each one carrying the words
+	that go with it.
 
-	With the words gone the picture has the whole frame, so it is drawn
-	as large as the frame allows.
+	TikTok is watched on a phone with the sound off and the caption running
+	along the bottom, so the words belong on the card rather than in a
+	post's caption where they would be scrolled past.
 	"""
-	width, height = CHANNELS[channel]["size"]
+	width, height = CHANNELS["tiktok"]["size"]
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	index_font = font("mono", 24, 400)
+	name_font = font("display", 60, 700)
+	body_font = font("display", 33, 300)
+	price_font = font("mono", 32, 500)
+	compare_font = font("mono", 30, 400)
+	mark_font = font("mono", 24, 500)
 
+	half = height // 2
 	content_width = width - MARGIN * 2
-	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, height - MARGIN * 2)
 
-	# The picture sits in the middle of the frame.
+	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
+	body_lines = wrap(draw, detail["description"], body_font, content_width, 3)
+	name_height = len(name_lines) * 76
+	body_height = len(body_lines) * 48
+
+	# The product takes the top half.
+	photo, photo_w, photo_h = prepare_photo(photo, content_width, half - MARGIN * 2)
 	photo_left = (width - photo_w) // 2
-	photo_top = (height - photo_h) // 2
+	photo_top = (half - photo_h) // 2
+
+	# The words take the bottom half, and the ink for them is read off the
+	# card rather than assumed.
+	ink, quiet, faint = text_palette(canvas, (0, half, width, height))
 
 	if photo:
 		paste_rounded(canvas, photo, (photo_left, photo_top, photo_w, photo_h), radius=28)
@@ -663,13 +718,34 @@ def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
 		)
 		canvas.alpha_composite(placeholder, (photo_left, photo_top))
 
-	# A quiet index, so a set of photo cards reads as a sequence. Drawn
-	# last, over the picture, in case the picture is wide enough to reach
-	# the corner.
-	_, _, faint = text_palette(canvas, (0, 0, width, MARGIN + 60))
-	mark = f"{index:02d}"
-	mark_width = tracked_width(draw, mark, index_font, 4.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, MARGIN - 4), mark, index_font, faint, 4.0)
+	# The name sits at the top of the half and the price at the bottom of
+	# it, with the description between them and the white space around the
+	# whole thing doing the rest.
+	y = half + 72
+	for line in name_lines:
+		draw.text((MARGIN, y), line, font=name_font, fill=ink)
+		y += 76
+
+	if body_lines:
+		y += 26
+		for line in body_lines:
+			draw.text((MARGIN, y), line, font=body_font, fill=quiet)
+			y += 48
+
+	price_y = height - MARGIN - 56
+	x = MARGIN
+	x += price_label(draw, x, price_y, detail["price"], price_font) + 18
+	if detail.get("compare_at"):
+		compare = detail["compare_at"]
+		strike(draw, (x, price_y + 14), compare, compare_font, quiet)
+		x += text_width(draw, compare, compare_font) + 18
+	if detail.get("discount"):
+		discount_flag(draw, x, price_y, f"SAVE {detail['discount']}%", price_font)
+
+	# The shop's name, opposite the price, so the two share the baseline.
+	mark = detail["store_name"].upper()
+	mark_width = tracked_width(draw, mark, mark_font, 5.0)
+	draw_tracked(draw, (width - MARGIN - mark_width, price_y + 16), mark, mark_font, faint, 5.0)
 
 	return canvas
 
@@ -770,21 +846,23 @@ def prepare(doc) -> tuple[dict, list[Image.Image]]:
 def render(doc, channel: str, prepared=None) -> list[tuple[str, Image.Image]]:
 	"""The cards for one product on one channel, as (filename, image) pairs.
 
-	The first photograph becomes the front card, which carries the name, the
-	description and the price. The rest become photo cards on the same
-	background.
+	Instagram gets one card: the product, its name and its price, with the
+	description left for the caption of the post. TikTok gets one per
+	photograph, each carrying the name, the description and the price, in a
+	frame that is half product and half words.
 	"""
 	detail, photos = prepared if prepared else prepare(doc)
-
 	label = CHANNELS[channel]["label"].lower()
-	cards: list[tuple[str, Image.Image]] = []
-	front_photo = photos[0] if photos else None
-	cards.append((f"{label}-front.jpg", front_card({**detail, "photo": front_photo}, channel)))
+	front = photos[0] if photos else None
 
+	if channel == "instagram":
+		return [(f"{label}-front.jpg", instagram_card(detail, front))]
+
+	cards: list[tuple[str, Image.Image]] = [
+		(f"{label}-front.jpg", tiktok_card(detail, front))
+	]
 	for index, photo in enumerate(photos[1:], start=2):
-		cards.append(
-			(f"{label}-{index:02d}.jpg", photo_card({**detail, "photo": photo}, channel, index))
-		)
+		cards.append((f"{label}-{index:02d}.jpg", tiktok_card(detail, photo)))
 	return cards
 
 
@@ -823,8 +901,10 @@ def build_zip(doc) -> bytes:
 			"",
 			"Social cards for Instagram and TikTok.",
 			"",
-			"instagram/  1080 x 1350, the front card first, then one card per photo.",
-			"tiktok/     1080 x 1920, the same set in a vertical frame.",
+			"instagram/  1080 x 1350, one card: the product, its name and its price.",
+			"            The description goes in the caption of the post.",
+			"tiktok/     1080 x 1920, one card per photograph, each half product",
+			"            and half the name, the description and the price.",
 			"",
 		]
 		if doc.slug:

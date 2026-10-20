@@ -6,6 +6,22 @@ const BASE = process.env.SHOP_BASE_URL || 'https://reloop.pk'
 const DESK = `${BASE}/shop`
 const DOWNLOADS = '/tmp/opencode/downloads'
 
+/** The names of the files in a zip, read from its central directory. */
+function zipEntries(buffer: Buffer): string[] {
+	const names: string[] = []
+	// Each central directory record starts with PK\x01\x02, and the length
+	// of its name is at offset 28 of the record.
+	for (let at = 0; at < buffer.length - 46; at++) {
+		if (buffer.readUInt32LE(at) !== 0x02014b50) continue
+		const nameLength = buffer.readUInt16LE(at + 28)
+		const extraLength = buffer.readUInt16LE(at + 30)
+		const commentLength = buffer.readUInt16LE(at + 32)
+		names.push(buffer.toString('utf8', at + 46, at + 46 + nameLength))
+		at += 45 + nameLength + extraLength + commentLength
+	}
+	return names
+}
+
 test('the social cards button downloads a zip for a product', async ({ page }) => {
 	mkdirSync(DOWNLOADS, { recursive: true })
 
@@ -61,13 +77,33 @@ test('the social cards button downloads a zip for a product', async ({ page }) =
 	expect(existsSync(path)).toBeTruthy()
 	expect(statSync(path).size).toBeGreaterThan(10000)
 
-	// The archive has to be a real zip with both channels in it.
+	// The archive has to be a real zip, with the right cards in it.
 	const bytes = readFileSync(path)
 	expect(bytes.subarray(0, 2).toString()).toBe('PK')
 	const listing = bytes.toString('latin1')
 	expect(listing).toContain('social-cards/instagram/')
 	expect(listing).toContain('social-cards/tiktok/')
-	console.log(`  zip is ${(statSync(path).size / 1024).toFixed(0)} KB and holds both channels`)
+
+	// Instagram takes one card - the product, its name and its price - and
+	// TikTok takes one per photograph, each carrying the words.
+	const detail = await page.request.get(
+		`${BASE}/api/method/shop.api.products.get_product?name=${encodeURIComponent(name)}`,
+	)
+	expect(detail.ok(), 'product detail').toBeTruthy()
+	const images = (await detail.json()).message.images.length
+
+	// The names are read out of the archive's central directory. Counting
+	// them in the raw bytes would count each one twice, because a name is
+	// written both in its own header and in the directory.
+	const entries = zipEntries(bytes)
+	const inFolder = (folder: string) =>
+		entries.filter((entry) => entry.startsWith(`social-cards/${folder}/`))
+	console.log(
+		`  zip holds ${inFolder('instagram').length} instagram card and ${inFolder('tiktok').length} tiktok cards for ${images} photos`,
+	)
+	expect(inFolder('instagram').length).toBe(1)
+	expect(inFolder('tiktok').length).toBe(images)
+	expect(entries).toContain('social-cards/README.txt')
 
 	// --- and the products list button does the same -------------------------
 	await page.goto(`${DESK}/products`, { waitUntil: 'networkidle' })

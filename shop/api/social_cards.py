@@ -53,8 +53,11 @@ def describe(name: str) -> dict:
 		key: {"label": value["label"], "width": value["size"][0], "height": value["size"][1]}
 		for key, value in social_cards.CHANNELS.items()
 	}
+	# Instagram takes one card whatever the product has; TikTok takes one
+	# per photograph.
+	cards = 1 + images
 	return {
 		"images": images,
-		"cards": images * len(channels),
+		"cards": cards,
 		"channels": channels,
 	}

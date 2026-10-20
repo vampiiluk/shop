@@ -62,9 +62,10 @@
 					</template>
 					<CatalogImageListInput v-model="form.images" />
 					<p v-if="isEdit" class="text-p-sm text-ink-gray-5">
-						Social cards lays the product out for Instagram and TikTok - a front
-						card with the name, the description and the price, then one card per
-						photograph - and downloads the set as a zip.
+						Social cards lays the product out for Instagram and TikTok - one
+						card for Instagram with the name and the price, and a card per
+						photograph for TikTok carrying the name, the description and the
+						price - and downloads the set as a zip.
 						<template v-if="cardsHint"> {{ cardsHint }}</template>
 					</p>
 				</CatalogSection>
