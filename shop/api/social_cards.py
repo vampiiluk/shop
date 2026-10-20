@@ -53,9 +53,9 @@ def describe(name: str) -> dict:
 		key: {"label": value["label"], "width": value["size"][0], "height": value["size"][1]}
 		for key, value in social_cards.CHANNELS.items()
 	}
-	# Instagram takes one card whatever the product has; TikTok takes one
-	# per photograph.
-	cards = 1 + images
+	# One card per photograph on each channel: Instagram's carries the name
+	# and the price, TikTok's carries the description as well.
+	cards = 2 * max(images, 1)
 	return {
 		"images": images,
 		"cards": cards,

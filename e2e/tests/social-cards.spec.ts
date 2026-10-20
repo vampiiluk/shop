@@ -84,8 +84,10 @@ test('the social cards button downloads a zip for a product', async ({ page }) =
 	expect(listing).toContain('social-cards/instagram/')
 	expect(listing).toContain('social-cards/tiktok/')
 
-	// Instagram takes one card - the product, its name and its price - and
-	// TikTok takes one per photograph, each carrying the words.
+	// Instagram gets a card per photograph - the first carries the name
+	// and the price, the rest are the pictures - and TikTok gets one per
+	// photograph too, each carrying the name, the description and the
+	// price.
 	const detail = await page.request.get(
 		`${BASE}/api/method/shop.api.products.get_product?name=${encodeURIComponent(name)}`,
 	)
@@ -99,9 +101,9 @@ test('the social cards button downloads a zip for a product', async ({ page }) =
 	const inFolder = (folder: string) =>
 		entries.filter((entry) => entry.startsWith(`social-cards/${folder}/`))
 	console.log(
-		`  zip holds ${inFolder('instagram').length} instagram card and ${inFolder('tiktok').length} tiktok cards for ${images} photos`,
+		`  zip holds ${inFolder('instagram').length} instagram cards and ${inFolder('tiktok').length} tiktok cards for ${images} photos`,
 	)
-	expect(inFolder('instagram').length).toBe(1)
+	expect(inFolder('instagram').length).toBe(images)
 	expect(inFolder('tiktok').length).toBe(images)
 	expect(entries).toContain('social-cards/README.txt')
 
