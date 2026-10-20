@@ -581,6 +581,7 @@ LAYOUTS = {
 	"instagram": {
 		"margin": 64,
 		"top": 64,
+		"logo": 52,
 		"name": 58,
 		"name_min": 40,
 		"name_lines": 3,
@@ -594,8 +595,9 @@ LAYOUTS = {
 	"tiktok": {
 		"margin": 64,
 		"top": 128,
-		"name": 88,
-		"name_min": 54,
+		"logo": 62,
+		"name": 58,
+		"name_min": 40,
 		"name_lines": 3,
 		"body": 46,
 		"body_line": 64,
@@ -609,6 +611,49 @@ LAYOUTS = {
 		"price_gap": 52,
 	},
 }
+
+
+_logos: dict = {}
+
+
+def store_logo(size: int) -> Image.Image | None:
+	"""The shop's logo, as ink on nothing.
+
+	The logo is a black mark on a white square, so the white is taken out
+	of it before it goes on a card - a white block sitting on a cream
+	ground reads as a mistake rather than as a logo. The mark is redrawn in
+	the card's ink so it belongs to the same set of type as the words.
+	"""
+	if size in _logos:
+		return _logos[size]
+	_logos[size] = None
+
+	settings = frappe.get_cached_doc("Shop Settings")
+	if not settings.store_logo:
+		return None
+	from shop.files import site_file_path
+
+	path = site_file_path(settings.store_logo)
+	if not path or not os.path.isfile(path):
+		return None
+	try:
+		grey = Image.open(path)
+		grey.load()
+		grey = grey.convert("L")
+		# Everything that is not the mark is the background it was saved on.
+		mask = grey.point(lambda value: 0 if value > 235 else 255)
+		bounds = mask.getbbox()
+		if not bounds:
+			return None
+		mask = mask.crop(bounds)
+		scale = size / mask.height
+		mask = mask.resize((max(1, round(mask.width * scale)), size), Image.LANCZOS)
+		mark = Image.new("RGBA", mask.size, INK + (0,))
+		mark.putalpha(mask)
+	except Exception:
+		return None
+	_logos[size] = mark
+	return mark
 
 
 def price_row_measure(detail: dict, price_font, compare_font, max_width: int, draw):
@@ -686,6 +731,14 @@ def product_card(
 	price_font = font("mono", layout["price"], 500)
 	compare_font = font("mono", layout["compare"], 400)
 
+	# The shop's mark, at the head and the foot of the card. It is drawn
+	# first and the rest of the card is laid out inside it, so the marks
+	# are never something the photograph lands on top of.
+	logo = store_logo(layout["logo"])
+	if logo:
+		canvas.alpha_composite(logo, ((width - logo.width) // 2, margin))
+		canvas.alpha_composite(logo, ((width - logo.width) // 2, height - margin - logo.height))
+
 	content_width = width - margin * 2
 	name_lines, name_font, name_size = fit_name(
 		draw,
@@ -712,12 +765,16 @@ def product_card(
 		)
 		words_height += layout["price_gap"] + price_height
 
-	top = layout["top"]
-	room = height - top - margin - (words_height + layout["gap"] if words else 0)
+	# The space the marks take, at the head and the foot of the card.
+	mark_space = (logo.height + 44) if logo else 0
+	top = layout["top"] + mark_space
+	foot = height - margin - mark_space
+	room = foot - top - (words_height + layout["gap"] if words else 0)
 	picture, picture_width, picture_height = prepare_photo(photo, content_width, room)
 
 	picture_left = (width - picture_width) // 2
-	picture_top = top if words else (height - picture_height) // 2
+	# A picture on its own is centred between the marks, not in the frame.
+	picture_top = top if words else top + max(0, (foot - top - picture_height) // 2)
 
 	if picture is not None:
 		paste_rounded(
