@@ -628,40 +628,32 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 
 
 def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
-	"""One of the remaining photographs, on the same ground, quietly captioned."""
+	"""One of the remaining photographs, on the same ground.
+
+	No words on it. The name and the price belong to the front card, and
+	these are the pictures that go with it - a set of frames of the same
+	product, on a background that complements it, that a shop can run
+	through as a sequence. A card that repeated the name and the price on
+	every frame would be saying the same thing five times.
+
+	With the words gone the picture has the whole frame, so it is drawn
+	as large as the frame allows.
+	"""
 	width, height = CHANNELS[channel]["size"]
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	name_font = font("display", 44, 500)
-	price_font = font("mono", 28, 500)
 	index_font = font("mono", 24, 400)
 
 	content_width = width - MARGIN * 2
-	name_lines = wrap(draw, detail["name"], name_font, content_width, 1)
-	text_height = len(name_lines) * 56 + 30 + 56
+	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, height - MARGIN * 2)
 
-	photo, photo_w, photo_h = prepare_photo(
-		detail.get("photo"), content_width, max(240, height - MARGIN * 2 - text_height - 52)
-	)
-
-	# The photo and its caption are one group, and the group sits in the
-	# frame rather than hanging from the top of it. A little above centre,
-	# because the bottom of a phone screen is where the caption of a post
-	# lives.
-	group_height = photo_h + 52 + text_height
-	group_top = round((height - group_height) * 0.4)
-
-	photo_top = group_top
-
-	# As on the front card, the ink is read off the card rather than
-	# assumed, so the caption reads on whatever ground the product's colour
-	# produced.
-	text_top = photo_top + photo_h + 52
-	ink, quiet, faint = text_palette(canvas, (0, text_top, width, height))
+	# The picture sits in the middle of the frame.
+	photo_left = (width - photo_w) // 2
+	photo_top = (height - photo_h) // 2
 
 	if photo:
-		paste_rounded(canvas, photo, ((width - photo_w) // 2, photo_top, photo_w, photo_h), radius=28)
+		paste_rounded(canvas, photo, (photo_left, photo_top, photo_w, photo_h), radius=28)
 	else:
 		placeholder = Image.new("RGBA", (photo_w, photo_h), (255, 255, 255, 0))
 		ImageDraw.Draw(placeholder).rounded_rectangle(
@@ -669,19 +661,15 @@ def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
 			radius=28,
 			fill=(255, 255, 255, 150),
 		)
-		canvas.alpha_composite(placeholder, ((width - photo_w) // 2, photo_top))
+		canvas.alpha_composite(placeholder, (photo_left, photo_top))
 
-	y = text_top
-	for line in name_lines:
-		draw.text((MARGIN, y), line, font=name_font, fill=ink)
-		y += 56
-
-	price_label(draw, MARGIN, y + 30, detail["price"], price_font)
-
-	# A quiet index, so a set of photo cards reads as a sequence.
+	# A quiet index, so a set of photo cards reads as a sequence. Drawn
+	# last, over the picture, in case the picture is wide enough to reach
+	# the corner.
+	_, _, faint = text_palette(canvas, (0, 0, width, MARGIN + 60))
 	mark = f"{index:02d}"
 	mark_width = tracked_width(draw, mark, index_font, 4.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, y + 38), mark, index_font, faint, 4.0)
+	draw_tracked(draw, (width - MARGIN - mark_width, MARGIN - 4), mark, index_font, faint, 4.0)
 
 	return canvas
 
