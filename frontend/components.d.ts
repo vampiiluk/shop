@@ -31,6 +31,7 @@ declare module 'vue' {
     CatalogProductSkeleton: typeof import('./src/components/CatalogProductSkeleton.vue')['default']
     CatalogRatingStars: typeof import('./src/components/CatalogRatingStars.vue')['default']
     CatalogSection: typeof import('./src/components/CatalogSection.vue')['default']
+    CatalogSocialCardsButton: typeof import('./src/components/CatalogSocialCardsButton.vue')['default']
     CatalogStockControl: typeof import('./src/components/CatalogStockControl.vue')['default']
     CatalogVariantImageDialog: typeof import('./src/components/CatalogVariantImageDialog.vue')['default']
     CatalogVariantsPanel: typeof import('./src/components/CatalogVariantsPanel.vue')['default']

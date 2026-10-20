@@ -98,11 +98,14 @@
 								/>
 							</td>
 							<td class="px-1 py-2" @click.stop>
-								<Dropdown :options="rowActions(row)">
-									<Button variant="ghost">
-										<template #icon><LucideEllipsisVertical class="size-4" /></template>
-									</Button>
-								</Dropdown>
+								<div class="flex items-center justify-end gap-1">
+									<CatalogSocialCardsButton :name="row.name" compact />
+									<Dropdown :options="rowActions(row)">
+										<Button variant="ghost">
+											<template #icon><LucideEllipsisVertical class="size-4" /></template>
+										</Button>
+									</Dropdown>
+								</div>
 							</td>
 						</tr>
 					</tbody>
@@ -210,6 +213,7 @@ import LucideX from '~icons/lucide/x'
 
 import CatalogListState from '@/components/CatalogListState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
+import CatalogSocialCardsButton from '@/components/CatalogSocialCardsButton.vue'
 import { productUrl } from '@/utils/storefront'
 
 interface ProductRow {

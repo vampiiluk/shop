@@ -53,8 +53,20 @@
 					/>
 				</CatalogSection>
 
-				<CatalogSection title="Media">
+				<CatalogSection
+					title="Media"
+					description="The photographs the storefront and the social cards use."
+				>
+					<template v-if="isEdit" #header-action>
+						<CatalogSocialCardsButton :name="name!" />
+					</template>
 					<CatalogImageListInput v-model="form.images" />
+					<p v-if="isEdit" class="text-p-sm text-ink-gray-5">
+						Social cards lays the product out for Instagram and TikTok - a front
+						card with the name, the description and the price, then one card per
+						photograph - and downloads the set as a zip.
+						<template v-if="cardsHint"> {{ cardsHint }}</template>
+					</p>
 				</CatalogSection>
 
 				<CatalogSection
@@ -212,6 +224,7 @@ import CatalogOptionsEditor, { optionsError, type ProductOption } from '@/compon
 import CatalogProductHeader from '@/components/CatalogProductHeader.vue'
 import CatalogProductSkeleton from '@/components/CatalogProductSkeleton.vue'
 import CatalogSection from '@/components/CatalogSection.vue'
+import CatalogSocialCardsButton from '@/components/CatalogSocialCardsButton.vue'
 import { productUrl } from '@/utils/storefront'
 import CatalogStockControl from '@/components/CatalogStockControl.vue'
 import CatalogVariantsPanel from '@/components/CatalogVariantsPanel.vue'
@@ -246,6 +259,7 @@ const saving = ref(false)
 const leaving = ref(false)
 const baseline = ref('')
 const detail = ref<ProductDetail | null>(null)
+const cardsHint = ref('')
 const collectionOptions = ref<Option[]>([])
 const itemHasVariants = ref(false)
 const withOptions = ref(false)
@@ -386,6 +400,25 @@ async function loadProduct(name: string) {
 		images: (doc.images || []).map((row: { image: string }) => row.image),
 		collections: doc.collections || [],
 	})
+	loadCardsHint(name)
+}
+
+/** What the social cards button is about to produce, so it can say so. */
+async function loadCardsHint(name: string) {
+	cardsHint.value = ''
+	try {
+		const summary = await call('shop.api.social_cards.describe', { name })
+		if (!summary?.images) {
+			cardsHint.value = 'This product has no photographs yet, so the cards would have no image.'
+			return
+		}
+		const sizes = Object.values(summary.channels || {})
+			.map((channel: any) => `${channel.label} ${channel.width}×${channel.height}`)
+			.join(', ')
+		cardsHint.value = `${summary.cards} cards: ${sizes}.`
+	} catch {
+		// The count is a nicety; the download does not need it.
+	}
 }
 
 function onItemPicked(item: { label: string; value: string; hasVariants: boolean }) {
