@@ -207,6 +207,42 @@ def wrap(draw, text: str, fnt, max_width: int, max_lines: int) -> list[str]:
 	return lines[:max_lines]
 
 
+def wrap_all(draw, text: str, fnt, max_width: int) -> list[str]:
+	"""Every line the text needs, none of them trimmed."""
+	text = " ".join((text or "").split())
+	if not text:
+		return []
+	lines: list[str] = []
+	current = ""
+	for word in text.split(" "):
+		candidate = f"{current} {word}".strip()
+		if text_width(draw, candidate, fnt) <= max_width or not current:
+			current = candidate
+		else:
+			lines.append(current)
+			current = word
+	if current:
+		lines.append(current)
+	return lines
+
+
+def fit_name(draw, text: str, size: int, min_size: int, max_width: int, max_lines: int):
+	"""The product's name, whole, at the largest size that fits.
+
+	A product's name is the name, not a summary of it, so it is never cut
+	off with an ellipsis: the type gets smaller instead. Only if even the
+	smallest size will not fit does the name get the lines it needs.
+	"""
+	while size > min_size:
+		fnt = font("display", size, 700)
+		lines = wrap_all(draw, text, fnt, max_width)
+		if len(lines) <= max_lines:
+			return lines, fnt, size
+		size -= 2
+	fnt = font("display", min_size, 700)
+	return wrap_all(draw, text, fnt, max_width), fnt, min_size
+
+
 def _trim(draw, text: str, fnt, max_width: int) -> str:
 	if text_width(draw, text, fnt) <= max_width:
 		return text
@@ -546,7 +582,8 @@ LAYOUTS = {
 		"margin": 64,
 		"top": 64,
 		"name": 58,
-		"name_line": 72,
+		"name_min": 40,
+		"name_lines": 3,
 		"body": 34,
 		"body_line": 48,
 		"price": 34,
@@ -558,7 +595,8 @@ LAYOUTS = {
 		"margin": 64,
 		"top": 128,
 		"name": 88,
-		"name_line": 104,
+		"name_min": 54,
+		"name_lines": 3,
 		"body": 46,
 		"body_line": 64,
 		# The price, the compare-at price and the saving are three pieces of
@@ -644,20 +682,27 @@ def product_card(
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	name_font = font("display", layout["name"], 700)
 	body_font = font("display", layout["body"], 300)
 	price_font = font("mono", layout["price"], 500)
 	compare_font = font("mono", layout["compare"], 400)
 
 	content_width = width - margin * 2
-	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
+	name_lines, name_font, name_size = fit_name(
+		draw,
+		detail["name"],
+		layout["name"],
+		layout["name_min"],
+		content_width,
+		layout["name_lines"],
+	)
+	name_line = round(name_size * 1.18)
 	body_lines = (
 		wrap(draw, detail["description"], body_font, content_width, 3) if description else []
 	)
 
 	# How much room the words take, so the photograph can be given what is
 	# left of the frame.
-	words_height = len(name_lines) * layout["name_line"]
+	words_height = len(name_lines) * name_line
 	if body_lines:
 		words_height += layout["gap"] + len(body_lines) * layout["body_line"]
 	price_height, price_wrapped = (0, False)
@@ -690,7 +735,7 @@ def product_card(
 
 	for line in name_lines:
 		draw.text((margin, y), line, font=name_font, fill=ink)
-		y += layout["name_line"]
+		y += name_line
 
 	if body_lines:
 		y += layout["gap"]
