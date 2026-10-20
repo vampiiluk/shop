@@ -71,9 +71,13 @@ test('the social cards button downloads a zip for a product', async ({ page }) =
 
 	// --- and the products list button does the same -------------------------
 	await page.goto(`${DESK}/products`, { waitUntil: 'networkidle' })
+	// The list is ordered by ranking, so its first row is not necessarily
+	// the product the api returned first: read the name off the row.
+	const firstRow = page.locator('tbody tr').first()
+	const rowName = (await firstRow.locator('td').nth(1).innerText()).split('\n')[0].trim()
 	const listDownload = page.waitForEvent('download', { timeout: 120000 })
 	await rowButtons.first().click()
 	const file = await listDownload
 	console.log(`  list button downloaded: ${file.suggestedFilename()}`)
-	expect(file.suggestedFilename()).toBe(`${rows[0].product_name}.zip`)
+	expect(file.suggestedFilename()).toBe(`${rowName}.zip`)
 })

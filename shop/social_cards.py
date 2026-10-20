@@ -62,12 +62,6 @@ CHANNELS = {
 # Padding from the card edge to the content.
 MARGIN = 64
 
-# Padding from the edge of a picture to the words sitting on it.
-TEXT_PAD = 28
-
-# How much soft edge the band under a picture's words carries, above the
-# words themselves, so they sit on the solid part of it.
-SCIM_FADE = 90
 
 # How far a photograph may be enlarged to fill the space it is given.
 #
@@ -540,138 +534,58 @@ def discount_flag(draw, x: int, y: int, text: str, fnt) -> int:
 # --- cards ----------------------------------------------------------------------
 
 
-def scrim(canvas: Image.Image, box, strength: float = 0.86, fade: int = 90) -> None:
-	"""A dark band across the bottom of a picture, for text to sit on.
-
-	Text over a photograph needs a ground of its own, because the
-	photograph is whatever colour the product happens to be. A pale
-	product - a white backpack, a silver bottle - will still show through
-	a gentle fade and leave the text sitting on the very thing it is
-	meant to be read against.
-
-	So the fade has a fixed run of its own, above the words, and the words
-	themselves sit on the solid part of the band where the ground is known.
-	The band is built as a single column and stretched sideways, so it
-	costs a line of pixels rather than a rectangle of them.
-	"""
-	x, y, width, height = box
-	column = Image.new("RGBA", (1, height))
-	pixels = column.load()
-	for row in range(height):
-		if row < fade:
-			alpha = strength * ((row / max(fade, 1)) ** 1.4)
-		else:
-			alpha = strength
-		pixels[0, row] = INK + (int(round(255 * alpha)),)
-	canvas.alpha_composite(column.resize((width, height)), (x, y))
-
-
-def price_row(draw, x: int, y: int, detail: dict, price_font, compare_font, on_image: bool, muted):
-	"""The price, the compare-at price and the saving, in one row.
-
-	On the picture the label is reversed - a paper pill on the dark fade,
-	rather than an ink pill on a light ground - so that it reads against
-	the dark instead of disappearing into it.
-	"""
-	if on_image:
-		pill_fill, pill_text = PAPER, INK
-		compare_colour = blend(PAPER, INK, 0.72)
-	else:
-		pill_fill, pill_text = INK, PAPER
-		compare_colour = muted
-
-	used = price_label(draw, x, y, detail["price"], price_font, fill=pill_fill, color=pill_text) + 18
-	if detail.get("compare_at"):
-		compare = detail["compare_at"]
-		strike(draw, (x + used, y + 13), compare, compare_font, compare_colour)
-		used += text_width(draw, compare, compare_font) + 18
-	if detail.get("discount"):
-		discount_flag(draw, x + used, y, f"SAVE {detail['discount']}%", price_font)
-
-
 def front_card(detail: dict, channel: str) -> Image.Image:
-	"""The card that carries the product's name, description and price.
-
-	The words sit on the picture rather than beside it. That is what lets
-	the picture be as large as the card allows - a name underneath eats a
-	third of the frame - and the fade under the words gives the text a
-	ground of its own, so it reads whatever colour the product happens to
-	be.
-	"""
+	"""The card that carries the product's name, description and price."""
 	width, height = CHANNELS[channel]["size"]
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	eyebrow_font = font("mono", 25, 500)
-	name_font = font("display", 58, 700)
-	body_font = font("display", 31, 300)
-	price_font = font("mono", 29, 500)
-	compare_font = font("mono", 27, 400)
-	mark_font = font("mono", 24, 500)
+	eyebrow_font = font("mono", 26, 500)
+	name_font = font("display", 62, 700)
+	body_font = font("display", 32, 300)
+	price_font = font("mono", 30, 500)
+	compare_font = font("mono", 28, 400)
 
 	content_width = width - MARGIN * 2
-	# The words that go on the picture are inset from its edge, so they are
-	# measured against the width they actually have.
-	over_width = content_width - TEXT_PAD * 2
-	name_lines = wrap(draw, detail["name"], name_font, over_width, 2)
+	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
 	body_lines = wrap(draw, detail["description"], body_font, content_width, 2)
 
-	name_height = len(name_lines) * 72
-	body_height = len(body_lines) * 44
+	name_height = len(name_lines) * 76
+	body_height = len(body_lines) * 46
+	text_height = name_height + (18 if body_lines else 0) + body_height + 44 + 62
 
-	eyebrow_bottom = MARGIN + 52
+	# The photo and the words are one group, and the group is placed in the
+	# frame rather than hung from the top of it, so a tall canvas does not
+	# leave the card with a hole in the middle. A little above centre: the
+	# bottom of a phone screen is where the caption of a post lives.
+	eyebrow_bottom = MARGIN + 56
 	bottom = height - MARGIN
+	room = bottom - eyebrow_bottom - text_height - 56
+	photo_height = max(240, min(room, int(height * 0.62)))
 
-	# The band of words that goes on the picture: the name, the price, and
-	# the air between them.
-	def band_for(lines: int, with_price: bool) -> int:
-		return SCIM_FADE + lines * 72 + (18 + 56 if with_price else 0) + 34
+	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, photo_height)
 
-	# The picture takes the room the words do not need. The words on the
-	# picture are measured against the picture afterwards, so the picture
-	# is never smaller than the text that has to sit on it.
-	body_block = (body_height + 30) if body_lines else 0
-	room = bottom - eyebrow_bottom - body_block - 28
-	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, room)
-
-	# The words are wrapped to the picture they are on, which may be
-	# narrower than the card.
-	inner = min(content_width, photo_w) - TEXT_PAD * 2
-	name_lines = wrap(draw, detail["name"], name_font, inner, 2)
-	name_height = len(name_lines) * 72
-
-	over_price = photo_h >= band_for(len(name_lines), True)
-	if not over_price and photo_h >= band_for(1, True):
-		# One line of name is enough to carry the price.
-		name_lines = name_lines[:1]
-		name_height = 72
-		over_price = True
-	if not over_price:
-		# The picture is very wide. The words go underneath it instead.
-		name_lines = []
-		name_height = 0
-		body_block = (body_height + 30) if body_lines else 0
-		body_block += 56 + 18
-		room = bottom - eyebrow_bottom - body_block - 28
-		photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, room)
-
-	group_height = photo_h + 28 + body_block
-	group_top = eyebrow_bottom + round(max(0, bottom - eyebrow_bottom - group_height) * 0.28)
+	group_height = photo_h + 56 + text_height
+	group_top = eyebrow_bottom + round((bottom - eyebrow_bottom - group_height) * 0.32)
 	photo_top = group_top
 
-	# The ink for the words that stay on the wash, read off the card
-	# itself, so they read on whatever ground the product's colour made.
-	text_top = photo_top + photo_h + 28
+	# The ink is read off the card, in the band the words will occupy,
+	# before anything is painted on it. The text then goes down in whichever
+	# ink reads on that ground, rather than in an ink that was assumed - a
+	# dark product used to get a dark ground and the muted parts of the
+	# card went with it.
+	text_top = photo_top + photo_h + 56
 	ink, quiet, faint = text_palette(canvas, (0, text_top, width, height))
+	# The eyebrow sits at the top of the card, where the wash is a shade
+	# different from the band the words are in, so it is read on its own.
 	_, eyebrow_ink, _ = text_palette(canvas, (0, 0, width, eyebrow_bottom))
 
 	draw_tracked(
 		draw, (MARGIN, MARGIN - 6), detail["store_name"].upper(), eyebrow_font, eyebrow_ink, 5.0
 	)
 
-	photo_left = (width - photo_w) // 2
 	if photo:
-		paste_rounded(canvas, photo, (photo_left, photo_top, photo_w, photo_h), radius=28)
+		paste_rounded(canvas, photo, ((width - photo_w) // 2, photo_top, photo_w, photo_h), radius=28)
 	else:
 		placeholder = Image.new("RGBA", (photo_w, photo_h), (255, 255, 255, 0))
 		ImageDraw.Draw(placeholder).rounded_rectangle(
@@ -679,42 +593,33 @@ def front_card(detail: dict, channel: str) -> Image.Image:
 			radius=28,
 			fill=(255, 255, 255, 150),
 		)
-		canvas.alpha_composite(placeholder, (photo_left, photo_top))
-
-	if name_lines:
-		# The fade, and the words on it.
-		band = band_for(len(name_lines), over_price)
-		scrim(canvas, (photo_left, photo_top + photo_h - band, photo_w, band), fade=SCIM_FADE)
-
-		y = photo_top + photo_h - 34 - 56 - SCIM_FADE
-		if over_price:
-			price_row(draw, photo_left + TEXT_PAD, y, detail, price_font, compare_font, True, quiet)
-			y -= 18 + 72 * (len(name_lines) - 1)
-		else:
-			y -= 72 * (len(name_lines) - 1)
-
-		for line in reversed(name_lines):
-			y -= 72
-			draw.text((photo_left + TEXT_PAD, y), line, font=name_font, fill=PAPER)
+		canvas.alpha_composite(placeholder, ((width - photo_w) // 2, photo_top))
 
 	y = text_top
-	if not name_lines:
-		# The words that did not fit on the picture go underneath it.
-		for line in wrap(draw, detail["name"], name_font, content_width, 2):
-			draw.text((MARGIN, y), line, font=name_font, fill=ink)
-			y += 72
-		y += 18
-		price_row(draw, MARGIN, y, detail, price_font, compare_font, False, quiet)
-		y += 56
+
+	for line in name_lines:
+		draw.text((MARGIN, y), line, font=name_font, fill=ink)
+		y += 76
 
 	if body_lines:
-		y += 30 if name_lines else 0
+		y += 18
 		for line in body_lines:
 			draw.text((MARGIN, y), line, font=body_font, fill=quiet)
-			y += 44
+			y += 46
+
+	y += 44
+	x = MARGIN
+	x += price_label(draw, x, y, detail["price"], price_font) + 18
+	if detail.get("compare_at"):
+		compare = detail["compare_at"]
+		strike(draw, (x, y + 14), compare, compare_font, quiet)
+		x += text_width(draw, compare, compare_font) + 18
+	if detail.get("discount"):
+		discount_flag(draw, x, y, f"SAVE {detail['discount']}%", price_font)
 
 	# The shop's name, bottom right, small enough to be a mark rather than
 	# a claim.
+	mark_font = font("mono", 24, 500)
 	mark = detail["store_name"].upper()
 	mark_width = tracked_width(draw, mark, mark_font, 5.0)
 	draw_tracked(draw, (width - MARGIN - mark_width, bottom + 10), mark, mark_font, faint, 5.0)
@@ -728,30 +633,35 @@ def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	name_font = font("display", 46, 500)
+	name_font = font("display", 44, 500)
 	price_font = font("mono", 28, 500)
-	compare_font = font("mono", 26, 400)
 	index_font = font("mono", 24, 400)
 
 	content_width = width - MARGIN * 2
-	name_lines = wrap(draw, detail["name"], name_font, content_width - TEXT_PAD * 2, 2)
-	name_height = len(name_lines) * 58
+	name_lines = wrap(draw, detail["name"], name_font, content_width, 1)
+	text_height = len(name_lines) * 56 + 30 + 56
 
-	# The picture takes the room the words do not need; the words sit on it.
-	room = height - MARGIN * 2 - 28
-	photo, photo_w, photo_h = prepare_photo(detail.get("photo"), content_width, room)
-	if photo_h < name_height + 56 + 18 + 34:
-		name_lines = name_lines[:1]
-		name_height = 58
+	photo, photo_w, photo_h = prepare_photo(
+		detail.get("photo"), content_width, max(240, height - MARGIN * 2 - text_height - 52)
+	)
 
-	group_height = photo_h + 28
-	group_top = round(max(0, (height - group_height) * 0.4))
+	# The photo and its caption are one group, and the group sits in the
+	# frame rather than hanging from the top of it. A little above centre,
+	# because the bottom of a phone screen is where the caption of a post
+	# lives.
+	group_height = photo_h + 52 + text_height
+	group_top = round((height - group_height) * 0.4)
+
 	photo_top = group_top
 
-	_, _, faint = text_palette(canvas, (0, 0, width, MARGIN + 60))
-	photo_left = (width - photo_w) // 2
+	# As on the front card, the ink is read off the card rather than
+	# assumed, so the caption reads on whatever ground the product's colour
+	# produced.
+	text_top = photo_top + photo_h + 52
+	ink, quiet, faint = text_palette(canvas, (0, text_top, width, height))
+
 	if photo:
-		paste_rounded(canvas, photo, (photo_left, photo_top, photo_w, photo_h), radius=28)
+		paste_rounded(canvas, photo, ((width - photo_w) // 2, photo_top, photo_w, photo_h), radius=28)
 	else:
 		placeholder = Image.new("RGBA", (photo_w, photo_h), (255, 255, 255, 0))
 		ImageDraw.Draw(placeholder).rounded_rectangle(
@@ -759,22 +669,19 @@ def photo_card(detail: dict, channel: str, index: int) -> Image.Image:
 			radius=28,
 			fill=(255, 255, 255, 150),
 		)
-		canvas.alpha_composite(placeholder, (photo_left, photo_top))
+		canvas.alpha_composite(placeholder, ((width - photo_w) // 2, photo_top))
+
+	y = text_top
+	for line in name_lines:
+		draw.text((MARGIN, y), line, font=name_font, fill=ink)
+		y += 56
+
+	price_label(draw, MARGIN, y + 30, detail["price"], price_font)
 
 	# A quiet index, so a set of photo cards reads as a sequence.
 	mark = f"{index:02d}"
 	mark_width = tracked_width(draw, mark, index_font, 4.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, MARGIN - 4), mark, index_font, faint, 4.0)
-
-	if name_lines:
-		band = SCIM_FADE + name_height + 56 + 18 + 34
-		scrim(canvas, (photo_left, photo_top + photo_h - band, photo_w, band), fade=SCIM_FADE)
-		y = photo_top + photo_h - 34 - 56 - SCIM_FADE
-		price_row(draw, photo_left + TEXT_PAD, y, detail, price_font, compare_font, True, PAPER)
-		y -= 18 + 58 * (len(name_lines) - 1)
-		for line in reversed(name_lines):
-			y -= 58
-			draw.text((photo_left + TEXT_PAD, y), line, font=name_font, fill=PAPER)
+	draw_tracked(draw, (width - MARGIN - mark_width, y + 38), mark, index_font, faint, 4.0)
 
 	return canvas
 
