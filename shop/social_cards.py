@@ -453,146 +453,56 @@ def crop_to_product(image: Image.Image, box=None) -> Image.Image:
 	return rgb.crop((x0, y0, x1, y1))
 
 
-def panel_shape(photo: Image.Image, box) -> float:
-	"""The shape a picture is shown in: square, or four by three.
+def prepare_photo(photo: Image.Image | None, max_width: int, max_height: int):
+	"""The photograph, whole, as large as the space allows.
 
-	A card set should look like it was made at one size, so the shape is
-	not whatever the photograph happens to be - a card that is 1.4 to 1
-	next to one that is 0.8 to 1 reads as a mistake rather than a set.
-
-	It is the shape of the *product* that decides, not the shape of the
-	file: a shoe photographed side on is a wide thing whatever shape the
-	frame around it is.
-
-	A product that is square or taller is shown square. A wider one is
-	shown four by three.
-	"""
-	if not box:
-		return 1.0
-	x0, y0, x1, y1 = box
-	aspect = (x1 - x0) / (y1 - y0)
-	return 4 / 3 if aspect > 1.02 else 1.0
-
-
-def panel_size(aspect: float, max_width: int, max_height: int) -> tuple[int, int]:
-	"""The size of the panel on the card, for a given shape.
-
-	The same for every product, so that a set of cards is a set: the
-	panel fills the space it is given at the shape it is drawn in, and the
-	space is the same on every card.
-	"""
-	height = max_width / aspect
-	if height > max_height:
-		height = max_height
-	width = height * aspect
-	if width > max_width:
-		width = max_width
-		height = width / aspect
-	return (round(width), round(height))
-
-
-def product_window(size, box):
-	"""The part of the photograph to show: the product and a little air.
-
-	Not trimmed to any shape. The panel is what has the shape; this is
-	what the picture inside it shows, so that a product is never cut.
-	"""
-	image_width, image_height = size
-	if not box:
-		return (0, 0, image_width, image_height)
-	x0, y0, x1, y1 = box
-	pad = int(max(x1 - x0, y1 - y0) * 0.04)
-	x0 = max(0, x0 - pad)
-	y0 = max(0, y0 - pad)
-	x1 = min(image_width, x1 + pad)
-	y1 = min(image_height, y1 + pad)
-	return (x0, y0, x1, y1)
-
-
-def prepare_photo(photo: Image.Image | None, box, max_width: int, max_height: int):
-	"""The photograph, and the panel it goes on.
-
-	Returns the picture, the size of the panel and the size of the picture
-	within it. The picture is scaled to fit the panel and centred on it,
-	so a photograph whose shape is not the panel's is shown whole rather
-	than trimmed: a product is worth more than a tidy rectangle.
-
-	Every card gets a panel of the same size for the same kind of
-	photograph, whatever the photograph came in at, so a set of them lines
-	up. The picture is scaled up to fill it - the sources are 800px and the
-	card is 1080px, so a card that showed the photograph at its native
-	size would be a quarter of the frame smaller than it could be.
+	Not cropped. A photograph is shown as it was taken - the whole of it,
+	scaled to fit the space it is given - so nothing of the product and
+	none of the scene around it is ever lost. Every trim that was made to
+	square a picture up lost something: a shoe lost its heel, a bottle lost
+	its lid, and a card that shows a different shape of picture from one
+	product to the next looks like a mistake rather than a set.
 	"""
 	if not photo:
-		return None, (max_width, max(240, max_height)), (max_width, max(240, max_height))
-	aspect = panel_shape(photo, box)
-	panel = panel_size(aspect, max_width, max_height)
-	picture = photo.convert("RGB").crop(product_window(photo.size, box))
-	# As large as the panel allows, keeping its shape.
-	scale = min(panel[0] / picture.width, panel[1] / picture.height)
-	size = (max(1, round(picture.width * scale)), max(1, round(picture.height * scale)))
-	return picture.resize(size, Image.LANCZOS), panel, size
+		return None, max_width, max(240, max_height)
+	ratio = min(max_width / photo.width, max_height / photo.height)
+	size = (max(1, round(photo.width * ratio)), max(1, round(photo.height * ratio)))
+	return photo.convert("RGB").resize(size, Image.LANCZOS), size[0], size[1]
 
 
-def paste_panel(canvas: Image.Image, picture, panel_box, picture_box, tint, radius: int = 28):
-	"""A photograph on a panel: the panel is a soft card, the picture on it.
+def paste_rounded(base: Image.Image, image: Image.Image, box, radius: int = 28, shadow: bool = True):
+	"""A photograph on the card, with a soft shadow under it.
 
-	The picture is scaled to fit the panel and centred on it, so a
-	photograph whose shape is not the panel's is shown whole rather than
-	trimmed. A product is worth more than a tidy rectangle.
+	One rectangle on the card: the photograph itself. The shadow is what
+	stops it looking pasted on - without it the edge of the picture and
+	the edge of the card are the same kind of edge, and the card reads
+	flat.
 
-	The shadow is what stops the panel from looking pasted on: without it
-	the edge of the panel and the edge of the card are the same kind of
-	edge, and the whole card reads flat.
-
-	It is drawn only over the area the panel covers rather than over the
-	whole card. A blur that big is the most expensive step in drawing a
-	card, and blurring an area four times the size of the shadow for the
+	It is drawn only over the area the photograph covers rather than over
+	the whole card. A blur that big is the most expensive step in drawing
+	a card, and blurring an area four times the size of the shadow for the
 	same result is the difference between a download that feels instant
 	and one that does not.
 	"""
-	x, y, width, height = panel_box
-	picture_width, picture_height = picture_box
-
-	margin = 40
-	scale = 4
-	small_w = max(1, (width + margin * 2) // scale)
-	small_h = max(1, (height + margin * 2) // scale)
-	layer = Image.new("RGBA", (small_w, small_h), (0, 0, 0, 0))
-	ImageDraw.Draw(layer).rounded_rectangle(
-		(margin // scale, margin // scale, small_w - margin // scale, small_h - margin // scale),
-		radius=max(1, radius // scale),
-		fill=(11, 11, 12, 46),
-	)
-	layer = layer.filter(ImageFilter.BoxBlur(radius=7))
-	layer = layer.resize((width + margin * 2, height + margin * 2), Image.BICUBIC)
-	canvas.alpha_composite(layer, (x - margin, y + 18 - margin))
-
-	ImageDraw.Draw(canvas).rounded_rectangle(
-		(x, y, x + width, y + height), radius=radius, fill=tint
-	)
-
-	if picture is not None:
-		mask = Image.new("L", (picture_width, picture_height), 0)
-		ImageDraw.Draw(mask).rounded_rectangle(
-			(0, 0, picture_width - 1, picture_height - 1), radius=max(1, radius // 2), fill=255
+	x, y, width, height = box
+	if shadow:
+		margin = 40
+		scale = 4
+		small_w = max(1, (width + margin * 2) // scale)
+		small_h = max(1, (height + margin * 2) // scale)
+		layer = Image.new("RGBA", (small_w, small_h), (0, 0, 0, 0))
+		ImageDraw.Draw(layer).rounded_rectangle(
+			(margin // scale, margin // scale, small_w - margin // scale, small_h - margin // scale),
+			radius=max(1, radius // scale),
+			fill=(11, 11, 12, 46),
 		)
-		canvas.paste(picture, (x + (width - picture_width) // 2, y + (height - picture_height) // 2), mask)
+		layer = layer.filter(ImageFilter.BoxBlur(radius=7))
+		layer = layer.resize((width + margin * 2, height + margin * 2), Image.BICUBIC)
+		base.alpha_composite(layer, (x - margin, y + 18 - margin))
 
-
-def panel_tint(detail: dict) -> tuple[int, int, int]:
-	"""The colour of the panel a photograph is put on.
-
-	Neutral on purpose. A product that is a different shape from the panel
-	it is shown in leaves a band of the panel showing either side of it, and
-	if the panel carried the product's colour that band would read as a
-	coloured frame drawn round the picture rather than as the picture
-	sitting on a card.
-
-	The set's colour comes from the ground behind the panel, which is the
-	product's own colour turned to its complement.
-	"""
-	return (237, 237, 239)
+	mask = Image.new("L", (width, height), 0)
+	ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
+	base.paste(image, (x, y), mask)
 
 
 def price_label(draw, x: int, y: int, text: str, fnt, fill=INK, color=PAPER) -> int:
@@ -629,199 +539,165 @@ def discount_flag(draw, x: int, y: int, text: str, fnt) -> int:
 # --- cards ----------------------------------------------------------------------
 
 
-def instagram_card(detail: dict, photo, box) -> Image.Image:
-	"""The card that introduces the product on Instagram.
+# The type and the spacing, per channel. TikTok's canvas is tall and its
+# type is large, because it is read on a phone while the video runs.
+LAYOUTS = {
+	"instagram": {
+		"margin": 64,
+		"top": 64,
+		"name": 58,
+		"name_line": 72,
+		"body": 34,
+		"body_line": 48,
+		"price": 34,
+		"compare": 30,
+		"gap": 22,
+		"price_gap": 30,
+	},
+	"tiktok": {
+		"margin": 72,
+		"top": 128,
+		"name": 88,
+		"name_line": 104,
+		"body": 46,
+		"body_line": 64,
+		"price": 72,
+		"compare": 52,
+		"gap": 28,
+		"price_gap": 52,
+	},
+}
 
-	The product, its name and its price. The description is left off,
-	because it goes in the caption of the post, where there is room to
-	write it properly and where it can be changed without redrawing
-	anything.
+
+def price_row_measure(detail: dict, price_font, compare_font, max_width: int, draw):
+	"""How tall the price row is, and whether it has to wrap.
+
+	TikTok's price is large enough to be the biggest thing in the frame,
+	and the row then does not fit across it. Rather than being clipped off
+	the edge of the card, the saving goes on a line of its own.
 	"""
-	width, height = CHANNELS["instagram"]["size"]
+	height = int(price_font.size * 1.9)
+	price = detail["price"]
+	compare = detail.get("compare_at")
+	badge = f"SAVE {detail['discount']}%" if detail.get("discount") else ""
+	pad = int(price_font.size * 0.9) * 2
+
+	used = tracked_width(draw, price, price_font, 2.0) + pad
+	rest = 0
+	if compare:
+		rest += text_width(draw, compare, compare_font) + 18
+	if badge:
+		rest += tracked_width(draw, badge, price_font, 2.0) + pad
+	if rest and used + 18 + rest > max_width:
+		return height + 16 + height, True
+	return height, False
+
+
+def price_row_draw(
+	draw, x: int, y: int, detail: dict, price_font, compare_font, muted, wrapped: bool
+):
+	"""The price, the compare-at price and the saving."""
+	height = int(price_font.size * 1.9)
+	compare = detail.get("compare_at")
+	badge = f"SAVE {detail['discount']}%" if detail.get("discount") else ""
+
+	if wrapped:
+		used = price_label(draw, x, y, detail["price"], price_font)
+		y += height + 16
+		used = 0
+		if compare:
+			strike(draw, (x + used, y + 14), compare, compare_font, muted, width=3)
+			used += text_width(draw, compare, compare_font) + 18
+		if badge:
+			discount_flag(draw, x + used, y, badge, price_font)
+		return
+
+	used = price_label(draw, x, y, detail["price"], price_font) + 18
+	if compare:
+		strike(draw, (x + used, y + 14), compare, compare_font, muted, width=3)
+		used += text_width(draw, compare, compare_font) + 18
+	if badge:
+		discount_flag(draw, x + used, y, badge, price_font)
+
+
+def product_card(
+	detail: dict, photo, box, channel: str, words: bool = True, description: bool = False
+) -> Image.Image:
+	"""One card: the photograph at the top, the words under it.
+
+	``words`` draws the name and the price; ``description`` draws the
+	description too, which only TikTok's cards carry - on Instagram the
+	description goes in the caption of the post, where there is room to
+	write it properly.
+
+	The photograph is shown whole, as it was taken, and scaled to fit the
+	room the words leave it. The room is the same on every card, so a set
+	of them is a set.
+	"""
+	layout = LAYOUTS[channel]
+	width, height = CHANNELS[channel]["size"]
+	margin = layout["margin"]
 	canvas = background_for(detail["tint"], (width, height))
 	draw = ImageDraw.Draw(canvas)
 
-	eyebrow_font = font("mono", 26, 500)
-	name_font = font("display", 62, 700)
-	price_font = font("mono", 30, 500)
-	compare_font = font("mono", 28, 400)
-	mark_font = font("mono", 24, 500)
+	name_font = font("display", layout["name"], 700)
+	body_font = font("display", layout["body"], 300)
+	price_font = font("mono", layout["price"], 500)
+	compare_font = font("mono", layout["compare"], 400)
 
-	content_width = width - MARGIN * 2
+	content_width = width - margin * 2
 	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
-	name_height = len(name_lines) * 76
-	text_height = name_height + 44 + 62
-
-	# The photo and the words are one group, and the group is placed in the
-	# frame rather than hung from the top of it, so a tall canvas does not
-	# leave the card with a hole in the middle. A little above centre: the
-	# bottom of a phone screen is where the caption of a post lives.
-	eyebrow_bottom = MARGIN + 56
-	bottom = height - MARGIN
-	room = bottom - eyebrow_bottom - text_height - 56
-
-	picture, (panel_w, panel_h), (photo_w, photo_h) = prepare_photo(photo, box, content_width, room)
-
-	group_height = panel_h + 56 + text_height
-	group_top = eyebrow_bottom + round((bottom - eyebrow_bottom - group_height) * 0.32)
-	photo_top = group_top
-
-	# The ink is read off the card, in the band the words will occupy,
-	# before anything is painted on it. The text then goes down in whichever
-	# ink reads on that ground, rather than in an ink that was assumed - a
-	# dark product used to get a dark ground and the muted parts of the
-	# card went with it.
-	text_top = photo_top + panel_h + 56
-	ink, quiet, faint = text_palette(canvas, (0, text_top, width, height))
-	# The eyebrow sits at the top of the card, where the wash is a shade
-	# different from the band the words are in, so it is read on its own.
-	_, eyebrow_ink, _ = text_palette(canvas, (0, 0, width, eyebrow_bottom))
-
-	draw_tracked(
-		draw, (MARGIN, MARGIN - 6), detail["store_name"].upper(), eyebrow_font, eyebrow_ink, 5.0
+	body_lines = (
+		wrap(draw, detail["description"], body_font, content_width, 3) if description else []
 	)
 
-	paste_panel(
-		canvas,
-		picture,
-		((width - panel_w) // 2, photo_top, panel_w, panel_h),
-		(photo_w, photo_h),
-		panel_tint(detail),
-	)
+	# How much room the words take, so the photograph can be given what is
+	# left of the frame.
+	words_height = len(name_lines) * layout["name_line"]
+	if body_lines:
+		words_height += layout["gap"] + len(body_lines) * layout["body_line"]
+	price_height, price_wrapped = (0, False)
+	if words:
+		price_height, price_wrapped = price_row_measure(
+			detail, price_font, compare_font, content_width, draw
+		)
+		words_height += layout["price_gap"] + price_height
 
-	y = text_top
+	top = layout["top"]
+	room = height - top - margin - (words_height + layout["gap"] if words else 0)
+	picture, picture_width, picture_height = prepare_photo(photo, content_width, room)
+
+	picture_left = (width - picture_width) // 2
+	picture_top = top if words else (height - picture_height) // 2
+
+	if picture is not None:
+		paste_rounded(
+			canvas, picture, (picture_left, picture_top, picture_width, picture_height)
+		)
+
+	if not words:
+		return canvas
+
+	# The words sit under the photograph. The ink for them is read off the
+	# card rather than assumed, so they read on whatever ground the
+	# product's colour produced.
+	y = picture_top + picture_height + layout["gap"]
+	ink, quiet, faint = text_palette(canvas, (0, y, width, height))
 
 	for line in name_lines:
-		draw.text((MARGIN, y), line, font=name_font, fill=ink)
-		y += 76
-
-	y += 44
-	x = MARGIN
-	x += price_label(draw, x, y, detail["price"], price_font) + 18
-	if detail.get("compare_at"):
-		compare = detail["compare_at"]
-		strike(draw, (x, y + 14), compare, compare_font, quiet)
-		x += text_width(draw, compare, compare_font) + 18
-	if detail.get("discount"):
-		discount_flag(draw, x, y, f"SAVE {detail['discount']}%", price_font)
-
-	# The shop's name, bottom right, small enough to be a mark rather than
-	# a claim.
-	mark = detail["store_name"].upper()
-	mark_width = tracked_width(draw, mark, mark_font, 5.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, bottom + 10), mark, mark_font, faint, 5.0)
-
-	return canvas
-
-
-def instagram_photo_card(detail: dict, photo, box, index: int) -> Image.Image:
-	"""One of the remaining photographs, on the same ground.
-
-	No words on it. The name and the price belong on the card that
-	introduces the product; these are the pictures that go with it, and a
-	frame that repeated the name and the price on every one of them would
-	be saying the same thing five times.
-	"""
-	width, height = CHANNELS["instagram"]["size"]
-	canvas = background_for(detail["tint"], (width, height))
-	draw = ImageDraw.Draw(canvas)
-
-	index_font = font("mono", 24, 400)
-	content_width = width - MARGIN * 2
-
-	picture, (panel_w, panel_h), (photo_w, photo_h) = prepare_photo(
-		photo, box, content_width, height - MARGIN * 2
-	)
-	photo_left = (width - panel_w) // 2
-	photo_top = (height - panel_h) // 2
-
-	paste_panel(
-		canvas, picture, (photo_left, photo_top, panel_w, panel_h), (photo_w, photo_h), panel_tint(detail)
-	)
-
-	# A quiet index, so a set of photo cards reads as a sequence.
-	_, _, faint = text_palette(canvas, (0, 0, width, MARGIN + 60))
-	mark = f"{index:02d}"
-	mark_width = tracked_width(draw, mark, index_font, 4.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, MARGIN - 4), mark, index_font, faint, 4.0)
-
-	return canvas
-
-
-def tiktok_card(detail: dict, photo, box) -> Image.Image:
-	"""A TikTok frame: half the product, half the words.
-
-	The frame is split in half - the product above, the name, the
-	description and the price below - so a set of them reads as a sequence
-	of the same product from different angles, each one carrying the words
-	that go with it.
-
-	TikTok is watched on a phone with the sound off and the caption running
-	along the bottom, so the words belong on the card rather than in a
-	post's caption where they would be scrolled past. The price is the
-	biggest thing in the half: it is the reason anyone stops, and the
-	space between the description and the bottom of the frame is where
-	TikTok's own caption sits, so the room it leaves is room nobody sees.
-	"""
-	width, height = CHANNELS["tiktok"]["size"]
-	canvas = background_for(detail["tint"], (width, height))
-	draw = ImageDraw.Draw(canvas)
-
-	name_font = font("display", 64, 700)
-	body_font = font("display", 36, 300)
-	price_font = font("mono", 54, 500)
-	compare_font = font("mono", 34, 400)
-	mark_font = font("mono", 26, 500)
-
-	half = height // 2
-	content_width = width - MARGIN * 2
-
-	name_lines = wrap(draw, detail["name"], name_font, content_width, 2)
-	body_lines = wrap(draw, detail["description"], body_font, content_width, 3)
-
-	# The product takes the top half.
-	picture, (panel_w, panel_h), (photo_w, photo_h) = prepare_photo(
-		photo, box, content_width, half - MARGIN * 2
-	)
-	photo_left = (width - panel_w) // 2
-	photo_top = (half - panel_h) // 2
-
-	# The words take the bottom half, and the ink for them is read off the
-	# card rather than assumed.
-	ink, quiet, faint = text_palette(canvas, (0, half, width, height))
-
-	paste_panel(
-		canvas, picture, (photo_left, photo_top, panel_w, panel_h), (photo_w, photo_h), panel_tint(detail)
-	)
-
-	# The name sits at the top of the half and the price under it, with the
-	# description between them.
-	y = half + 72
-	for line in name_lines:
-		draw.text((MARGIN, y), line, font=name_font, fill=ink)
-		y += 82
+		draw.text((margin, y), line, font=name_font, fill=ink)
+		y += layout["name_line"]
 
 	if body_lines:
-		y += 20
+		y += layout["gap"]
 		for line in body_lines:
-			draw.text((MARGIN, y), line, font=body_font, fill=quiet)
-			y += 54
+			draw.text((margin, y), line, font=body_font, fill=quiet)
+			y += layout["body_line"]
 
-	y += 40
-	x = MARGIN
-	x += price_label(draw, x, y, detail["price"], price_font) + 22
-	if detail.get("compare_at"):
-		compare = detail["compare_at"]
-		strike(draw, (x, y + 22), compare, compare_font, quiet, width=3)
-		x += text_width(draw, compare, compare_font) + 22
-	if detail.get("discount"):
-		discount_flag(draw, x, y, f"SAVE {detail['discount']}%", price_font)
-
-	# The shop's name, at the bottom, small enough to be a mark rather than
-	# a claim.
-	mark = detail["store_name"].upper()
-	mark_width = tracked_width(draw, mark, mark_font, 5.0)
-	draw_tracked(draw, (width - MARGIN - mark_width, height - MARGIN + 14), mark, mark_font, faint, 5.0)
+	y += layout["price_gap"]
+	price_row_draw(
+		draw, margin, y, detail, price_font, compare_font, quiet, price_wrapped
+	)
 
 	return canvas
 
@@ -931,17 +807,30 @@ def render(doc, channel: str, prepared=None) -> list[tuple[str, Image.Image]]:
 	label = CHANNELS[channel]["label"].lower()
 	front = photos[0] if photos else (None, None)
 
-	if channel == "instagram":
-		cards: list[tuple[str, Image.Image]] = [
-			(f"{label}-front.jpg", instagram_card(detail, front[0], front[1]))
-		]
-		for index, (photo, box) in enumerate(photos[1:], start=2):
-			cards.append((f"{label}-{index:02d}.jpg", instagram_photo_card(detail, photo, box, index)))
-		return cards
+	# Instagram's first card introduces the product and carries its name
+	# and its price; the rest are the pictures alone, because the
+	# description goes in the caption of the post. TikTok's cards each
+	# carry the description as well, since TikTok is watched with the
+	# sound off and the caption running along the bottom.
+	with_description = channel == "tiktok"
 
-	cards = [(f"{label}-front.jpg", tiktok_card(detail, front[0], front[1]))]
-	for index, (photo, box) in enumerate(photos[1:], start=2):
-		cards.append((f"{label}-{index:02d}.jpg", tiktok_card(detail, photo, box)))
+	cards: list[tuple[str, Image.Image]] = []
+	for index, (photo, box) in enumerate(photos):
+		first = index == 0
+		filename = f"{label}-front.jpg" if first else f"{label}-{index + 1:02d}.jpg"
+		cards.append(
+			(
+				filename,
+				product_card(
+					detail,
+					photo,
+					box,
+					channel,
+					words=first or with_description,
+					description=with_description,
+				),
+			)
+		)
 	return cards
 
 
