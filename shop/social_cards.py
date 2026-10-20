@@ -555,14 +555,18 @@ LAYOUTS = {
 		"price_gap": 30,
 	},
 	"tiktok": {
-		"margin": 72,
+		"margin": 64,
 		"top": 128,
 		"name": 88,
 		"name_line": 104,
 		"body": 46,
 		"body_line": 64,
-		"price": 72,
-		"compare": 52,
+		# The price, the compare-at price and the saving are three pieces of
+		# text - twenty-eight characters of it - and they sit on one line.
+		# Sized to the widest of them across the catalogue, so the row never
+		# has to break and the saving never goes on a line of its own.
+		"price": 48,
+		"compare": 36,
 		"gap": 28,
 		"price_gap": 52,
 	},
