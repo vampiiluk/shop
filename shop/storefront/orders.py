@@ -69,8 +69,11 @@ def order_summary(order) -> dict:
 	from shop.api.orders import payment_status_label, payments_received
 	from shop.storefront import returns
 
+	from shop.api.products import item_labels
+
 	shipment = shipment_summary(order.name)
 	method = order.get("custom_payment_method") or "cod"
+	item_names, item_attributes = item_labels([row.item_code for row in order.items])
 	# What the customer still owes, straight off the ledger: the confirmation
 	# page shows a payment status next to the QR, and that status has to flip
 	# to Paid on its own once the transfer is recorded — a checkout screen
@@ -107,7 +110,11 @@ def order_summary(order) -> dict:
 		"items": [
 			{
 				"item_code": row.item_code,
-				"item_name": row.item_name,
+				# The product's name, not the variant's code with the size
+				# on the end, and the size or colour under it.
+				"item_name": item_names.get(row.item_code) or row.item_name,
+				"variant": item_attributes.get(row.item_code) or [],
+				"variant_text": " · ".join(item_attributes.get(row.item_code) or []),
 				"qty": cart_module.display_qty(row.qty),
 				"rate": row.rate,
 				"formatted_rate": pricing.format_amount(row.rate),

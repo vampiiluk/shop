@@ -4192,10 +4192,26 @@ def confirmation_blocks(refs):
 				styles={"alignItems": "baseline", "display": "flex", "flexDirection": "row", "gap": "10px"},
 				children=[
 					block(
-						"p",
-						text="Item",
-						styles={"fontSize": "13px", "fontWeight": "500", "height": "fit-content", "width": "fit-content"},
-						dynamicValues=[dv("item_name", "innerHTML")],
+						"div",
+						styles={"display": "flex", "flexDirection": "column", "gap": "2px"},
+						children=[
+							block(
+								"p",
+								text="Item",
+								styles={"fontSize": "13px", "fontWeight": "500", "height": "fit-content", "width": "fit-content"},
+								dynamicValues=[dv("item_name", "innerHTML")],
+							),
+							# The size or colour that was ordered, under the
+							# name. A variant's own name is a code with the
+							# size on the end, so this is what tells the
+							# customer what they actually picked.
+							block(
+								"p",
+								text="",
+								styles={"fontSize": "11px", "height": "fit-content", "width": "fit-content"},
+								dynamicValues=[dv("variant_text", "innerHTML")],
+							),
+						],
 					),
 					block(
 						"p",

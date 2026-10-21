@@ -75,6 +75,54 @@ def decorate(products: list) -> None:
 		product["stock"] = sum(stock.get_stock(codes).values())
 
 
+def item_labels(codes: list[str]) -> tuple[dict[str, str], dict[str, list[str]]]:
+	"""A human name for each item, and the attributes that pick the variant.
+
+	A variant's own name is a code with the size on the end - "CMP ALKHESTE
+	LOW-414" - which tells a customer nothing about what they ordered. So
+	the product's own name is given, and under it the size or colour that
+	was actually picked.
+
+	The template of a variant carries a row of its own with no value, which
+	is the size range it is made in rather than a size anyone chose, so
+	those are left out.
+	"""
+	names: dict[str, str] = {}
+	attributes: dict[str, list[str]] = {}
+	if not codes:
+		return names, attributes
+
+	items = frappe.get_all(
+		"Item", filters={"name": ["in", codes]}, fields=["name", "item_name", "variant_of"]
+	)
+	parents = {row.variant_of for row in items if row.variant_of}
+	parent_names = {}
+	if parents:
+		parent_names = {
+			row.name: row.item_name
+			for row in frappe.get_all(
+				"Item", filters={"name": ["in", list(parents)]}, fields=["name", "item_name"]
+			)
+		}
+	for row in items:
+		if row.variant_of:
+			names[row.name] = parent_names.get(row.variant_of) or row.item_name
+		else:
+			names[row.name] = row.item_name
+
+	for row in frappe.get_all(
+		"Item Variant Attribute",
+		filters={"parent": ["in", codes]},
+		fields=["parent", "attribute", "attribute_value"],
+		order_by="idx",
+	):
+		if not row.attribute_value:
+			continue
+		attributes.setdefault(row.parent, []).append(f"{row.attribute}: {row.attribute_value}")
+
+	return names, attributes
+
+
 def sellable_codes(item: str, has_variants: bool) -> list[str]:
 	if has_variants:
 		return frappe.get_all("Item", filters={"variant_of": item}, pluck="name")

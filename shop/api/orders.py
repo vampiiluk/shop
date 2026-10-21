@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
+from shop.api.products import item_labels
 from shop.storefront import pricing
 
 MAX_SCAN = 500
@@ -239,6 +240,7 @@ def get_order(name: str) -> dict:
 	total = flt(order.grand_total)
 	balance = max(total - received, 0.0)
 	advance = flt(order.custom_advance_amount or 0)
+	item_names, item_attributes = item_labels([row.item_code for row in order.items])
 	courier = max(total - max(received, min(advance, total)), 0.0)
 	return {
 		"name": order.name,
@@ -269,10 +271,14 @@ def get_order(name: str) -> dict:
 		"formatted_total": pricing.format_amount(order.total),
 		"formatted_discount": pricing.format_amount(order.discount_amount) if order.discount_amount else None,
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
-		"items": [
+			"payment_qrs": payment_qrs(order),
+			"items": [
 			{
 				"item_code": row.item_code,
-				"item_name": row.item_name,
+				# The product's name, not the variant's code with the
+				# size on the end, and the size or colour under it.
+				"item_name": item_names.get(row.item_code) or row.item_name,
+				"variant": item_attributes.get(row.item_code) or [],
 				"qty": row.qty,
 				"formatted_rate": pricing.format_amount(row.rate),
 				"formatted_amount": pricing.format_amount(row.amount),
@@ -281,6 +287,52 @@ def get_order(name: str) -> dict:
 		],
 		"timeline": timeline(order),
 	}
+
+
+def payment_qrs(order) -> list[dict]:
+	"""The payment codes for an order: the advance and the whole total.
+
+	Whoever is taking the payment may be asked for either figure, and
+	editing the order to ask for the other one is not something a shop
+	should have to do at the counter. So both are drawn, from the same
+	encoder the customer's own code comes from, and the two can never
+	disagree about the account they name.
+
+	Empty when there is no usable account to point at, so the desk is never
+	offered a code that cannot be paid.
+	"""
+	from shop import payments
+
+	settings = frappe.get_cached_doc("Shop Settings")
+	if not payments.configured(settings):
+		return []
+
+	from shop.storefront.checkout import advance_amount_for, advance_due_for
+
+	total = flt(order.grand_total)
+	# The advance this order is carrying: what was recorded when it was
+	# placed, or what the method says is due up front. An order that owes
+	# nothing up front still gets one, for the figure the shop asks for on
+	# an order this size, because a customer paying part of it before it
+	# ships is a thing that happens.
+	recorded = flt(order.custom_advance_amount or 0)
+	due = advance_due_for(order.get("custom_payment_method") or "cod", total, settings)
+	advance = max(recorded, due) or advance_amount_for(total, settings)
+
+	stages = []
+	if 0 < advance < total:
+		stages.append(("advance", advance))
+	stages.append(("full", total))
+
+	codes = []
+	for stage, amount in stages:
+		qr = payments.payment_qr(order, amount, settings)
+		if not qr:
+			continue
+		qr["stage"] = stage
+		qr["download_name"] = f"payment-{order.name}-{stage}.png"
+		codes.append(qr)
+	return codes
 
 
 def timeline(order) -> list[dict]:

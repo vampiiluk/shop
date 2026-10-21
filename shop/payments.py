@@ -391,6 +391,74 @@ def configured(settings=None) -> bool:
 	return bool(cint(settings.get("enable_raast_qr")) and segno is not None and is_valid_iban(settings.raast_iban))
 
 
+def caption_lines(order, account_title: str, named: str, iban_raw: str, expiry=None) -> list[str]:
+	"""The lines printed under a code.
+
+	A saved card outlives the page it was drawn on, so the amount, the
+	account, the bank and the order it settles have to be readable from the
+	picture alone - a gallery full of squares that all look alike is not a
+	record anyone can reconcile later. The day the code stops being
+	payable belongs on the picture too.
+	"""
+	return [
+		part
+		for part in (
+			account_title,
+			named or f"{_('Bank')} {bank_code(iban_raw)}",
+			format_iban(iban_raw),
+			f"{_('Order')} {order.name}",
+			f"{_('Valid until')} {expiry.strftime('%d %b %Y')}" if expiry else "",
+		)
+		if part
+	]
+
+
+def payment_qr(order, amount: float, settings=None) -> dict | None:
+	"""The payment code for one figure on an order.
+
+	The confirmation page draws a single code, for the stage the customer
+	is at. The desk needs a code for any figure it is asked for - the
+	advance the customer was promised, and the whole total - because
+	whoever is taking the payment may be asked for either, and changing the
+	order to ask for the other one is not something a shop should have to
+	do mid-counter.
+
+	Drawn from the same encoder as the customer's own code, so a figure and
+	the code that carries it can never disagree. None when there is no
+	usable account to point at, or no figure worth a code.
+	"""
+	settings = settings or frappe.get_cached_doc("Shop Settings")
+	iban_raw = normalize_iban(settings.raast_iban)
+	if segno is None or not is_valid_iban(iban_raw):
+		return None
+	amount = max(flt(amount), 0)
+	if not amount:
+		return None
+
+	expiry = qr_expiry()
+	payload = build_payload(iban_raw, amount, expiry)
+	named = (getattr(settings, "raast_bank_name", None) or "").strip() or bank_name(iban_raw)
+	account_title = (settings.raast_account_title or "").strip()
+	formatted = _format_amount(amount)
+
+	return {
+		"amount": amount,
+		"formatted_amount": formatted,
+		"payload": payload,
+		"qr_data_url": qr_data_url(
+			payload,
+			headline=formatted,
+			lines=caption_lines(order, account_title, named, iban_raw, expiry),
+		),
+		"qr_plain_url": qr_plain_url(payload),
+		"iban": format_iban(iban_raw),
+		"iban_raw": iban_raw,
+		"bank": named or bank_code(iban_raw),
+		"account_title": account_title,
+		"valid_until": expiry.strftime("%d %b %Y"),
+	}
+
+
 def payment_context(order, settings=None) -> dict | None:
 	"""Confirmation-page block for a Raast payment; None for other methods.
 
@@ -499,19 +567,7 @@ def payment_context(order, settings=None) -> dict | None:
 			headline=formatted_amount,
 			# Printed under the code so a screenshot saved months later still
 			# says whose account it is, which bank, and which order it settles.
-			lines=[
-				part
-				for part in (
-					account_title,
-					named or f"{_('Bank')} {bank_code(iban_raw)}",
-					format_iban(iban_raw),
-					f"{_('Order')} {order.name}",
-					# A saved card outlives the code drawn on it, so the day
-					# it stops working belongs on the picture itself.
-					f"{_('Valid until')} {expiry.strftime('%d %b %Y')}" if expiry else "",
-				)
-				if part
-			],
+			lines=caption_lines(order, account_title, named, iban_raw, expiry),
 		),
 		# The bare code for the page itself; the captioned one above is what
 		# the download hands over.

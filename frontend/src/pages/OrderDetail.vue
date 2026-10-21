@@ -43,7 +43,15 @@
 									:key="item.item_code"
 									class="border-b border-outline-gray-1 last:border-b-0"
 								>
-									<td class="px-3 py-2 text-ink-gray-8">{{ item.item_name }}</td>
+									<td class="px-3 py-2 text-ink-gray-8">
+										<div>{{ item.item_name }}</div>
+										<div
+											v-if="item.variant?.length"
+											class="text-p-sm text-ink-gray-5"
+										>
+											{{ item.variant.join(' · ') }}
+										</div>
+									</td>
 									<td class="px-3 py-2 text-right text-ink-gray-7">{{ item.qty }}</td>
 									<td class="px-3 py-2 text-right text-ink-gray-7">{{ item.formatted_rate }}</td>
 									<td class="px-3 py-2 text-right text-ink-gray-8">{{ item.formatted_amount }}</td>
@@ -70,6 +78,43 @@
 								</tr>
 							</tfoot>
 						</table>
+					</div>
+
+					<div v-if="doc.payment_qrs?.length" class="rounded-lg border border-outline-gray-1 p-4">
+						<h2 class="text-base font-medium text-ink-gray-8">Payment QR</h2>
+						<p class="mt-1 text-p-sm text-ink-gray-5">
+							Two codes, for the two figures the customer may be asked for. Both name
+							the same account.
+						</p>
+						<div class="mt-4 grid gap-4 sm:grid-cols-2">
+							<div
+								v-for="qr in doc.payment_qrs"
+								:key="qr.stage"
+								class="rounded-lg border border-outline-gray-1 p-3"
+							>
+								<p class="text-xs uppercase tracking-wider text-ink-gray-5">
+									{{ qr.stage === 'advance' ? 'Advance payment' : 'Full payment' }}
+								</p>
+								<p class="mt-0.5 text-lg font-medium text-ink-gray-9">
+									{{ qr.formatted_amount }}
+								</p>
+								<img
+									:src="qr.qr_data_url"
+									:alt="`Payment code for ${qr.formatted_amount}`"
+									class="mt-2 w-full max-w-[16rem] rounded bg-white"
+								/>
+								<p class="mt-2 truncate text-p-sm text-ink-gray-6">{{ qr.bank }}</p>
+								<p class="truncate font-mono text-xs text-ink-gray-5">{{ qr.iban }}</p>
+								<a
+									:href="qr.qr_data_url"
+									:download="qr.download_name"
+									class="mt-3 inline-flex items-center gap-1.5 rounded border border-outline-gray-2 px-2.5 py-1.5 text-sm text-ink-gray-7 hover:bg-surface-gray-2"
+								>
+									<LucideDownload class="size-3.5" />
+									Download
+								</a>
+							</div>
+						</div>
 					</div>
 
 					<FraudOrderPanel :order="doc.name" />
@@ -193,6 +238,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+
+import LucideDownload from '~icons/lucide/download'
 import { Dialog, FormControl, Spinner, call, createResource, toast } from 'frappe-ui'
 
 import FulfillmentPanel from '@/components/FulfillmentPanel.vue'
