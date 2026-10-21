@@ -25,6 +25,7 @@ declare module 'vue' {
     CatalogImageListInput: typeof import('./src/components/CatalogImageListInput.vue')['default']
     CatalogItemPicker: typeof import('./src/components/CatalogItemPicker.vue')['default']
     CatalogListState: typeof import('./src/components/CatalogListState.vue')['default']
+    CatalogManualOrderDialog: typeof import('./src/components/CatalogManualOrderDialog.vue')['default']
     CatalogOptionsEditor: typeof import('./src/components/CatalogOptionsEditor.vue')['default']
     CatalogPagination: typeof import('./src/components/CatalogPagination.vue')['default']
     CatalogProductHeader: typeof import('./src/components/CatalogProductHeader.vue')['default']

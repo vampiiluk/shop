@@ -1,6 +1,13 @@
 <template>
 	<div class="mx-auto max-w-5xl px-6 py-8">
-		<UiPageHeader title="Orders" />
+		<UiPageHeader title="Orders">
+			<template #actions>
+				<Button variant="solid" @click="showManualOrder = true">
+					<template #prefix><LucidePlus class="size-4" /></template>
+					New order
+				</Button>
+			</template>
+		</UiPageHeader>
 
 		<UiFilterBar v-model="search" search-placeholder="Search orders" class="mt-6">
 			<div class="w-44">
@@ -60,6 +67,8 @@
 		</UiDataTable>
 
 		<UiPagination v-model:start="start" class="mt-4" :limit="pageSize" :total="total" />
+
+		<CatalogManualOrderDialog v-model="showManualOrder" @created="onOrderCreated" />
 	</div>
 </template>
 
@@ -68,8 +77,10 @@ import { computed, ref, watch } from 'vue'
 import { FormControl, createResource, toast } from 'frappe-ui'
 import { useRoute, useRouter } from 'vue-router'
 
+import LucidePlus from '~icons/lucide/plus'
 import LucideShoppingCart from '~icons/lucide/shopping-cart'
 
+import CatalogManualOrderDialog from '@/components/CatalogManualOrderDialog.vue'
 import UiDataTable from '@/components/UiDataTable.vue'
 import UiEmptyState from '@/components/UiEmptyState.vue'
 import UiFilterBar from '@/components/UiFilterBar.vue'
@@ -88,6 +99,13 @@ const search = ref('')
 const statusFilter = ref((route.query.status as string) || '')
 const paymentFilter = ref('')
 const start = ref(0)
+const showManualOrder = ref(false)
+
+/** A hand-placed order joins the list like any other. */
+function onOrderCreated(name: string) {
+	orders.reload()
+	router.push(`/orders/${name}`)
+}
 
 const paymentOptions = [
 	{ label: 'All payments', value: '' },

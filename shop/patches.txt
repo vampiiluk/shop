@@ -13,4 +13,5 @@ shop.patches.v4_fraud_integrity.apply_data_integrity
 shop.patches.v5_public_images.make_stored_images_public
 shop.patches.v6_webp_images.reencode_stored_images
 shop.patches.v7_image_names.settle_image_names
+shop.patches.v8_manual_orders.apply_hook_custom_fields
 

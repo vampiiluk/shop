@@ -23,7 +23,12 @@
 
 		<div v-else-if="fraud.data" class="mt-3 space-y-2.5">
 			<!-- Verification status — single check -->
-			<div v-if="!verificationDone" class="flex items-center gap-2 text-xs">
+			<div v-if="fraud.data.manual" class="flex items-center gap-2 text-xs">
+				<span class="inline-flex items-center gap-1.5 rounded bg-surface-gray-2 px-2 py-0.5 text-ink-gray-6 border border-outline-gray-2">
+					Not checked — this order was placed by hand
+				</span>
+			</div>
+			<div v-else-if="!verificationDone" class="flex items-center gap-2 text-xs">
 				<span v-if="verificationPending" class="inline-flex items-center gap-1.5 rounded bg-orange-50 px-2 py-0.5 text-orange-700 border border-orange-200">
 					<span class="inline-block size-1.5 rounded-full bg-orange-400 animate-pulse"></span>
 					Address verification in progress

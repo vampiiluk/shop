@@ -164,6 +164,21 @@ custom_fields = {
 			"description": "Required upfront for advance payment orders; the courier collects the remaining balance on delivery.",
 		},
 		{
+			"fieldname": "custom_manual_order",
+			"label": "Placed by Hand",
+			"fieldtype": "Check",
+			"default": "0",
+			"insert_after": "custom_payment_method",
+			"description": "Set when the order was placed by hand in the desk rather than on the site.",
+		},
+		{
+			"fieldname": "custom_order_notes",
+			"label": "Order Note",
+			"fieldtype": "Small Text",
+			"insert_after": "custom_manual_order",
+			"description": "What the customer asked for, in the shop's own words.",
+		},
+		{
 			"fieldname": "custom_pickup_location",
 			"label": "Pickup Location",
 			"fieldtype": "Data",

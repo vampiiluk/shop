@@ -206,6 +206,10 @@ def get_order_fraud_profile(order: str):
 		"ai_maps_status": frappe.db.get_value("Sales Order", order, "custom_ai_maps_status") or "Disabled",
 		"verification_status": verification_status,
 		"verification_done": verification_status in ("Complete", "Partial"),
+		# A hand-placed order was never checked: the merchant took the order
+		# themselves, so the automated check was deliberately not run. It
+		# must not read as a check that failed.
+		"manual": cint(frappe.db.get_value("Sales Order", order, "custom_manual_order")),
 	}
 
 	# Per-domain AI sub-scores: stored JSON, with legacy fallback to the
