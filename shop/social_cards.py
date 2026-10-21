@@ -629,8 +629,8 @@ LAYOUTS = {
 		"title_line": 54,
 		"body": 29,
 		"body_line": 40,
-		"price": 66,
-		"compare": 32,
+		"price": 76,
+		"compare": 38,
 		"label": 18,
 		"option": 27,
 		"swatch": 34,
@@ -640,16 +640,16 @@ LAYOUTS = {
 		"margin": 40,
 		"pad": 36,
 		"logo": 58,
-		"title": 58,
-		"title_line": 68,
-		"body": 34,
-		"body_line": 46,
-		"price": 82,
+		"title": 62,
+		"title_line": 72,
+		"body": 38,
+		"body_line": 52,
+		"price": 80,
 		"compare": 40,
-		"label": 21,
-		"option": 32,
-		"swatch": 42,
-		"gap": 26,
+		"label": 22,
+		"option": 36,
+		"swatch": 46,
+		"gap": 28,
 	},
 }
 
@@ -740,42 +740,81 @@ def price_row(
 
 	The price is the largest thing on the card after the photograph, and
 	plain bold black rather than a label, so it reads at a glance while
-	scrolling.
+	scrolling. The compare-at price and the saving are set against the
+	price's own baseline, so they sit on its line rather than floating
+	beside it.
 	"""
-	height = round(price_font.size * 1.05)
-	price_width = text_width(draw, detail["price"], price_font)
+	price = detail["price"]
 	compare = detail.get("compare_at")
 	badge = f"SAVE {detail['discount']}%" if detail.get("discount") else ""
+
+	box = draw.textbbox((x, y), price, font=price_font)
+	baseline = box[3]
+	height = box[3] - box[1]
+	middle = (box[1] + box[3]) / 2
+
+	price_width = box[2] - box[0]
 	compare_width = text_width(draw, compare, compare_font) if compare else 0
 	badge_width = (
 		tracked_width(draw, badge, badge_font, 2.0) + int(badge_font.size * 0.9) * 2 if badge else 0
 	)
+	total = price_width + (18 + compare_width if compare else 0) + (18 + badge_width if badge else 0)
 
-	total = price_width
-	if compare:
-		total += 18 + compare_width
-	if badge:
-		total += 18 + badge_width
+	draw.text((x, baseline), price, font=price_font, fill=INK, anchor="ls")
+	offset = x + price_width
 
-	draw.text((x, y), detail["price"], font=price_font, fill=INK)
 	if total <= max_width:
-		offset = x + price_width
+		# All of it on one line, which is where the eye expects it.
 		if compare:
-			strike(draw, (offset + 18, y + height * 0.34), compare, compare_font, muted, width=3)
+			compare_box = draw.textbbox((offset + 18, baseline), compare, font=compare_font, anchor="ls")
+			draw.text((offset + 18, baseline), compare, font=compare_font, fill=muted, anchor="ls")
+			mid = (compare_box[1] + compare_box[3]) / 2
+			draw.line(
+				(compare_box[0], mid, compare_box[2], mid), fill=muted, width=3
+			)
 			offset += 18 + compare_width
 		if badge:
-			discount_flag(draw, offset + 18, y + 10, badge, badge_font)
+			pill = int(badge_font.size * 1.9)
+			discount_flag(draw, offset + 18, int(middle - pill / 2), badge, badge_font)
 		return height
 
 	# Too wide for the card: the saving goes on a line of its own.
-	second_y = y + height + 12
+	second_baseline = baseline + 16
 	offset = x
 	if compare:
-		strike(draw, (offset, second_y + 12), compare, compare_font, muted, width=3)
+		compare_box = draw.textbbox((offset, second_baseline), compare, font=compare_font, anchor="ls")
+		draw.text((offset, second_baseline), compare, font=compare_font, fill=muted, anchor="ls")
+		mid = (compare_box[1] + compare_box[3]) / 2
+		draw.line((compare_box[0], mid, compare_box[2], mid), fill=muted, width=3)
 		offset += compare_width + 18
 	if badge:
-		discount_flag(draw, offset, second_y, badge, badge_font)
-	return height + 12 + round(badge_font.size * 1.9)
+		pill = int(badge_font.size * 1.9)
+		compare_mid = middle + 16
+		discount_flag(draw, offset, int(compare_mid - pill / 2), badge, badge_font)
+	return height + 16 + pill
+
+
+def price_row_height(detail: dict, price_font, compare_font, badge_font, max_width: int) -> int:
+	"""The height the price row takes.
+
+	Measured by drawing it and looking at what it covered, rather than
+	assumed - the row is either one line or two depending on how long the
+	price is, and the words below it have to land under it either way.
+	"""
+	scratch = Image.new("RGBA", (max_width + 600, 500), (0, 0, 0, 0))
+	price_row(
+		ImageDraw.Draw(scratch),
+		0,
+		0,
+		detail,
+		price_font,
+		compare_font,
+		badge_font,
+		MUTED,
+		max_width,
+	)
+	box = scratch.getbbox()
+	return (box[3] - box[1]) if box else 0
 
 
 def option_rows(draw, x: int, y: int, detail: dict, layout, width: int) -> int:
@@ -868,11 +907,11 @@ def product_card(detail: dict, photo, box, channel: str, full: bool = True) -> I
 	body_font = font("display", layout["body"], 300)
 	price_font = font("display", layout["price"], 700)
 	compare_font = font("mono", layout["compare"], 400)
-	badge_font = font("mono", round(layout["compare"] * 0.86), 500)
+	badge_font = font("mono", round(layout["compare"] * 0.9), 500)
 
 	# The bar at the head of the card, in the product's own colour, with the
 	# name in it. The card's rounded corners are the bar's top corners.
-	heading = detail["name"] if full else (detail.get("collection") or detail["store_name"])
+	heading = detail["name"]
 	heading_lines = wrap_all(draw, heading.upper(), title_font, content_w)
 	heading_height = len(heading_lines) * layout["title_line"]
 	bar_height = heading_height + 46
@@ -889,8 +928,73 @@ def product_card(detail: dict, photo, box, channel: str, full: bool = True) -> I
 
 	y = card_y + bar_height + layout["gap"]
 
+	# The words below the photograph, and the room they take. Only what is
+	# actually there: a product with no colours does not leave room for a
+	# row of swatches it does not have.
+	price_height = price_row_height(detail, price_font, compare_font, badge_font, content_w) + 30
+	options_height = 0
+	if detail.get("sizes"):
+		options_height += layout["label"] + 14 + layout["option"] + 18
+	if detail.get("colours"):
+		options_height += layout["label"] + 14 + layout["swatch"] + 6
+
+	logo = store_logo(layout["logo"])
+	logo_space = (logo.height + 30) if logo else 0
+
+	# The room the whole group has: the description, the photograph and the
+	# words under it.
+	bar_bottom = card_y + bar_height
+	group_room = card_y + card_h - pad - logo_space - bar_bottom - layout["gap"]
+
+	# The photograph keeps its own shape - it is shown as it was taken -
+	# and the words below it are placed against that, so the card looks
+	# the same whether the picture is square or four by three.
+	picture = None
+	picture_width = content_w
+	picture_height = 0
+	if photo is None:
+		# No photograph: a soft panel where it would have gone, so the card
+		# is a card and not a hole with words round it.
+		picture_height = max(
+			240,
+			min(
+				content_w,
+				group_room - price_height - options_height - layout["gap"] * 2,
+			),
+		)
+		picture_width = content_w
+	if photo is not None:
+		scale = content_w / photo.width
+		picture_height = round(photo.height * scale)
+		if picture_height > group_room - price_height - options_height - layout["gap"] * 2:
+			scale = max(
+				0.1,
+				(group_room - price_height - options_height - layout["gap"] * 2) / photo.height,
+			)
+			picture_height = round(photo.height * scale)
+		picture_width = round(photo.width * scale)
+		picture = photo.convert("RGB").resize((picture_width, picture_height), Image.LANCZOS)
+
 	# The description, small and grey, under the bar.
+	description_height = 0
 	if full and detail.get("description"):
+		body_lines = wrap(draw, detail["description"], body_font, content_w, 2)
+		description_height = len(body_lines) * layout["body_line"] + layout["gap"]
+
+	group_height = (
+		description_height
+		+ picture_height
+		+ layout["gap"]
+		+ price_height
+		+ options_height
+	)
+	# The group sits in the middle of what is left, so the space it does
+	# not fill is shared above and below rather than all of it pooling at
+	# the foot of the card.
+	group_top = bar_bottom + layout["gap"] + max(0, (group_room - group_height) // 2)
+
+	y = group_top
+	if description_height:
 		body_lines = wrap(draw, detail["description"], body_font, content_w, 2)
 		for line in body_lines:
 			line_width = text_width(draw, line, body_font)
@@ -898,62 +1002,52 @@ def product_card(detail: dict, photo, box, channel: str, full: bool = True) -> I
 			y += layout["body_line"]
 		y += layout["gap"]
 
-	# The photograph, and the space the words below it take.
-	# The room the words below the photograph take. Only what is actually
-	# there: a product with no colours does not leave room for a row of
-	# swatches it does not have.
-	options_height = 0
-	price_height = 0
-	logo_space = 0
-	if full:
-		if detail.get("sizes"):
-			options_height += layout["label"] + 14 + layout["option"] + 18
-		if detail.get("colours"):
-			options_height += layout["label"] + 14 + layout["swatch"] + 6
-		price_height = round(layout["price"] * 1.05) + 44
-	logo = store_logo(layout["logo"])
-	if logo:
-		logo_space = logo.height + 30
-
 	photo_top = y
-	photo_room = (
-		card_y
-		+ card_h
-		- pad
-		- options_height
-		- price_height
-		- logo_space
-		- photo_top
-		- layout["gap"]
-	)
-	picture, picture_width, picture_height = prepare_photo(photo, content_w, max(240, photo_room))
-	picture_left = (width - picture_width) // 2
 	if picture is not None:
 		paste_rounded(
-			canvas, picture, (picture_left, photo_top, picture_width, picture_height), radius=18
+			canvas,
+			picture,
+			((width - picture_width) // 2, photo_top, picture_width, picture_height),
+			radius=18,
+		)
+	else:
+		placeholder = Image.new("RGBA", (picture_width, picture_height), (0, 0, 0, 0))
+		ImageDraw.Draw(placeholder).rounded_rectangle(
+			(0, 0, picture_width - 1, picture_height - 1),
+			radius=18,
+			fill=(243, 243, 245, 255),
+		)
+		canvas.alpha_composite(
+			placeholder, ((width - picture_width) // 2, photo_top)
 		)
 	y = photo_top + picture_height + layout["gap"]
 
-	if full:
-		price_row(
-			draw,
-			content_x,
-			y,
-			detail,
-			price_font,
-			compare_font,
-			badge_font,
-			MUTED,
-			content_w,
-		)
-		y += price_height
-		options_height = option_rows(draw, content_x, y, detail, layout, content_w)
-		y += options_height
+	# The price is on every card. A card is often posted on its own, and a
+	# card with a product in it and no price on it is a card nobody can act
+	# on.
+	price_row(
+		draw,
+		content_x,
+		y,
+		detail,
+		price_font,
+		compare_font,
+		badge_font,
+		MUTED,
+		content_w,
+	)
+	y += price_height
 
-	# The shop's mark, at the foot of the card.
+	# The sizes and the colours are on every card, so a frame that is
+	# posted on its own still says what the product comes in.
+	option_rows(draw, content_x, y, detail, layout, content_w)
+
+	# The shop's mark, at the foot of the card. On the right, so it ends
+	# the line the words are set on rather than sitting beside them.
 	if logo:
 		canvas.alpha_composite(
-			logo, ((width - logo.width) // 2, card_y + card_h - pad - logo.height)
+			logo,
+			(card_x + card_w - pad - logo.width, card_y + card_h - pad - logo.height),
 		)
 
 	return canvas
@@ -1081,6 +1175,11 @@ def render(doc, channel: str, prepared=None) -> list[tuple[str, Image.Image]]:
 	a frame that is half product and half words.
 	"""
 	detail, photos = prepared if prepared else prepare(doc)
+	if not photos:
+		# The product lists photographs whose files are not on disk. There is
+		# still a card to make - a card with a hole where the picture goes
+		# is better than no card at all.
+		photos = [(None, None)]
 	label = CHANNELS[channel]["label"].lower()
 	front = photos[0] if photos else (None, None)
 
