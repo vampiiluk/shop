@@ -572,47 +572,6 @@ def discount_flag(draw, x: int, y: int, text: str, fnt) -> int:
 	return box_width
 
 
-# --- cards ----------------------------------------------------------------------
-
-
-# The type and the spacing, per channel. TikTok's canvas is tall and its
-# type is large, because it is read on a phone while the video runs.
-LAYOUTS = {
-	"instagram": {
-		"margin": 64,
-		"top": 64,
-		"logo": 52,
-		"name": 58,
-		"name_min": 40,
-		"name_lines": 3,
-		"body": 34,
-		"body_line": 48,
-		"price": 34,
-		"compare": 30,
-		"gap": 22,
-		"price_gap": 30,
-	},
-	"tiktok": {
-		"margin": 64,
-		"top": 128,
-		"logo": 62,
-		"name": 58,
-		"name_min": 40,
-		"name_lines": 3,
-		"body": 46,
-		"body_line": 64,
-		# The price, the compare-at price and the saving are three pieces of
-		# text - twenty-eight characters of it - and they sit on one line.
-		# Sized to the widest of them across the catalogue, so the row never
-		# has to break and the saving never goes on a line of its own.
-		"price": 48,
-		"compare": 36,
-		"gap": 28,
-		"price_gap": 52,
-	},
-}
-
-
 _logos: dict = {}
 
 
@@ -656,154 +615,346 @@ def store_logo(size: int) -> Image.Image | None:
 	return mark
 
 
-def price_row_measure(detail: dict, price_font, compare_font, max_width: int, draw):
-	"""How tall the price row is, and whether it has to wrap.
+# --- cards ----------------------------------------------------------------------
 
-	TikTok's price is large enough to be the biggest thing in the frame,
-	and the row then does not fit across it. Rather than being clipped off
-	the edge of the card, the saving goes on a line of its own.
+
+# The type and the spacing, per channel. TikTok's canvas is tall and its
+# type is large, because it is read on a phone while the video runs.
+LAYOUTS = {
+	"instagram": {
+		"margin": 36,
+		"pad": 30,
+		"logo": 46,
+		"title": 46,
+		"title_line": 54,
+		"body": 29,
+		"body_line": 40,
+		"price": 66,
+		"compare": 32,
+		"label": 18,
+		"option": 27,
+		"swatch": 34,
+		"gap": 22,
+	},
+	"tiktok": {
+		"margin": 40,
+		"pad": 36,
+		"logo": 58,
+		"title": 58,
+		"title_line": 68,
+		"body": 34,
+		"body_line": 46,
+		"price": 82,
+		"compare": 40,
+		"label": 21,
+		"option": 32,
+		"swatch": 42,
+		"gap": 26,
+	},
+}
+
+# The grey the small print is in, and the line around a colour swatch.
+MUTED = (107, 114, 128)
+HAIRLINE = (229, 231, 235)
+
+# The colours a swatch can be, by name. A colour the shop has no name for
+# gets a neutral grey, which is honest: better a grey swatch than a wrong
+# one.
+SWATCH_COLOURS = {
+	"black": (26, 26, 26),
+	"white": (255, 255, 255),
+	"grey": (132, 134, 138),
+	"gray": (132, 134, 138),
+	"charcoal": (54, 57, 62),
+	"silver": (192, 193, 196),
+	"red": (206, 32, 39),
+	"maroon": (112, 22, 34),
+	"burgundy": (120, 20, 42),
+	"wine": (110, 26, 46),
+	"pink": (232, 96, 156),
+	"rose": (226, 130, 152),
+	"blush": (238, 190, 196),
+	"magenta": (200, 26, 108),
+	"blue": (34, 74, 186),
+	"navy": (26, 40, 66),
+	"sky": (128, 186, 226),
+	"teal": (22, 122, 116),
+	"green": (36, 132, 74),
+	"olive": (104, 124, 48),
+	"lime": (150, 186, 62),
+	"mint": (158, 214, 190),
+	"yellow": (240, 196, 44),
+	"gold": (198, 160, 58),
+	"mustard": (198, 150, 40),
+	"orange": (232, 108, 36),
+	"rust": (176, 82, 40),
+	"brown": (112, 72, 44),
+	"tan": (206, 178, 136),
+	"beige": (222, 206, 176),
+	"cream": (244, 234, 208),
+	"khaki": (154, 146, 92),
+	"purple": (112, 58, 178),
+	"violet": (132, 96, 200),
+	"coral": (238, 130, 104),
+	"peach": (240, 196, 168),
+	"sand": (206, 182, 142),
+	"wine red": (110, 26, 46),
+}
+
+
+def swatch_colour(name: str) -> tuple[int, int, int]:
+	"""The colour a swatch for this name is drawn in."""
+	key = " ".join((name or "").strip().lower().split())
+	if key in SWATCH_COLOURS:
+		return SWATCH_COLOURS[key]
+	for word, colour in SWATCH_COLOURS.items():
+		if word in key:
+			return colour
+	return (150, 152, 156)
+
+
+def header_colour(tint: tuple[int, int, int]) -> tuple[int, int, int]:
+	"""The colour of the bar at the head of the card.
+
+	Taken from the product's own colour and made strong enough to carry
+	white text: the colour in the photograph is often a washed-out grey
+	from a studio sweep, and a grey bar with white on it does not read.
 	"""
-	height = int(price_font.size * 1.9)
-	price = detail["price"]
-	compare = detail.get("compare_at")
-	badge = f"SAVE {detail['discount']}%" if detail.get("discount") else ""
-	pad = int(price_font.size * 0.9) * 2
-
-	used = tracked_width(draw, price, price_font, 2.0) + pad
-	rest = 0
-	if compare:
-		rest += text_width(draw, compare, compare_font) + 18
-	if badge:
-		rest += tracked_width(draw, badge, price_font, 2.0) + pad
-	if rest and used + 18 + rest > max_width:
-		return height + 16 + height, True
-	return height, False
+	hue, lightness, saturation = colorsys.rgb_to_hls(*(c / 255 for c in tint))
+	saturation = max(saturation, 0.55)
+	lightness = min(max(lightness, 0.30), 0.46)
+	colour = INK
+	while lightness > 0.16:
+		red, green, blue = colorsys.hls_to_rgb(hue, lightness, saturation)
+		colour = (round(red * 255), round(green * 255), round(blue * 255))
+		if contrast(PAPER, colour) >= 4.5:
+			break
+		lightness -= 0.03
+	return colour
 
 
-def price_row_draw(
-	draw, x: int, y: int, detail: dict, price_font, compare_font, muted, wrapped: bool
+def price_row(
+	draw, x: int, y: int, detail: dict, price_font, compare_font, badge_font, muted, max_width: int
 ):
-	"""The price, the compare-at price and the saving."""
-	height = int(price_font.size * 1.9)
+	"""The price, the compare-at price and the saving.
+
+	The price is the largest thing on the card after the photograph, and
+	plain bold black rather than a label, so it reads at a glance while
+	scrolling.
+	"""
+	height = round(price_font.size * 1.05)
+	price_width = text_width(draw, detail["price"], price_font)
 	compare = detail.get("compare_at")
 	badge = f"SAVE {detail['discount']}%" if detail.get("discount") else ""
+	compare_width = text_width(draw, compare, compare_font) if compare else 0
+	badge_width = (
+		tracked_width(draw, badge, badge_font, 2.0) + int(badge_font.size * 0.9) * 2 if badge else 0
+	)
 
-	if wrapped:
-		used = price_label(draw, x, y, detail["price"], price_font)
-		y += height + 16
-		used = 0
-		if compare:
-			strike(draw, (x + used, y + 14), compare, compare_font, muted, width=3)
-			used += text_width(draw, compare, compare_font) + 18
-		if badge:
-			discount_flag(draw, x + used, y, badge, price_font)
-		return
-
-	used = price_label(draw, x, y, detail["price"], price_font) + 18
+	total = price_width
 	if compare:
-		strike(draw, (x + used, y + 14), compare, compare_font, muted, width=3)
-		used += text_width(draw, compare, compare_font) + 18
+		total += 18 + compare_width
 	if badge:
-		discount_flag(draw, x + used, y, badge, price_font)
+		total += 18 + badge_width
+
+	draw.text((x, y), detail["price"], font=price_font, fill=INK)
+	if total <= max_width:
+		offset = x + price_width
+		if compare:
+			strike(draw, (offset + 18, y + height * 0.34), compare, compare_font, muted, width=3)
+			offset += 18 + compare_width
+		if badge:
+			discount_flag(draw, offset + 18, y + 10, badge, badge_font)
+		return height
+
+	# Too wide for the card: the saving goes on a line of its own.
+	second_y = y + height + 12
+	offset = x
+	if compare:
+		strike(draw, (offset, second_y + 12), compare, compare_font, muted, width=3)
+		offset += compare_width + 18
+	if badge:
+		discount_flag(draw, offset, second_y, badge, badge_font)
+	return height + 12 + round(badge_font.size * 1.9)
 
 
-def product_card(
-	detail: dict, photo, box, channel: str, words: bool = True, description: bool = False
-) -> Image.Image:
-	"""One card: the photograph at the top, the words under it.
+def option_rows(draw, x: int, y: int, detail: dict, layout, width: int) -> int:
+	"""The sizes and the colours the product comes in.
 
-	``words`` draws the name and the price; ``description`` draws the
-	description too, which only TikTok's cards carry - on Instagram the
-	description goes in the caption of the post, where there is room to
-	write it properly.
+	Only what the product actually has: a product that comes in one size
+	and no colours says neither.
+	"""
+	label_font = font("mono", layout["label"], 500)
+	option_font = font("display", layout["option"], 500)
+	used = 0
 
-	The photograph is shown whole, as it was taken, and scaled to fit the
-	room the words leave it. The room is the same on every card, so a set
-	of them is a set.
+	if detail.get("sizes"):
+		draw_tracked(draw, (x, y), "SIZE", label_font, MUTED, 3.0)
+		used += layout["label"] + 14
+		row_y = y + used
+		offset = x
+		for value in detail["sizes"][:8]:
+			draw.text((offset, row_y), value, font=option_font, fill=MUTED)
+			offset += text_width(draw, value, option_font) + 22
+		used += layout["option"] + 18
+
+	if detail.get("colours"):
+		draw_tracked(draw, (x, y + used), "COLOURS", label_font, MUTED, 3.0)
+		used += layout["label"] + 14
+		row_y = y + used
+		offset = x
+		size = layout["swatch"]
+		for value in detail["colours"][:6]:
+			colour = swatch_colour(value)
+			draw.ellipse(
+				(offset, row_y, offset + size, row_y + size),
+				fill=colour,
+				outline=HAIRLINE,
+				width=2,
+			)
+			offset += size + 20
+		used += size + 6
+
+	return used
+
+
+def product_card(detail: dict, photo, box, channel: str, full: bool = True) -> Image.Image:
+	"""One card: a white card on the ground, a coloured bar, the photograph.
+
+	``full`` is the card that introduces the product - the description, the
+	price, the sizes and the colours as well. The others are the pictures.
 	"""
 	layout = LAYOUTS[channel]
 	width, height = CHANNELS[channel]["size"]
 	margin = layout["margin"]
-	canvas = background_for(detail["tint"], (width, height))
+	pad = layout["pad"]
+	canvas = background_for(detail["tint"], (width, height)).convert("RGBA")
 	draw = ImageDraw.Draw(canvas)
 
-	body_font = font("display", layout["body"], 300)
-	price_font = font("mono", layout["price"], 500)
-	compare_font = font("mono", layout["compare"], 400)
+	# The white card the template is drawn on.
+	card_x = margin
+	card_y = margin
+	card_w = width - margin * 2
+	card_h = height - margin * 2
+	radius = 30
 
-	# The shop's mark, at the head and the foot of the card. It is drawn
-	# first and the rest of the card is laid out inside it, so the marks
-	# are never something the photograph lands on top of.
+	# A soft shadow under it, so it sits on the ground rather than floating.
+	shadow_margin = 44
+	scale = 4
+	small_w = max(1, (card_w + shadow_margin * 2) // scale)
+	small_h = max(1, (card_h + shadow_margin * 2) // scale)
+	layer = Image.new("RGBA", (small_w, small_h), (0, 0, 0, 0))
+	ImageDraw.Draw(layer).rounded_rectangle(
+		(
+			shadow_margin // scale,
+			shadow_margin // scale,
+			small_w - shadow_margin // scale,
+			small_h - shadow_margin // scale,
+		),
+		radius=max(1, radius // scale),
+		fill=(11, 11, 12, 46),
+	)
+	layer = layer.filter(ImageFilter.BoxBlur(radius=8))
+	layer = layer.resize((card_w + shadow_margin * 2, card_h + shadow_margin * 2), Image.BICUBIC)
+	canvas.alpha_composite(layer, (card_x - shadow_margin, card_y + 16 - shadow_margin))
+	ImageDraw.Draw(canvas).rounded_rectangle(
+		(card_x, card_y, card_x + card_w, card_y + card_h), radius=radius, fill=(255, 255, 255)
+	)
+
+	content_x = card_x + pad
+	content_w = card_w - pad * 2
+
+	title_font = font("display", layout["title"], 700)
+	body_font = font("display", layout["body"], 300)
+	price_font = font("display", layout["price"], 700)
+	compare_font = font("mono", layout["compare"], 400)
+	badge_font = font("mono", round(layout["compare"] * 0.86), 500)
+
+	# The bar at the head of the card, in the product's own colour, with the
+	# name in it. The card's rounded corners are the bar's top corners.
+	heading = detail["name"] if full else (detail.get("collection") or detail["store_name"])
+	heading_lines = wrap_all(draw, heading.upper(), title_font, content_w)
+	heading_height = len(heading_lines) * layout["title_line"]
+	bar_height = heading_height + 46
+	bar = Image.new("RGBA", (card_w, bar_height), (0, 0, 0, 0))
+	bar_draw = ImageDraw.Draw(bar)
+	bar_draw.rounded_rectangle((0, 0, card_w, bar_height), radius=radius, fill=header_colour(detail["tint"]))
+	bar_draw.rectangle((0, bar_height // 2, card_w, bar_height), fill=header_colour(detail["tint"]))
+	canvas.alpha_composite(bar, (card_x, card_y))
+	text_y = card_y + 23
+	for line in heading_lines:
+		line_width = text_width(draw, line, title_font)
+		draw.text(((width - line_width) / 2, text_y), line, font=title_font, fill=PAPER)
+		text_y += layout["title_line"]
+
+	y = card_y + bar_height + layout["gap"]
+
+	# The description, small and grey, under the bar.
+	if full and detail.get("description"):
+		body_lines = wrap(draw, detail["description"], body_font, content_w, 2)
+		for line in body_lines:
+			line_width = text_width(draw, line, body_font)
+			draw.text(((width - line_width) / 2, y), line, font=body_font, fill=MUTED)
+			y += layout["body_line"]
+		y += layout["gap"]
+
+	# The photograph, and the space the words below it take.
+	# The room the words below the photograph take. Only what is actually
+	# there: a product with no colours does not leave room for a row of
+	# swatches it does not have.
+	options_height = 0
+	price_height = 0
+	logo_space = 0
+	if full:
+		if detail.get("sizes"):
+			options_height += layout["label"] + 14 + layout["option"] + 18
+		if detail.get("colours"):
+			options_height += layout["label"] + 14 + layout["swatch"] + 6
+		price_height = round(layout["price"] * 1.05) + 44
 	logo = store_logo(layout["logo"])
 	if logo:
-		canvas.alpha_composite(logo, ((width - logo.width) // 2, margin))
-		canvas.alpha_composite(logo, ((width - logo.width) // 2, height - margin - logo.height))
+		logo_space = logo.height + 30
 
-	content_width = width - margin * 2
-	name_lines, name_font, name_size = fit_name(
-		draw,
-		detail["name"],
-		layout["name"],
-		layout["name_min"],
-		content_width,
-		layout["name_lines"],
+	photo_top = y
+	photo_room = (
+		card_y
+		+ card_h
+		- pad
+		- options_height
+		- price_height
+		- logo_space
+		- photo_top
+		- layout["gap"]
 	)
-	name_line = round(name_size * 1.18)
-	body_lines = (
-		wrap(draw, detail["description"], body_font, content_width, 3) if description else []
-	)
-
-	# How much room the words take, so the photograph can be given what is
-	# left of the frame.
-	words_height = len(name_lines) * name_line
-	if body_lines:
-		words_height += layout["gap"] + len(body_lines) * layout["body_line"]
-	price_height, price_wrapped = (0, False)
-	if words:
-		price_height, price_wrapped = price_row_measure(
-			detail, price_font, compare_font, content_width, draw
-		)
-		words_height += layout["price_gap"] + price_height
-
-	# The space the marks take, at the head and the foot of the card.
-	mark_space = (logo.height + 44) if logo else 0
-	top = layout["top"] + mark_space
-	foot = height - margin - mark_space
-	room = foot - top - (words_height + layout["gap"] if words else 0)
-	picture, picture_width, picture_height = prepare_photo(photo, content_width, room)
-
+	picture, picture_width, picture_height = prepare_photo(photo, content_w, max(240, photo_room))
 	picture_left = (width - picture_width) // 2
-	# A picture on its own is centred between the marks, not in the frame.
-	picture_top = top if words else top + max(0, (foot - top - picture_height) // 2)
-
 	if picture is not None:
 		paste_rounded(
-			canvas, picture, (picture_left, picture_top, picture_width, picture_height)
+			canvas, picture, (picture_left, photo_top, picture_width, picture_height), radius=18
 		)
+	y = photo_top + picture_height + layout["gap"]
 
-	if not words:
-		return canvas
+	if full:
+		price_row(
+			draw,
+			content_x,
+			y,
+			detail,
+			price_font,
+			compare_font,
+			badge_font,
+			MUTED,
+			content_w,
+		)
+		y += price_height
+		options_height = option_rows(draw, content_x, y, detail, layout, content_w)
+		y += options_height
 
-	# The words sit under the photograph. The ink for them is read off the
-	# card rather than assumed, so they read on whatever ground the
-	# product's colour produced.
-	y = picture_top + picture_height + layout["gap"]
-	ink, quiet, faint = text_palette(canvas, (0, y, width, height))
-
-	for line in name_lines:
-		draw.text((margin, y), line, font=name_font, fill=ink)
-		y += name_line
-
-	if body_lines:
-		y += layout["gap"]
-		for line in body_lines:
-			draw.text((margin, y), line, font=body_font, fill=quiet)
-			y += layout["body_line"]
-
-	y += layout["price_gap"]
-	price_row_draw(
-		draw, margin, y, detail, price_font, compare_font, quiet, price_wrapped
-	)
+	# The shop's mark, at the foot of the card.
+	if logo:
+		canvas.alpha_composite(
+			logo, ((width - logo.width) // 2, card_y + card_h - pad - logo.height)
+		)
 
 	return canvas
 
@@ -859,6 +1010,23 @@ def product_detail(doc) -> dict:
 	if description.lower() == name.lower():
 		description = ""
 
+	# The sizes and the colours the product comes in, and the collection
+	# it belongs to, which is what the cards of the other photographs are
+	# headed with.
+	from shop.api.variants import product_options
+	from shop.storefront.product import product_collections
+
+	sizes: list[str] = []
+	colours: list[str] = []
+	for option in product_options(doc):
+		attribute = (option.get("attribute") or "").strip().lower()
+		if attribute == "size":
+			sizes = option.get("values") or []
+		elif attribute in ("colour", "color"):
+			colours = option.get("values") or []
+	collections = product_collections(doc)
+	collection = collections[0]["title"] if collections else ""
+
 	photo = None
 	tint = (198, 198, 200)
 	for row in doc.images or []:
@@ -875,6 +1043,9 @@ def product_detail(doc) -> dict:
 		"price": money(price, currency),
 		"compare_at": money(compare_at, currency) if compare_at else "",
 		"discount": discount,
+		"sizes": sizes,
+		"colours": colours,
+		"collection": collection,
 		"photo": photo,
 		"tint": tint,
 	}
@@ -927,14 +1098,7 @@ def render(doc, channel: str, prepared=None) -> list[tuple[str, Image.Image]]:
 		cards.append(
 			(
 				filename,
-				product_card(
-					detail,
-					photo,
-					box,
-					channel,
-					words=first or with_description,
-					description=with_description,
-				),
+				product_card(detail, photo, box, channel, full=first),
 			)
 		)
 	return cards
@@ -975,10 +1139,14 @@ def build_zip(doc) -> bytes:
 			"",
 			"Social cards for Instagram and TikTok.",
 			"",
-			"instagram/  1080 x 1350, one card: the product, its name and its price.",
-			"            The description goes in the caption of the post.",
-			"tiktok/     1080 x 1920, one card per photograph, each half product",
-			"            and half the name, the description and the price.",
+			"instagram/  1080 x 1350, one card per photograph. The first carries",
+			"            the name, the description, the price, the sizes and the",
+			"            colours; the rest are the pictures.",
+			"tiktok/     1080 x 1920, the same set in a vertical frame.",
+			"",
+			"The bar at the head of each card is in the product's own colour.",
+			"The description goes in the caption of the post, so it is only on the",
+			"first card.",
 			"",
 		]
 		if doc.slug:
