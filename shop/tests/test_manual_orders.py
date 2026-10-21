@@ -75,12 +75,45 @@ class TestManualOrders(IntegrationTestCase):
 				frappe.delete_doc("Shop Cart", cart, force=True, ignore_permissions=True)
 			for address in addresses:
 				if address and frappe.db.exists("Address", address):
+					self._remove_verification(address)
 					frappe.delete_doc("Address", address, force=True, ignore_permissions=True)
 			for contact in contacts:
 				if frappe.db.exists("Contact", contact):
 					frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
 			if frappe.db.exists("Customer", customer):
 				frappe.delete_doc("Customer", customer, force=True, ignore_permissions=True)
+		frappe.db.commit()
+
+	def _remove_verification(self, address: str):
+		"""Take the verification of a test address off the queue with it.
+
+		The queue seeds a record for every address it sees, so an address the
+		test made would sit on the merchant's list for good once the address
+		itself was gone.
+		"""
+		from shop.integrations.geocoding import address_hash
+
+		doc = frappe.get_doc("Address", address)
+		hkey = address_hash(
+			{
+				"address_line1": doc.address_line1,
+				"address_line2": doc.address_line2,
+				"city": doc.city,
+				"country": doc.country,
+				"pincode": doc.pincode,
+				"landmark": doc.get("custom_landmark") or "",
+			}
+		)
+		for name in frappe.get_all(
+			"Shop Address Verification", filters={"address_hash": hkey}, pluck="name"
+		):
+			frappe.delete_doc("Shop Address Verification", name, force=True, ignore_permissions=True)
+
+	def _remove_address(self, address: str):
+		"""Take a test address, and its verification, off the books."""
+		if frappe.db.exists("Address", address):
+			self._remove_verification(address)
+			frappe.delete_doc("Address", address, force=True, ignore_permissions=True)
 		frappe.db.commit()
 
 	def _sellable_item(self) -> str:
@@ -355,9 +388,7 @@ class TestManualOrders(IntegrationTestCase):
 			}
 		).insert(ignore_permissions=True)
 		frappe.db.commit()
-		self.addCleanup(
-			frappe.delete_doc, "Address", address.name, force=True, ignore_permissions=True
-		)
+		self.addCleanup(self._remove_address, address.name)
 		found = manual_orders.customer_addresses(customer.name)
 		self.assertEqual(len(found), 1)
 		self.assertEqual(found[0]["address_line1"], "5 Saved Street")
