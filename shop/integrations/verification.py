@@ -464,19 +464,19 @@ QUEUE_LOCK_TTL = 30 * 60
 
 def queue_status() -> dict:
 	"""Is the queue worker running, and how many items still need work?"""
-	ttl = _get_ttl()
 	gms_enabled = _gms_enabled()
 	ors_enabled = _ors_enabled()
-	rows = frappe.db.sql(
-		f"""SELECT name, status, ors_status, gms_status, last_verified_on
-		FROM `tabShop Address Verification`
-		WHERE status IS NULL OR status NOT IN ('Complete')
-		   OR last_verified_on IS NULL
-		   OR last_verified_on < DATE_SUB(NOW(), INTERVAL {int(ttl)} DAY)
-		LIMIT 5000""",
-		as_dict=True,
-	)
-	pending = sum(1 for r in rows if _needs_work(r, ttl, gms_enabled, ors_enabled))
+	where = _unplaced_sql()
+	rows = []
+	if where:
+		rows = frappe.db.sql(
+			f"""SELECT name, status, ors_status, gms_status, last_verified_on
+			FROM `tabShop Address Verification`
+			WHERE {where}
+			LIMIT 5000""",
+			as_dict=True,
+		)
+	pending = sum(1 for r in rows if _needs_work(r, gms_enabled, ors_enabled))
 	return {
 		"running": bool(frappe.cache().get_value(QUEUE_LOCK_KEY)),
 		"pending": pending,
@@ -497,19 +497,52 @@ def _ors_enabled() -> bool:
 	return bool(getattr(settings_doc, "ors_api_key", None))
 
 
-def _needs_work(row, ttl_days: int, gms_enabled: bool, ors_enabled: bool = True) -> bool:
+def _needs_work(row, gms_enabled: bool, ors_enabled: bool = True) -> bool:
+	"""Does this address still need the queue's attention?
+
+	Only an address that neither geocoder could place belongs in the queue.
+	One that was processed - by ORS or by GMS - is located and has nothing
+	left to prove, so it leaves the queue and does not come back when the
+	freshness window passes. A freshness check is a question asked of a
+	record when it is used, not a reason to put every address on the list
+	again.
+
+	A record the merchant queued by hand always comes back, whether it was
+	placed before or not: that button means "check this one again".
+	"""
+	if not ors_enabled and not gms_enabled:
+		# Both disabled - nothing is being counted, so nothing to do.
+		return False
 	if getattr(row, "status", None) == "Queued":
 		return True
-	if ors_enabled and row.ors_status != "Complete":
-		return True
-	if gms_enabled and row.gms_status != "Complete":
-		return True
-	if not ors_enabled and not gms_enabled:
-		# Both disabled — nothing to do
+	if ors_enabled and row.ors_status == "Complete":
 		return False
-	if not row.last_verified_on:
-		return True
-	return (now_datetime() - get_datetime(row.last_verified_on)).days >= ttl_days
+	if gms_enabled and row.gms_status == "Complete":
+		return False
+	return True
+
+
+def _unplaced_sql(where: str = "") -> str:
+	"""The rows that still need the queue's attention.
+
+	An address that was placed - by ORS or by GMS - is done with and does
+	not come back when the freshness window passes. A record queued by hand
+	always comes back.
+	"""
+	gms_enabled = _gms_enabled()
+	ors_enabled = _ors_enabled()
+	conditions = []
+	if ors_enabled:
+		conditions.append("(ors_status IS NULL OR ors_status != 'Complete')")
+	if gms_enabled:
+		conditions.append("(gms_status IS NULL OR gms_status != 'Complete')")
+	if conditions:
+		sql = "(status = 'Queued' OR (" + " AND ".join(conditions) + "))"
+	else:
+		sql = "status = 'Queued'"
+	if where:
+		sql = f"{sql} AND {where}"
+	return sql
 
 
 def _seed_missing_rows(limit: int = 500) -> int:
@@ -551,25 +584,25 @@ def _seed_missing_rows(limit: int = 500) -> int:
 
 
 def get_queue_items(limit: int | None = None) -> list[frappe._dict]:
-	"""Verification records that still need ORS/GMS work or are stale."""
+	"""Verification records that neither geocoder has placed yet."""
 	_seed_missing_rows()
-	ttl = _get_ttl()
 	gms_enabled = _gms_enabled()
 	ors_enabled = _ors_enabled()
 	limit = cint(limit) or 100
+	where = _unplaced_sql()
+	if not where:
+		return []
 	rows = frappe.db.sql(
 		f"""SELECT name, address_line1, city, landmark, country, province, pincode,
 			status, ors_status, gms_status, last_verified_on
 		FROM `tabShop Address Verification`
-		WHERE status IS NULL OR status NOT IN ('Complete')
-		   OR last_verified_on IS NULL
-		   OR last_verified_on < DATE_SUB(NOW(), INTERVAL {int(ttl)} DAY)
+		WHERE {where}
 		ORDER BY modified ASC
 		LIMIT %s""",
 		(limit,),
 		as_dict=True,
 	)
-	return [r for r in rows if _needs_work(r, ttl, gms_enabled, ors_enabled)]
+	return [r for r in rows if _needs_work(r, gms_enabled, ors_enabled)]
 
 
 def run_queue(limit: int | None = None) -> dict:

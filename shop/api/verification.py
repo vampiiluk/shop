@@ -120,6 +120,52 @@ def get_verification_detail(name: str):
 	}
 
 
+@frappe.whitelist(methods=["POST"])
+def delete_verifications(names):
+	"""Take verification records off the list, one by one or in bulk.
+
+	The address itself is kept: it is the customer's address, and the orders
+	that were delivered to it point at it. What goes is the verification of
+	it - the record, and the marks the verification left on the address. The
+	hash goes too, so the queue does not put the address straight back on the
+	list as a fresh Pending row.
+	"""
+	only_managers()
+	if isinstance(names, str):
+		names = [names]
+	names = [name for name in (names or []) if name]
+	if not names:
+		return {"deleted": 0}
+
+	rows = frappe.get_all(
+		"Shop Address Verification",
+		filters={"name": ["in", names]},
+		fields=["name", "address_hash"],
+	)
+	hashes = [row.address_hash for row in rows if row.address_hash]
+	if hashes:
+		frappe.db.set_value(
+			"Address",
+			{"custom_address_hash": ["in", hashes]},
+			{
+				"custom_address_verification": None,
+				"custom_verification_status": None,
+				"custom_address_risk_score": 0,
+				"custom_ors_confidence": None,
+				"custom_latitude": None,
+				"custom_longitude": None,
+				"custom_gms_result_count": 0,
+				"custom_last_verified_on": None,
+				"custom_address_hash": None,
+			},
+			update_modified=False,
+		)
+	for row in rows:
+		frappe.delete_doc("Shop Address Verification", row.name, force=True, ignore_permissions=True)
+	frappe.db.commit()
+	return {"deleted": len(rows)}
+
+
 @frappe.whitelist()
 def reverify_address(name: str):
 	"""Flag a record as queued (runs when Process Queue is pressed)."""

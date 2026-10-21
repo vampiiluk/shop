@@ -14,6 +14,16 @@
 					<template #prefix><span class="lucide-refresh-cw size-4" /></template>
 					{{ queueRunning ? 'Queue Running…' : 'Process Queue' }}
 				</Button>
+				<Button
+					v-if="vSelected.length"
+					variant="subtle"
+					theme="red"
+					:loading="deleting"
+					@click="askDelete(vSelected)"
+				>
+					<template #prefix><span class="lucide-trash-2 size-4" /></template>
+					Delete {{ vSelected.length }} selected
+				</Button>
 			</template>
 		</UiPageHeader>
 
@@ -84,6 +94,13 @@
 				<table v-else class="w-full text-sm">
 					<thead>
 						<tr class="border-b border-outline-gray-1 bg-surface-gray-2">
+							<th class="w-10 px-3 py-2">
+								<Checkbox
+									:model-value="vAllOnPage"
+									:disabled="!vRows.length"
+									@update:model-value="toggleAllOnPage"
+								/>
+							</th>
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">Address</th>
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">City</th>
 							<th class="px-3 py-2 text-left font-medium text-ink-gray-6">Landmark</th>
@@ -103,6 +120,12 @@
 							class="border-b border-outline-gray-1 hover:bg-surface-gray-2 cursor-pointer"
 							@click="$router.push(`/verifications/${row.name}`)"
 						>
+							<td class="px-3 py-2" @click.stop>
+								<Checkbox
+									:model-value="vSelected.includes(row.name)"
+									@update:model-value="(checked) => toggleRow(row.name, checked)"
+								/>
+							</td>
 							<!-- max-w-[17rem] rather than max-w-xs (20rem): with nine columns the table
 								wanted 996px inside a 974px card, and the extra 48px came straight
 								out of this column. The address is already truncated with an
@@ -133,17 +156,28 @@
 							<td class="px-3 py-2 text-ink-gray-6">{{ row.source }}</td>
 							<td class="px-3 py-2 text-ink-gray-6">{{ countLinks(row.linked_orders) }}</td>
 							<td class="px-3 py-2" @click.stop>
-								<Button
-									size="sm"
-									variant="ghost"
-									:disabled="row.status === 'Queued' || reverifyBusy === row.name"
-									:label="row.status === 'Queued' ? 'Queued' : (reverifyBusy === row.name ? 'Adding…' : 'Re-verify')"
-									@click="handleReverify(row.name)"
-								/>
+								<div class="flex items-center gap-1">
+									<Button
+										size="sm"
+										variant="ghost"
+										:disabled="row.status === 'Queued' || reverifyBusy === row.name"
+										:label="row.status === 'Queued' ? 'Queued' : (reverifyBusy === row.name ? 'Adding…' : 'Re-verify')"
+										@click="handleReverify(row.name)"
+									/>
+									<Button
+										size="sm"
+										variant="ghost"
+										theme="red"
+										:loading="deletingOne === row.name"
+										@click="askDelete([row.name])"
+									>
+										<template #icon><span class="lucide-trash-2 size-4" /></template>
+									</Button>
+								</div>
 							</td>
 						</tr>
 						<tr v-if="!vRows.length">
-							<td colspan="10" class="px-3 py-8 text-center text-ink-gray-4">No verification records found</td>
+							<td colspan="11" class="px-3 py-8 text-center text-ink-gray-4">No verification records found</td>
 						</tr>
 					</tbody>
 				</table>
@@ -157,8 +191,7 @@
 				</div>
 			</div>
 
-		<Dialog v-model:show="showVImport" title="Import Verification CSV" size="lg">
-			<div class="space-y-4">
+		<Dialog v-model:show="showVImport" title="Import Verification CSV" size="lg">			<div class="space-y-4">
 				<p class="text-sm text-ink-gray-6">Upload a CSV exported from another instance. All data is pre-verified -- no background jobs needed.</p>
 				<textarea
 					v-model="importContent"
@@ -185,7 +218,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Button, Dialog, Input, Select, Spinner, createResource, toast } from 'frappe-ui'
+import { Button, Checkbox, Dialog, Input, Select, Spinner, createResource, dialog, toast } from 'frappe-ui'
 import UiPageHeader from '@/components/UiPageHeader.vue'
 import UiStatusBadge from '@/components/UiStatusBadge.vue'
 import ProviderHealthStrip from '@/components/ProviderHealthStrip.vue'
@@ -369,6 +402,72 @@ function countLinks(orders: string) {
 }
 
 const reverifyBusy = ref<string | null>(null)
+
+// ── Deleting ──
+
+// The names of the records ticked. The selection survives a page change, so
+// a merchant can tick records on one page and add to them on the next; a
+// record that has been deleted in the meantime is simply not found again.
+const vSelected = ref<string[]>([])
+const deleting = ref(false)
+const deletingOne = ref<string | null>(null)
+
+const vAllOnPage = computed(
+	() => vRows.value.length > 0 && vRows.value.every((row) => vSelected.value.includes(row.name))
+)
+
+function toggleRow(name: string, checked: boolean) {
+	if (checked) {
+		if (!vSelected.value.includes(name)) vSelected.value = [...vSelected.value, name]
+	} else {
+		vSelected.value = vSelected.value.filter((row) => row !== name)
+	}
+}
+
+function toggleAllOnPage(checked: boolean) {
+	if (checked) {
+		const names = vRows.value.map((row) => row.name)
+		vSelected.value = Array.from(new Set([...vSelected.value, ...names]))
+	} else {
+		const onPage = new Set(vRows.value.map((row) => row.name))
+		vSelected.value = vSelected.value.filter((name) => !onPage.has(name))
+	}
+}
+
+function askDelete(names: string[]) {
+	if (!names.length) return
+	dialog.confirm({
+		title: 'Delete verifications',
+		message: `Delete ${names.length} verification record${names.length === 1 ? '' : 's'}? The address itself stays - it is the customer's address, and the orders delivered to it point at it - but the verification of it is taken off the list, and it will not be checked again.`,
+		theme: 'red',
+		confirmLabel: 'Delete',
+		onConfirm: () => handleDelete(names),
+	})
+}
+
+async function handleDelete(names: string[]) {
+	deleting.value = true
+	deletingOne.value = names.length === 1 ? names[0] : null
+	try {
+		const resp = await fetch('/api/method/shop.api.verification.delete_verifications', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': csrfToken.value },
+			body: JSON.stringify({ names }),
+		})
+		const json = await resp.json()
+		const deleted = json.message?.deleted ?? 0
+		toast.create({
+			title: `Deleted ${deleted} verification${deleted === 1 ? '' : 's'}`,
+			icon: 'trash-2',
+			iconClasses: 'text-ink-gray-6',
+		})
+		vSelected.value = vSelected.value.filter((name) => !names.includes(name))
+		await loadVerifications()
+	} finally {
+		deleting.value = false
+		deletingOne.value = null
+	}
+}
 
 async function handleReverify(name: string) {
 	reverifyBusy.value = name
