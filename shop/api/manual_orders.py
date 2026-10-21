@@ -19,7 +19,7 @@ from frappe.utils import add_days, cint, flt, nowdate, validate_email_address
 from shop.api import only_managers
 from shop.api.products import display_names, sellable_codes
 from shop.storefront import cart as cart_module
-from shop.storefront import checkout, pricing, stock
+from shop.storefront import checkout, coupons, pricing, stock
 
 
 @frappe.whitelist()
@@ -90,6 +90,33 @@ def catalogue(search: str = "", limit: int = 20) -> list[dict]:
 	return products
 
 
+@frappe.whitelist()
+def check_coupon(code: str, subtotal: float) -> dict:
+	"""What a coupon would do to this order, without placing the order.
+
+	The merchant should see the discount before the order exists, and the
+	coupon's own rules - expired, used up, the minimum spend - are worth
+	saying out loud rather than leaving to a failure at the end.
+	"""
+	only_managers()
+
+	code = (code or "").strip()
+	if not code:
+		return {"valid": 0, "message": ""}
+	try:
+		coupon = coupons.resolve(code)
+		discount = coupons.discount_for(coupon, flt(subtotal))
+	except Exception as error:
+		return {"valid": 0, "message": str(error)}
+	return {
+		"valid": 1,
+		"code": coupon.code,
+		"discount": discount,
+		"formatted_discount": pricing.format_amount(discount),
+		"message": "",
+	}
+
+
 @frappe.whitelist(methods=["POST"])
 def create(payload: dict) -> dict:
 	"""Place an order on a customer's behalf.
@@ -105,15 +132,37 @@ def create(payload: dict) -> dict:
 	payment_method = (payload.get("payment_method") or "cod").strip()
 	notes = (payload.get("notes") or "").strip()
 	send_email = bool(payload.get("send_email"))
+	coupon_code = (payload.get("coupon_code") or "").strip()
 
 	_validate(customer, address, lines, payment_method, settings)
+
+	# The coupon is resolved before the order is built, so a bad code is
+	# refused before anything is written.
+	coupon, discount = _coupon(coupon_code, lines)
 
 	with checkout.elevated():
 		party = checkout.get_or_create_customer(customer)
 		shipping_address = checkout.create_address(party, customer, address)
 		order = _create_sales_order(
-			settings, party, shipping_address, customer, address, lines, payment_method, notes
+			settings,
+			party,
+			shipping_address,
+			customer,
+			address,
+			lines,
+			payment_method,
+			notes,
+			coupon,
+			discount,
 		)
+		if coupon:
+			# Count the redemption against the cap, the way the checkout
+			# does. ERPNext counts a redemption only for an order that
+			# carries the coupon itself, and this order carries the
+			# discount instead, so this is the count. If the cap has been
+			# reached in the meantime this throws, and the order goes with
+			# it.
+			coupons.redeem(coupon.name)
 		# A cart carries the guest's secret, which is what lets a customer
 		# who is not signed in open the order from the receipt. A hand-
 		# placed order needs one too, or the link in the receipt is dead.
@@ -190,6 +239,20 @@ def _lines(payload: list) -> list[dict]:
 	return lines
 
 
+def _coupon(code: str, lines: list[dict]):
+	"""The coupon on this order and the discount it gives.
+
+	The same rules the checkout applies, including the minimum spend, so a
+	code that would be refused at checkout is refused here too.
+	"""
+	if not code:
+		return None, 0.0
+	subtotal = sum(flt(line["rate"]) * flt(line["qty"]) for line in lines)
+	coupon = coupons.resolve(code)
+	discount = coupons.discount_for(coupon, subtotal)
+	return coupon, discount
+
+
 def _validate(customer, address, lines, payment_method, settings) -> None:
 	if payment_method not in ("cod", "advance", "pickup"):
 		frappe.throw(_("Choose a payment method"))
@@ -225,7 +288,16 @@ def _validate(customer, address, lines, payment_method, settings) -> None:
 
 
 def _create_sales_order(
-	settings, party, shipping_address, customer, address, lines, payment_method, notes
+	settings,
+	party,
+	shipping_address,
+	customer,
+	address,
+	lines,
+	payment_method,
+	notes,
+	coupon=None,
+	discount: float = 0.0,
 ):
 	company_currency = frappe.get_cached_value("Company", settings.company, "default_currency")
 	order = frappe.get_doc(
@@ -258,11 +330,30 @@ def _create_sales_order(
 			],
 		}
 	)
+	if coupon:
+		# The discount is set by hand, so the order is told to leave the
+		# pricing rules alone. Every rule this shop has is a coupon rule,
+		# and a coupon rule that finds no coupon on the transaction takes
+		# the discount away again as it is applied - which is why a coupon
+		# that resolves, is priced and is redeemed can still leave the
+		# order at full price.
+		#
+		# Left to itself ERPNext would price the discount off the total
+		# including shipping and tax rather than the items, and would
+		# refuse a flat coupon on a small order outright. The figure here
+		# is the one the merchant was shown before they pressed the
+		# button, and the one the shop's own pricing rules arrive at.
+		order.ignore_pricing_rule = 1
+		order.apply_discount_on = "Grand Total"
+		order.discount_amount = discount
+		# The coupon is written down on the order, so the desk can show
+		# it and the books can be checked against it later.
+		order.custom_coupon_code = coupon.code
 	checkout.apply_taxes(order, settings)
 	if payment_method != "pickup":
 		# Pickup hands the order over in person, so there is no courier to
 		# charge for.
-		checkout.apply_shipping(order, settings, 0)
+		checkout.apply_shipping(order, settings, discount)
 	order.flags.ignore_permissions = True
 	order.insert(ignore_permissions=True)
 	order.submit()

@@ -157,6 +157,20 @@
 							label="Note"
 							placeholder="What the customer asked for"
 						/>
+						<div>
+							<FormControl
+								v-model="form.coupon_code"
+								label="Coupon code"
+								placeholder="If the customer has one"
+								@blur="checkCoupon"
+							/>
+							<p v-if="coupon.valid" class="mt-1 text-p-sm text-ink-green-7">
+								{{ coupon.code }} takes {{ coupon.formatted_discount }} off.
+							</p>
+							<p v-else-if="coupon.message" class="mt-1 text-p-sm text-ink-red-8">
+								{{ coupon.message }}
+							</p>
+						</div>
 					</div>
 					<div class="mt-3">
 						<Switch
@@ -231,6 +245,7 @@ const form = reactive({
 	lines: [] as Line[],
 	payment_method: 'cod',
 	notes: '',
+	coupon_code: '',
 	send_email: true,
 })
 
@@ -239,6 +254,10 @@ const form = reactive({
 // reduced to their value on the way out.
 const city = ref<Option | null>(null)
 const province = ref<Option | null>(null)
+
+// The coupon is checked against the order as it stands, so the merchant
+// sees what it takes off before the order is placed.
+const coupon = reactive({ valid: 0, message: '', code: '', formatted_discount: '' })
 
 const settings = ref<Record<string, any>>({})
 const catalogue = ref<Record<string, any>>({})
@@ -262,6 +281,30 @@ const landmarkHint = computed(() =>
 		: 'Optional, but it helps the rider.',
 )
 const productOptions = computed<Option[]>(() => productChoices.value)
+
+/** What the lines come to, which is what a coupon is measured against. */
+const subtotal = computed(() =>
+	form.lines.reduce((total, line) => total + Number(line.rate || 0) * Number(line.qty || 0), 0),
+)
+
+async function checkCoupon() {
+	const code = form.coupon_code.trim()
+	if (!code) {
+		coupon.valid = 0
+		coupon.message = ''
+		return
+	}
+	try {
+		const result = await call('shop.api.manual_orders.check_coupon', { code, subtotal: subtotal.value })
+		coupon.valid = result?.valid ? 1 : 0
+		coupon.message = result?.message || ''
+		coupon.code = result?.code || ''
+		coupon.formatted_discount = result?.formatted_discount || ''
+	} catch (e) {
+		coupon.valid = 0
+		coupon.message = 'Could not check that coupon'
+	}
+}
 
 const actions = computed(() => [
 	{
@@ -359,6 +402,7 @@ async function create() {
 			})),
 			payment_method: form.payment_method,
 			notes: form.notes,
+			coupon_code: form.coupon_code.trim(),
 			send_email: form.send_email,
 		}
 		const result = await call('shop.api.manual_orders.create', { payload })
@@ -389,6 +433,11 @@ function reset() {
 	province.value = null
 	form.lines = []
 	form.notes = ''
+	form.coupon_code = ''
+	coupon.valid = 0
+	coupon.message = ''
+	coupon.code = ''
+	coupon.formatted_discount = ''
 	form.send_email = true
 	addLine()
 }

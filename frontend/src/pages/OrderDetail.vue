@@ -63,7 +63,9 @@
 									<td class="px-3 pt-3 text-right text-ink-gray-8">{{ doc.formatted_total }}</td>
 								</tr>
 								<tr v-if="doc.formatted_discount">
-									<td colspan="3" class="px-3 pt-1 text-right text-ink-gray-6">Discount</td>
+									<td colspan="3" class="px-3 pt-1 text-right text-ink-gray-6">
+										Discount<span v-if="doc.coupon_code"> ({{ doc.coupon_code }})</span>
+									</td>
 									<td class="px-3 pt-1 text-right text-ink-gray-8">
 										-{{ doc.formatted_discount }}
 									</td>

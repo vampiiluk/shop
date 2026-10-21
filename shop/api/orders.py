@@ -270,6 +270,7 @@ def get_order(name: str) -> dict:
 		"address": address_display(order.shipping_address_name),
 		"formatted_total": pricing.format_amount(order.total),
 		"formatted_discount": pricing.format_amount(order.discount_amount) if order.discount_amount else None,
+		"coupon_code": order.get("custom_coupon_code") or "",
 		"formatted_grand_total": pricing.format_amount(order.grand_total),
 			"payment_qrs": payment_qrs(order),
 			"items": [

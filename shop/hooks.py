@@ -179,6 +179,13 @@ custom_fields = {
 			"description": "What the customer asked for, in the shop's own words.",
 		},
 		{
+			"fieldname": "custom_coupon_code",
+			"label": "Coupon Code",
+			"fieldtype": "Data",
+			"read_only": 1,
+			"description": "The coupon used on this order.",
+		},
+		{
 			"fieldname": "custom_pickup_location",
 			"label": "Pickup Location",
 			"fieldtype": "Data",

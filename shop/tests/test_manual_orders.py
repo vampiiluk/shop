@@ -183,3 +183,91 @@ class TestManualOrders(IntegrationTestCase):
 	def _restore_landmark(self, previous):
 		frappe.db.set_single_value("Shop Settings", "landmark_required", previous)
 		frappe.get_cached_doc("Shop Settings")
+
+	def _coupon(self, percentage=10, code="MANUALORDER10"):
+		"""A coupon of the test's own, so the shop's real ones are untouched."""
+		settings = frappe.get_cached_doc("Shop Settings")
+		company = settings.company
+		currency = settings.currency or frappe.get_cached_value(
+			"Company", company, "default_currency"
+		)
+		rule = frappe.get_doc(
+			{
+				"doctype": "Pricing Rule",
+				"title": "Manual order test rule",
+				"apply_on": "Transaction",
+				"price_or_product_discount": "Price",
+				"selling": 1,
+				"coupon_code_based": 1,
+				"company": company,
+				"currency": currency,
+				"apply_discount_on": "Grand Total",
+				"rate_or_discount": "Discount Percentage",
+				"discount_percentage": percentage,
+				"discount_amount": 0,
+				"disable": 0,
+			}
+		).insert(ignore_permissions=True)
+		coupon = frappe.get_doc(
+			{
+				"doctype": "Coupon Code",
+				"coupon_name": "Manual order test coupon",
+				"coupon_type": "Promotional",
+				"coupon_code": code,
+				"pricing_rule": rule.name,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(self._remove_coupon, coupon.name, rule.name)
+		return coupon
+
+	def _remove_coupon(self, coupon, rule):
+		if frappe.db.exists("Coupon Code", coupon):
+			frappe.delete_doc("Coupon Code", coupon, force=True, ignore_permissions=True)
+		if frappe.db.exists("Pricing Rule", rule):
+			frappe.delete_doc("Pricing Rule", rule, force=True, ignore_permissions=True)
+		frappe.db.commit()
+
+	def test_the_coupon_takes_the_discount_off_the_order(self):
+		coupon = self._coupon()
+		discounted = frappe.get_doc("Sales Order", self._place(coupon_code=coupon.coupon_code)["order"])
+		plain = frappe.get_doc("Sales Order", self._place()["order"])
+
+		self.assertEqual(discounted.total, plain.total)
+		self.assertEqual(discounted.discount_amount, 300)
+		self.assertEqual(discounted.apply_discount_on, "Grand Total")
+		self.assertEqual(discounted.grand_total, plain.grand_total - 300)
+
+	def test_the_coupon_is_written_down_on_the_order(self):
+		coupon = self._coupon()
+		order = frappe.get_doc("Sales Order", self._place(coupon_code=coupon.coupon_code)["order"])
+		self.assertEqual(order.get("custom_coupon_code"), coupon.coupon_code)
+
+	def test_the_coupon_is_counted_as_used_once(self):
+		coupon = self._coupon()
+		self._place(coupon_code=coupon.coupon_code)
+		self.assertEqual(frappe.db.get_value("Coupon Code", coupon.name, "used"), 1)
+
+	def test_a_coupon_that_does_not_exist_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._place(coupon_code="NOSUCHCOUPONCODE")
+		self.assertFalse(
+			frappe.get_all("Sales Order", filters={"contact_email": CUSTOMER["email"]}),
+			"a refused coupon must not leave an order behind",
+		)
+
+	def test_looking_a_coupon_up_does_not_use_it_up(self):
+		coupon = self._coupon()
+		checked = manual_orders.check_coupon(coupon.coupon_code, 3000)
+		self.assertEqual(checked["valid"], 1)
+		self.assertEqual(checked["discount"], 300)
+		self.assertEqual(
+			frappe.db.get_value("Coupon Code", coupon.name, "used"),
+			0,
+			"checking a coupon must not count as using it",
+		)
+
+	def test_looking_up_a_coupon_that_does_not_exist_says_so(self):
+		checked = manual_orders.check_coupon("NOSUCHCOUPONCODE", 3000)
+		self.assertEqual(checked["valid"], 0)
+		self.assertTrue(checked["message"], "the merchant should be told why")
