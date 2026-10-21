@@ -67,6 +67,11 @@ def catalogue(search: str = "", limit: int = 20) -> list[dict]:
 		or_filters = [["product_name", "like", term], ["slug", "like", term], ["item", "like", term]]
 	products = frappe.get_all(
 		"Shop Product",
+		# Only what can be bought. The order takes the checkout's own rules,
+		# and a product that is not on the shelf is not one of them - so
+		# offering it here would only promise the merchant something the
+		# order then refuses.
+		filters={"published": 1},
 		or_filters=or_filters,
 		fields=["name", "product_name", "item", "has_variants"],
 		order_by="product_name asc",
