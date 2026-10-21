@@ -62,3 +62,41 @@ class TestQueueNeedsWork(unittest.TestCase):
 		self.assertFalse(
 			self._needs_work(self._row(ors_status="Complete", gms_status="Disabled"), gms_enabled=False)
 		)
+
+
+class TestOrsValues(unittest.TestCase):
+	"""The fields one ORS result is stored as.
+
+	A provider that found nothing reports no confidence, and the column will
+	not take a null - writing one took the whole batch down, and the
+	addresses a provider cannot place are exactly the ones the queue is for.
+	"""
+
+	def _values(self, summary):
+		from shop.integrations.fraud import home_country_codes
+		from shop.integrations.verification import _ors_values
+
+		return _ors_values(summary, home_country_codes())
+
+	def test_a_result_with_no_confidence_is_still_writable(self):
+		values = self._values({"found": False})
+		self.assertEqual(values["ors_status"], "Failed")
+		self.assertEqual(values["ors_confidence"], 0)
+
+	def test_a_usable_result_keeps_its_confidence(self):
+		summary = {
+			"found": True,
+			"lat": 31.5,
+			"lng": 74.3,
+			"confidence": 0.9,
+			"match_type": "exact",
+			"country": "Pakistan",
+			"house_number": True,
+		}
+		values = self._values(summary)
+		self.assertEqual(values["ors_status"], "Complete")
+		self.assertEqual(values["ors_confidence"], 0.9)
+
+	def test_no_result_writes_no_confidence_rather_than_none(self):
+		values = self._values({"found": False})
+		self.assertIsNotNone(values["ors_confidence"])

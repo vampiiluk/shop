@@ -17,7 +17,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, get_datetime, now_datetime
+from frappe.utils import cint, flt, get_datetime, now_datetime
 
 TTL_DAYS = 30
 
@@ -225,7 +225,11 @@ def _ors_values(summary: dict | None, home_countries) -> dict:
 		return {
 			"ors_status": "Failed",
 			"ors_result_json": _json.dumps(summary, default=str),
-			"ors_confidence": summary.get("confidence"),
+			# A provider that found nothing has no confidence to report, and
+			# the column will not take a null: writing one took the whole
+			# batch down, and the addresses a provider cannot place are
+			# exactly the ones the queue is for.
+			"ors_confidence": flt(summary.get("confidence")),
 			"ors_match_type": summary.get("match_type", ""),
 			"latitude": None,
 			"longitude": None,
@@ -237,7 +241,7 @@ def _ors_values(summary: dict | None, home_countries) -> dict:
 	return {
 		"ors_status": "Complete",
 		"ors_result_json": _json.dumps(summary, default=str),
-		"ors_confidence": summary.get("confidence"),
+		"ors_confidence": flt(summary.get("confidence")),
 		"ors_match_type": summary.get("match_type", ""),
 		"latitude": summary.get("lat"),
 		"longitude": summary.get("lng"),
@@ -788,11 +792,22 @@ def _verify_records(items: list[frappe._dict]) -> dict:
 					{"ors_status": "Failed"}, update_modified=False,
 				)
 				continue
-			frappe.db.set_value(
-				"Shop Address Verification", r.name,
-				_ors_values(summary, home_country_codes(settings_doc)),
-				update_modified=False,
-			)
+			try:
+				frappe.db.set_value(
+					"Shop Address Verification", r.name,
+					_ors_values(summary, home_country_codes(settings_doc)),
+					update_modified=False,
+				)
+			except Exception:
+				# One address that cannot be written must not take the rest
+				# of the batch with it: the queue is here to get through
+				# them, and a single stubborn row was stopping every run.
+				frappe.db.rollback()
+				frappe.log_error(
+					title="Verification queue could not record an ORS result",
+					reference_doctype="Shop Address Verification",
+					reference_name=r.name,
+				)
 		frappe.db.commit()
 	else:
 		# ORS disabled — mark all as skipped

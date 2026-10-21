@@ -42,12 +42,16 @@ def get_verifications(filters=None, limit=50, offset=0):
 		cond += " AND review_state = %s"
 		params.append(flt["review_state"])
 	if flt.get("needs_attention"):
-		# A provider that is enabled but did not produce something usable. The
-		# per-status dropdowns cannot express this: a fallback match and a dropped
-		# connection both land on "Failed", and one is the geocoder's fault while
-		# the other is worth looking at. This is the set to re-run after an
-		# outage, and it was previously invisible without opening every record.
-		cond += " AND (ors_status IN ('Failed', 'Pending') OR gms_status IN ('Failed', 'Pending'))"
+		# An address neither geocoder could place - the same set the queue
+		# works on. The per-status dropdowns cannot express this: a fallback
+		# match and a dropped connection both land on "Failed", and one is
+		# the geocoder's fault while the other is worth looking at. A record
+		# one of them did place is located, so it has nothing left to prove
+		# and is not in this set.
+		cond += (
+			" AND (ors_status IS NULL OR ors_status != 'Complete')"
+			" AND (gms_status IS NULL OR gms_status != 'Complete')"
+		)
 
 	total = frappe.db.sql(
 		f"SELECT COUNT(*) FROM `tabShop Address Verification` WHERE {cond}",
@@ -353,14 +357,23 @@ def get_provider_health(days: int = 7):
 			SUM(CASE WHEN gms_status = 'Pending' THEN 1 ELSE 0 END) AS gms_pending,
 			SUM(CASE WHEN gms_status = 'Failed' THEN 1 ELSE 0 END) AS gms_failed,
 			SUM(CASE WHEN gms_status = 'Disabled' THEN 1 ELSE 0 END) AS gms_disabled,
-			MAX(CASE WHEN gms_status = 'Complete' THEN gms_verified_on END) AS gms_last,
-			SUM(CASE WHEN ors_status IN ('Failed', 'Pending')
-				OR gms_status IN ('Failed', 'Pending') THEN 1 ELSE 0 END) AS attention
+			MAX(CASE WHEN gms_status = 'Complete' THEN gms_verified_on END) AS gms_last
 		FROM `tabShop Address Verification`
 		WHERE modified >= %s""",
 		since,
 		as_dict=True,
 	)[0]
+
+	# The attention count is the size of the set the "Needs attention" filter
+	# selects, and that filter reaches every record - an address nobody has
+	# managed to place is still worth looking at, however long ago it was
+	# written. Counting it over the health window instead made the chip
+	# promise one record and the filter show four.
+	attention = frappe.db.sql(
+		"""SELECT COUNT(*) FROM `tabShop Address Verification`
+		WHERE (ors_status IS NULL OR ors_status != 'Complete')
+		  AND (gms_status IS NULL OR gms_status != 'Complete')"""
+	)[0][0]
 
 	total = cint(r.total)
 	ors_attempts = cint(r.ors_ok) + cint(r.ors_rejected) + cint(r.ors_errored)
@@ -373,7 +386,7 @@ def get_provider_health(days: int = 7):
 		"window_days": window,
 		"since": since,
 		"total_records": total,
-		"needs_attention": cint(r.attention),
+		"needs_attention": cint(attention),
 		"providers": [
 			{
 				"key": "ors",
