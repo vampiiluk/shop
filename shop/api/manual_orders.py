@@ -117,6 +117,149 @@ def check_coupon(code: str, subtotal: float) -> dict:
 	}
 
 
+@frappe.whitelist()
+def search_customers(search: str, limit: int = 8) -> list[dict]:
+	"""The customers the shop already has, found by name, email or phone.
+
+	A merchant taking an order over the phone should not have to retype what
+	the shop already knows, and an order typed against a new record when the
+	shop already has the customer splits their history in two. So the search
+	looks in all three places a merchant would think to look: the name, the
+	email, and the number.
+	"""
+	only_managers()
+	term = (search or "").strip()
+	if len(term) < 2:
+		return []
+
+	names = set(frappe.get_all("Customer", filters={"customer_name": ["like", f"%{term}%"]}, pluck="name"))
+
+	# The email and the phone live on the contact, not on the customer, so
+	# they are found there and the customer is looked up from the contact.
+	contacts = set()
+	for table in ("tabContact Email", "tabContact Phone"):
+		column = "email_id" if "Email" in table else "phone"
+		contacts.update(
+			frappe.db.sql(
+				f"select parent from `{table}` where {column} like %s limit 50",  # nosemgrep
+				(f"%{term}%",),
+				pluck=True,
+			)
+		)
+	if contacts:
+		names.update(
+			frappe.get_all(
+				"Dynamic Link",
+				filters={
+					"parenttype": "Contact",
+					"parent": ["in", list(contacts)],
+					"link_doctype": "Customer",
+				},
+				pluck="link_name",
+			)
+		)
+	if not names:
+		return []
+
+	customers = frappe.get_all(
+		"Customer",
+		filters={"name": ["in", list(names)]},
+		fields=["name", "customer_name"],
+		limit=min(cint(limit) or 8, 25),
+	)
+	details = contact_details([row.name for row in customers])
+	from shop.api.customers import order_totals
+
+	totals = order_totals([row.name for row in customers])
+	found = []
+	for row in customers:
+		contact = details.get(row.name, {})
+		summary = totals.get(row.name, {"orders": 0, "spent": 0.0})
+		found.append(
+			{
+				"name": row.name,
+				"customer_name": row.customer_name,
+				"email": contact.get("email") or "",
+				"phone": contact.get("phone") or "",
+				"orders": summary["orders"],
+				"formatted_spent": pricing.format_amount(summary["spent"]),
+			}
+		)
+	return found
+
+
+def contact_details(customers: list[str]) -> dict:
+	"""The email and the phone each customer is reached on."""
+	if not customers:
+		return {}
+	links = frappe.get_all(
+		"Dynamic Link",
+		filters={"link_doctype": "Customer", "link_name": ["in", customers], "parenttype": "Contact"},
+		fields=["link_name", "parent"],
+	)
+	parents = list({link.parent for link in links})
+	if not parents:
+		return {}
+	emails: dict[str, list[str]] = {}
+	for row in frappe.get_all("Contact Email", filters={"parent": ["in", parents]}, fields=["parent", "email_id"]):
+		emails.setdefault(row.parent, []).append(row.email_id)
+	phones: dict[str, list[str]] = {}
+	for row in frappe.get_all("Contact Phone", filters={"parent": ["in", parents]}, fields=["parent", "phone"]):
+		phones.setdefault(row.parent, []).append(row.phone)
+
+	details: dict[str, dict] = {}
+	for link in links:
+		entry = details.setdefault(link.link_name, {})
+		entry["email"] = entry.get("email") or next(iter(emails.get(link.parent, [])), "")
+		entry["phone"] = entry.get("phone") or next(iter(phones.get(link.parent, [])), "")
+	return details
+
+
+@frappe.whitelist()
+def customer_addresses(customer: str) -> list[dict]:
+	"""The addresses a customer has been delivered to before."""
+	only_managers()
+	if not customer or not frappe.db.exists("Customer", customer):
+		return []
+	names = frappe.get_all(
+		"Dynamic Link",
+		filters={"parenttype": "Address", "link_doctype": "Customer", "link_name": customer},
+		pluck="parent",
+	)
+	if not names:
+		return []
+	rows = frappe.get_all(
+		"Address",
+		filters={"name": ["in", names]},
+		fields=[
+			"name",
+			"address_line1",
+			"address_line2",
+			"city",
+			"state",
+			"country",
+			"pincode",
+			"custom_landmark",
+			"custom_alt_phone",
+		],
+		order_by="modified desc",
+	)
+	return [
+		{
+			"name": row.name,
+			"address_line1": row.address_line1 or "",
+			"address_line2": row.address_line2 or "",
+			"city": row.city or "",
+			"state": row.state or "",
+			"country": row.country or "",
+			"pincode": row.pincode or "",
+			"landmark": row.get("custom_landmark") or "",
+			"alt_phone": row.get("custom_alt_phone") or "",
+		}
+		for row in rows
+	]
+
+
 @frappe.whitelist(methods=["POST"])
 def create(payload: dict) -> dict:
 	"""Place an order on a customer's behalf.

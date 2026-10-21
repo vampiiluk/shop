@@ -34,7 +34,24 @@ ADDRESS = {
 class TestManualOrders(IntegrationTestCase):
 	def setUp(self):
 		force_cod_enabled(self)
+		self._allow_out_of_stock()
 		self.addCleanup(self._remove_test_records)
+
+	def _allow_out_of_stock(self):
+		"""Let the test order what the catalogue has, whatever the warehouse holds.
+
+		How much of what is in stock is the merchant's own business, and the
+		seed data leaves most things short. An order does not take stock -
+		the delivery note does - so nothing is used up by the test either.
+		"""
+		previous = frappe.db.get_single_value("Shop Settings", "allow_out_of_stock")
+		frappe.db.set_single_value("Shop Settings", "allow_out_of_stock", 1)
+		frappe.get_cached_doc("Shop Settings")
+		self.addCleanup(self._restore_allow_out_of_stock, previous)
+
+	def _restore_allow_out_of_stock(self, previous):
+		frappe.db.set_single_value("Shop Settings", "allow_out_of_stock", previous)
+		frappe.get_cached_doc("Shop Settings")
 
 	def _remove_test_records(self):
 		"""Take the order, and the records it made, back off the books."""
@@ -72,10 +89,12 @@ class TestManualOrders(IntegrationTestCase):
 		The demo products are not published on every site, so the test
 		finds one that is rather than naming one.
 		"""
-		from shop.storefront import stock
-
 		for row in frappe.get_all(
-			"Shop Product", filters={"published": 1, "has_variants": 0}, fields=["item"], limit=50
+			"Shop Product",
+			filters={"published": 1, "has_variants": 0},
+			fields=["item"],
+			order_by="creation asc",
+			limit=50,
 		):
 			if not frappe.db.get_value("Item", row.item, "disabled"):
 				return row.item
@@ -271,3 +290,76 @@ class TestManualOrders(IntegrationTestCase):
 		checked = manual_orders.check_coupon("NOSUCHCOUPONCODE", 3000)
 		self.assertEqual(checked["valid"], 0)
 		self.assertTrue(checked["message"], "the merchant should be told why")
+
+	def _customer(self, name="Picked Customer", email="picked@example.com", phone="03007776666"):
+		"""A customer of the shop's own, for the search to find."""
+		customer = frappe.get_doc(
+			{
+				"doctype": "Customer",
+				"customer_name": name,
+				"customer_type": "Individual",
+			}
+		).insert(ignore_permissions=True)
+		contact = frappe.get_doc(
+			{
+				"doctype": "Contact",
+				"first_name": name,
+				"links": [{"link_doctype": "Customer", "link_name": customer.name}],
+				"email_ids": [{"email_id": email, "is_primary": 1}],
+				"phone_nos": [{"phone": phone, "is_primary_mobile_no": 1}],
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(self._remove_customer, customer.name, contact.name)
+		return customer
+
+	def _remove_customer(self, customer, contact):
+		for name, doctype in ((contact, "Contact"), (customer, "Customer")):
+			if frappe.db.exists(doctype, name):
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+		frappe.db.commit()
+
+	def test_an_existing_customer_is_found_by_name(self):
+		customer = self._customer()
+		found = manual_orders.search_customers("Picked")
+		self.assertIn(customer.name, [row["name"] for row in found])
+		row = next(row for row in found if row["name"] == customer.name)
+		self.assertEqual(row["email"], "picked@example.com")
+		self.assertEqual(row["phone"], "03007776666")
+
+	def test_an_existing_customer_is_found_by_email_and_by_phone(self):
+		customer = self._customer()
+		by_email = manual_orders.search_customers("picked@example.com")
+		self.assertIn(customer.name, [row["name"] for row in by_email])
+		by_phone = manual_orders.search_customers("0300777")
+		self.assertIn(customer.name, [row["name"] for row in by_phone])
+
+	def test_a_search_of_nothing_finds_nothing(self):
+		self._customer()
+		self.assertEqual(manual_orders.search_customers(""), [])
+		self.assertEqual(manual_orders.search_customers("a"), [])
+		self.assertEqual(manual_orders.search_customers("nobody at all"), [])
+
+	def test_the_addresses_a_customer_has_used_before_are_offered(self):
+		customer = self._customer()
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_line1": "5 Saved Street",
+				"city": "Lahore",
+				"state": "Punjab",
+				"country": "Pakistan",
+				"pincode": "54000",
+				"custom_landmark": "By the old bakery",
+				"links": [{"link_doctype": "Customer", "link_name": customer.name}],
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(
+			frappe.delete_doc, "Address", address.name, force=True, ignore_permissions=True
+		)
+		found = manual_orders.customer_addresses(customer.name)
+		self.assertEqual(len(found), 1)
+		self.assertEqual(found[0]["address_line1"], "5 Saved Street")
+		self.assertEqual(found[0]["landmark"], "By the old bakery")
+		self.assertEqual(found[0]["city"], "Lahore")

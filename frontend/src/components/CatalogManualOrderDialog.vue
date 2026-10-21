@@ -10,6 +10,19 @@
 			<div class="max-h-[65vh] space-y-6 overflow-y-auto pr-1">
 				<section>
 					<h3 class="mb-3 text-sm font-semibold text-ink-gray-8">Customer</h3>
+					<div class="mb-3">
+						<Autocomplete
+							:model-value="customerOption"
+							label="Find an existing customer"
+							placeholder="Name, email or phone"
+							:options="customerChoices"
+							@update:query="(query) => searchCustomers(query)"
+							@update:model-value="(option) => pickCustomer(option)"
+						/>
+						<p v-if="pickedCustomer" class="mt-1 text-p-sm text-ink-green-7">
+							{{ pickedCustomerNote }}
+						</p>
+					</div>
 					<div class="grid gap-3 sm:grid-cols-3">
 						<FormControl
 							v-model="form.customer.full_name"
@@ -36,6 +49,15 @@
 
 				<section>
 					<h3 class="mb-3 text-sm font-semibold text-ink-gray-8">Delivery</h3>
+					<div v-if="savedAddressChoices.length" class="mb-3">
+						<Autocomplete
+							:model-value="addressOption"
+							label="Saved address"
+							placeholder="One they have been delivered to before"
+							:options="savedAddressChoices"
+							@update:model-value="(option) => pickAddress(option)"
+						/>
+					</div>
 					<div class="grid gap-3 sm:grid-cols-2">
 						<FormControl
 							v-model="form.address.address_line1"
@@ -103,7 +125,9 @@
 							:key="line.key"
 							class="rounded-lg border border-outline-gray-1 p-3"
 						>
-							<div class="grid items-end gap-3 sm:grid-cols-[2fr_2fr_5rem_7rem_2rem]">
+							<div
+								class="grid items-end gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_5rem_8rem_2rem]"
+							>
 								<Autocomplete
 									:model-value="line.product"
 									label="Product"
@@ -119,8 +143,18 @@
 									:options="line.options"
 									@update:model-value="(option) => pickOption(line, option)"
 								/>
-								<FormControl v-model.number="line.qty" type="number" label="Qty" />
-								<FormControl v-model.number="line.rate" type="number" label="Rate" />
+								<FormControl
+									v-model.number="line.qty"
+									type="number"
+									label="Qty"
+									class="min-w-0"
+								/>
+								<FormControl
+									v-model.number="line.rate"
+									type="number"
+									label="Rate"
+									class="min-w-0"
+								/>
 								<Button
 									variant="ghost"
 									theme="red"
@@ -158,12 +192,24 @@
 							placeholder="What the customer asked for"
 						/>
 						<div>
-							<FormControl
-								v-model="form.coupon_code"
-								label="Coupon code"
-								placeholder="If the customer has one"
-								@blur="checkCoupon"
-							/>
+							<div class="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+								<FormControl
+									v-model="form.coupon_code"
+									label="Coupon code"
+									placeholder="If the customer has one"
+									@blur="checkCoupon"
+								/>
+								<Button
+									variant="subtle"
+									size="sm"
+									class="sm:mb-0"
+									:disabled="!form.coupon_code.trim()"
+									:loading="checkingCoupon"
+									@click="checkCoupon"
+								>
+									Apply
+								</Button>
+							</div>
 							<p v-if="coupon.valid" class="mt-1 text-p-sm text-ink-green-7">
 								{{ coupon.code }} takes {{ coupon.formatted_discount }} off.
 							</p>
@@ -258,10 +304,22 @@ const province = ref<Option | null>(null)
 // The coupon is checked against the order as it stands, so the merchant
 // sees what it takes off before the order is placed.
 const coupon = reactive({ valid: 0, message: '', code: '', formatted_discount: '' })
+const checkingCoupon = ref(false)
 
 const settings = ref<Record<string, any>>({})
 const catalogue = ref<Record<string, any>>({})
 const productChoices = ref<Option[]>([])
+
+// The customers the shop already has. The record is kept beside the choice
+// so that picking one can fill in who the customer is without a second
+// round trip to the server.
+const customerRecords = ref<Record<string, any>>({})
+const customerChoices = ref<Option[]>([])
+const customerOption = ref<Option | null>(null)
+const pickedCustomer = ref<any>(null)
+const savedAddresses = ref<Record<string, any>>({})
+const savedAddressChoices = ref<Option[]>([])
+const addressOption = ref<Option | null>(null)
 
 const cityOptions = computed<Option[]>(() =>
 	(settings.value.cities || []).map((city: string) => ({ label: city, value: city })),
@@ -287,6 +345,93 @@ const subtotal = computed(() =>
 	form.lines.reduce((total, line) => total + Number(line.rate || 0) * Number(line.qty || 0), 0),
 )
 
+/** What the shop already knows about the customer who was picked. */
+const pickedCustomerNote = computed(() => {
+	const customer = pickedCustomer.value
+	if (!customer) return ''
+	const orders = Number(customer.orders || 0)
+	return `${customer.customer_name} — ${orders} ${orders === 1 ? 'order' : 'orders'}, ${customer.formatted_spent}`
+})
+
+/**
+ * Look up the customers the shop already has.
+ *
+ * A merchant who has the customer in front of them should be able to say the
+ * name and have the rest fill itself in, rather than type an email and a
+ * number that are already on file. The order then lands on the customer the
+ * shop knows, instead of on a second record with the same face.
+ */
+async function searchCustomers(query: string) {
+	if (!query || query.trim().length < 2) {
+		customerChoices.value = []
+		return
+	}
+	try {
+		const found = await call('shop.api.manual_orders.search_customers', { search: query, limit: 8 })
+		customerRecords.value = {}
+		customerChoices.value = found.map((customer: any) => {
+			// The value carries the email and the number as well as the name,
+			// so that a search for any one of them keeps the choice on the
+			// list the server already matched.
+			const value = `${customer.name}|${customer.email}|${customer.phone}`
+			customerRecords.value[value] = customer
+			return {
+				label: `${customer.customer_name} · ${customer.phone || customer.email}`,
+				value,
+			}
+		})
+	} catch (e) {
+		toast.error('Could not look up the customer')
+	}
+}
+
+async function pickCustomer(option: Option | null) {
+	customerOption.value = option
+	pickedCustomer.value = null
+	savedAddressChoices.value = []
+	addressOption.value = null
+	if (!option) return
+	const customer = customerRecords.value[option.value]
+	if (!customer) return
+	form.customer.full_name = customer.customer_name
+	form.customer.email = customer.email
+	form.customer.phone = customer.phone
+	pickedCustomer.value = customer
+	await loadSavedAddresses(customer.name)
+}
+
+async function loadSavedAddresses(customer: string) {
+	try {
+		const found = await call('shop.api.manual_orders.customer_addresses', { customer })
+		savedAddresses.value = {}
+		savedAddressChoices.value = found.map((address: any) => {
+			savedAddresses.value[address.name] = address
+			const where = [address.address_line1, address.city].filter(Boolean).join(', ')
+			return { label: where || address.name, value: address.name }
+		})
+	} catch (e) {
+		savedAddressChoices.value = []
+	}
+}
+
+/** Fill the delivery from an address the customer has used before. */
+function pickAddress(option: Option | null) {
+	addressOption.value = option
+	if (!option) return
+	const address = savedAddresses.value[option.value]
+	if (!address) return
+	form.address.address_line1 = address.address_line1
+	form.address.address_line2 = address.address_line2
+	form.address.pincode = address.pincode
+	form.address.landmark = address.landmark
+	form.address.alt_phone = address.alt_phone
+	if (address.country) form.address.country = address.country
+	// The city and the province are chosen from lists, so the choice has to
+	// be made in the list too, not only in the text.
+	city.value = cityOptions.value.find((option) => option.value === address.city) || null
+	province.value = provinceOptions.value.find((option) => option.value === address.state) || null
+}
+
 async function checkCoupon() {
 	const code = form.coupon_code.trim()
 	if (!code) {
@@ -294,6 +439,7 @@ async function checkCoupon() {
 		coupon.message = ''
 		return
 	}
+	checkingCoupon.value = true
 	try {
 		const result = await call('shop.api.manual_orders.check_coupon', { code, subtotal: subtotal.value })
 		coupon.valid = result?.valid ? 1 : 0
@@ -303,6 +449,8 @@ async function checkCoupon() {
 	} catch (e) {
 		coupon.valid = 0
 		coupon.message = 'Could not check that coupon'
+	} finally {
+		checkingCoupon.value = false
 	}
 }
 
@@ -419,6 +567,13 @@ async function create() {
 
 function reset() {
 	form.customer = { full_name: '', email: '', phone: '' }
+	customerOption.value = null
+	pickedCustomer.value = null
+	customerChoices.value = []
+	customerRecords.value = {}
+	savedAddressChoices.value = []
+	savedAddresses.value = {}
+	addressOption.value = null
 	form.address = {
 		address_line1: '',
 		address_line2: '',
@@ -444,3 +599,21 @@ function reset() {
 
 addLine()
 </script>
+
+<style scoped>
+/*
+ * The little arrows on a number box take the room the figure needs, and the
+ * rate is the one field where every digit matters. The box is already narrow,
+ * so the arrows are taken away rather than left to crowd the number.
+ */
+:deep(input[type='number'])::-webkit-outer-spin-button,
+:deep(input[type='number'])::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+:deep(input[type='number']) {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+</style>
