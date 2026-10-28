@@ -55,17 +55,22 @@ class TestManualOrders(IntegrationTestCase):
 
 	def _remove_test_records(self):
 		"""Take the order, and the records it made, back off the books."""
+		customers: set[str] = set()
+		contacts: set[str] = set()
 		for row in frappe.get_all(
 			"Sales Order", filters={"contact_email": CUSTOMER["email"]}, pluck="name"
 		):
 			order = frappe.get_doc("Sales Order", row)
 			addresses = {order.shipping_address_name, order.customer_address}
-			customer = order.customer
-			contacts = frappe.get_all(
-				"Dynamic Link",
-				filters={"link_doctype": "Customer", "link_name": customer},
-				pluck="parent",
+			customers.add(order.customer)
+			contacts.update(
+				frappe.get_all(
+					"Dynamic Link",
+					filters={"link_doctype": "Customer", "link_name": order.customer},
+					pluck="parent",
+				)
 			)
+			self._remove_billing(row)
 			frappe.db.set_value("Sales Order", row, "docstatus", 2, update_modified=False)
 			frappe.db.commit()
 			frappe.delete_doc("Sales Order", row, force=True, ignore_permissions=True)
@@ -77,12 +82,68 @@ class TestManualOrders(IntegrationTestCase):
 				if address and frappe.db.exists("Address", address):
 					self._remove_verification(address)
 					frappe.delete_doc("Address", address, force=True, ignore_permissions=True)
-			for contact in contacts:
-				if frappe.db.exists("Contact", contact):
-					frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
-			if frappe.db.exists("Customer", customer):
+		# The customer goes last: a cancelled invoice needs its party to put
+		# the reversal through, and the test may have placed more than one
+		# order on the same customer.
+		for contact in contacts:
+			if frappe.db.exists("Contact", contact):
+				frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
+		for customer in customers:
+			if customer and frappe.db.exists("Customer", customer):
 				frappe.delete_doc("Customer", customer, force=True, ignore_permissions=True)
 		frappe.db.commit()
+
+	def _remove_billing(self, order_name: str):
+		"""Take the invoice and payment a test order produced off the books.
+
+		The shop bills an order as it is paid, and a submitted invoice cannot
+		simply be dropped. Left behind, it stays linked to the order's name -
+		and when the naming series hands that name to a real customer's order
+		later, the merchant's payment is raised for the test customer instead
+		of theirs and Mark as paid refuses.
+		"""
+		invoices = frappe.get_all(
+			"Sales Invoice Item",
+			filters={"sales_order": order_name},
+			pluck="parent",
+			distinct=True,
+		)
+		for invoice in invoices:
+			for entry in frappe.get_all(
+				"Payment Entry Reference",
+				filters={
+					"reference_doctype": "Sales Invoice",
+					"reference_name": invoice,
+					"docstatus": 1,
+				},
+				pluck="parent",
+				distinct=True,
+			):
+				self._drop_payment_entry(entry)
+			doc = frappe.get_doc("Sales Invoice", invoice)
+			if doc.docstatus == 1:
+				doc.flags.ignore_permissions = True
+				doc.cancel()
+			frappe.delete_doc("Sales Invoice", invoice, force=True, ignore_permissions=True)
+		for entry in frappe.get_all(
+			"Payment Entry Reference",
+			filters={
+				"reference_doctype": "Sales Order",
+				"reference_name": order_name,
+				"docstatus": 1,
+			},
+			pluck="parent",
+			distinct=True,
+		):
+			self._drop_payment_entry(entry)
+		frappe.db.commit()
+
+	def _drop_payment_entry(self, name: str):
+		doc = frappe.get_doc("Payment Entry", name)
+		if doc.docstatus == 1:
+			doc.flags.ignore_permissions = True
+			doc.cancel()
+		frappe.delete_doc("Payment Entry", name, force=True, ignore_permissions=True)
 
 	def _remove_verification(self, address: str):
 		"""Take the verification of a test address off the queue with it.
@@ -182,6 +243,29 @@ class TestManualOrders(IntegrationTestCase):
 		result = self._place()
 		listed = get_orders(search=result["order"])
 		self.assertIn(result["order"], [row["name"] for row in listed["orders"]])
+
+	def test_a_bill_for_another_customer_is_not_the_order_s_bill(self):
+		"""A foreign invoice must never take the payment.
+
+		A test invoice once outlived the customer it was raised for, and the
+		naming series then handed its order's name to a real order. Mark as
+		paid picked up that invoice, raised the payment for the missing party
+		and refused every time. Only an invoice for the order's own customer
+		counts as its bill.
+		"""
+		from shop.api import orders
+
+		result = self._place()
+		invoice = orders.create_sales_invoice_for_order(result["order"])
+		self.assertTrue(invoice)
+		self.assertEqual(orders.billed_invoice_for_order(result["order"]), invoice)
+
+		customer = frappe.db.get_value("Sales Order", result["order"], "customer")
+		self.addCleanup(frappe.db.set_value, "Sales Order", result["order"], "customer", customer)
+		frappe.db.set_value("Sales Order", result["order"], "customer", "Somebody Else")
+		frappe.db.commit()
+
+		self.assertIsNone(orders.billed_invoice_for_order(result["order"]))
 
 	def test_the_guest_receipt_link_carries_a_secret(self):
 		from shop.storefront.orders import can_view

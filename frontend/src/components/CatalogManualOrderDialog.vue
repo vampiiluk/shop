@@ -165,11 +165,11 @@
 									<template #icon><LucideTrash2 class="size-4" /></template>
 								</Button>
 							</div>
-							<p
-								v-if="line.stock !== null && line.stock < (line.qty || 0)"
-								class="mt-2 text-p-sm text-ink-red-8"
-							>
-								Only {{ line.stock }} in stock.
+							<p v-if="line.stock !== null" class="mt-2 text-p-sm">
+								<span v-if="line.stock < (line.qty || 0)" class="text-ink-red-8">
+									Only {{ line.stock }} in stock.
+								</span>
+								<span v-else class="text-ink-gray-5">{{ line.stock }} available.</span>
 							</p>
 						</div>
 					</div>
@@ -492,11 +492,32 @@ async function searchProducts(query: string) {
 		catalogue.value = {}
 		productChoices.value = products.map((product: any) => {
 			catalogue.value[product.name] = product
-			return { label: product.product_name, value: product.name }
+			return {
+				label: `${product.product_name} — ${availableLabel(totalStock(product.options))}`,
+				value: product.name,
+			}
 		})
 	} catch (e) {
 		toast.error('Could not load the catalogue')
 	}
+}
+
+/** How much of a product the warehouse is holding, across its sizes/colours. */
+function totalStock(options: any[] = []) {
+	return options.reduce((total, item) => total + Number(item.stock || 0), 0)
+}
+
+/** "3 available" - the merchant is ordering against what is really there. */
+function availableLabel(stock: number) {
+	return stock > 0 ? `${stock} available` : 'out of stock'
+}
+
+/** The size or colour on its own, without the product name in front of it. */
+function optionName(label: string) {
+	// A variant is named "Parent · Red / M"; the parent is already in the
+	// field beside this one and the whole name pushed the size out of view.
+	const marker = label.indexOf(" · ")
+	return marker >= 0 ? label.slice(marker + 3) : label
 }
 
 function pickProduct(line: Line, option: Option | null) {
@@ -508,7 +529,11 @@ function pickProduct(line: Line, option: Option | null) {
 	const product = catalogue.value[option.value]
 	if (!product) return
 	line.options = (product.options || []).map((item: any) => ({
-		label: item.label,
+		// The size the merchant picks should say what is left of it, not just
+		// what it is: picking a size that ran out is the mistake this prevents.
+		// The product's name is left out - the field beside this one already
+		// names it, and the full name pushed the size itself out of view.
+		label: `${optionName(item.label)} — ${availableLabel(Number(item.stock || 0))}`,
 		value: item.item_code,
 		rate: item.rate,
 		stock: item.stock,

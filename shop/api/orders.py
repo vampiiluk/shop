@@ -183,13 +183,29 @@ def payment_status_label(method, received, total) -> str:
 
 
 def billed_invoice_for_order(order_name: str) -> str | None:
-	"""Submitted Sales Invoice linked to the order, if any."""
-	return frappe.db.get_value(
+	"""Submitted Sales Invoice raised for this order's own customer, if any.
+
+	The link the invoice carries back to the order is not proof enough. A
+	test shop's invoice outlived the test customer it was raised for, and
+	because the naming series handed the order's name to a real customer's
+	order afterwards, every payment on that order was raised for the deleted
+	party and refused: "Could not find Party: Manual Order Test". An invoice
+	is only this order's bill when it is for the same customer.
+	"""
+	customer = frappe.db.get_value("Sales Order", order_name, "customer")
+	if not customer:
+		return None
+	invoices = frappe.get_all(
 		"Sales Invoice Item",
-		{"sales_order": order_name, "docstatus": 1},
-		"parent",
+		filters={"sales_order": order_name, "docstatus": 1},
+		pluck="parent",
+		distinct=True,
 		order_by="modified desc",
 	)
+	for invoice in invoices:
+		if frappe.db.get_value("Sales Invoice", invoice, "customer") == customer:
+			return invoice
+	return None
 
 
 def auto_billing_enabled() -> bool:
