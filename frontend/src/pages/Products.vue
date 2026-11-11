@@ -3,6 +3,10 @@
 		<div class="flex items-center justify-between">
 			<h1 class="text-xl font-semibold text-ink-gray-9">Products</h1>
 			<div class="flex gap-2">
+				<Button :loading="exporting" :disabled="!selected.length" @click="exportSelected">
+					<template #prefix><LucideDownload class="size-4" /></template>
+					Export CSV<template v-if="selected.length"> ({{ selected.length }})</template>
+				</Button>
 				<Button :loading="syncing" @click="syncMeta">
 					<template #prefix><LucideRefreshCw class="size-4" /></template>
 					Sync to Meta
@@ -27,7 +31,15 @@
 			>
 				<template #prefix><LucideSearch class="size-4 text-ink-gray-5" /></template>
 			</FormControl>
-			<TabButtons v-model="status" :options="statusTabs" />
+			<div class="flex items-center gap-4">
+				<TabButtons v-model="status" :options="statusTabs" />
+				<div v-if="selected.length" class="flex items-center gap-2 text-sm text-ink-gray-5">
+					<span>{{ selected.length }} selected</span>
+					<button type="button" class="underline hover:text-ink-gray-8" @click="clearSelection">
+						Clear
+					</button>
+				</div>
+			</div>
 		</div>
 
 		<CatalogListState
@@ -48,6 +60,14 @@
 				<table class="w-full text-base">
 					<thead>
 						<tr class="border-b border-outline-gray-1 text-left text-sm text-ink-gray-5">
+							<th class="w-10 px-3 py-2">
+								<Checkbox
+									:model-value="allOnPage"
+									:indeterminate="someOnPage"
+									:disabled="!rows.length"
+									@update:model-value="toggleAllOnPage"
+								/>
+							</th>
 							<th class="w-14 px-3 py-2 font-normal"></th>
 							<th class="px-3 py-2 font-normal">Product</th>
 							<th class="px-3 py-2 text-right font-normal">Price</th>
@@ -63,6 +83,12 @@
 							class="cursor-pointer border-b border-outline-gray-1 last:border-b-0 hover:bg-surface-gray-1"
 							@click="openProduct(row.name)"
 						>
+							<td class="px-3 py-2" @click.stop>
+								<Checkbox
+									:model-value="selected.includes(row.name)"
+									@update:model-value="(checked) => toggleRow(row.name, checked)"
+								/>
+							</td>
 							<td class="px-3 py-2">
 								<div
 									class="flex size-9 items-center justify-center overflow-hidden rounded border border-outline-gray-1 bg-surface-gray-1"
@@ -197,9 +223,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Dialog, Dropdown, FormControl, Spinner, Switch, TabButtons, call, createResource, dialog, toast } from 'frappe-ui'
+import { Checkbox, Dialog, Dropdown, FormControl, Spinner, Switch, TabButtons, call, createResource, dialog, toast } from 'frappe-ui'
 
 import LucideCheck from '~icons/lucide/check'
+import LucideDownload from '~icons/lucide/download'
 import LucideEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import LucideExternalLink from '~icons/lucide/external-link'
 import LucideImage from '~icons/lucide/image'
@@ -214,6 +241,7 @@ import LucideX from '~icons/lucide/x'
 import CatalogListState from '@/components/CatalogListState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import CatalogSocialCardsButton from '@/components/CatalogSocialCardsButton.vue'
+import { downloadProductsCsv } from '@/utils/productCsv'
 import { productUrl } from '@/utils/storefront'
 
 interface ProductRow {
@@ -235,6 +263,8 @@ const search = ref((route.query.search as string) || '')
 const status = ref('')
 const start = ref(0)
 const syncing = ref(false)
+const selected = ref<string[]>([])
+const exporting = ref(false)
 
 interface SyncStep {
 	key: string
@@ -300,14 +330,61 @@ const products = createResource({
 
 const rows = computed<ProductRow[]>(() => products.data?.products || [])
 
+// The selection survives a page change, so products can be ticked on one
+// page and more on the next; changing the search or status starts fresh
+// rather than exporting products that are no longer on screen.
+const allOnPage = computed(
+	() => rows.value.length > 0 && rows.value.every((row) => selected.value.includes(row.name)),
+)
+const someOnPage = computed(
+	() => !allOnPage.value && rows.value.some((row) => selected.value.includes(row.name)),
+)
+
+function toggleRow(name: string, checked: boolean) {
+	if (checked) {
+		if (!selected.value.includes(name)) selected.value = [...selected.value, name]
+	} else {
+		selected.value = selected.value.filter((row) => row !== name)
+	}
+}
+
+function toggleAllOnPage(checked: boolean) {
+	if (checked) {
+		const names = rows.value.map((row) => row.name)
+		selected.value = Array.from(new Set([...selected.value, ...names]))
+	} else {
+		const onPage = new Set(rows.value.map((row) => row.name))
+		selected.value = selected.value.filter((name) => !onPage.has(name))
+	}
+}
+
+function clearSelection() {
+	selected.value = []
+}
+
 watch([search, status], () => {
 	start.value = 0
+	clearSelection()
 	products.reload()
 })
 watch(start, () => products.reload())
 
 function openProduct(name: string) {
 	router.push(`/products/${encodeURIComponent(name)}`)
+}
+
+async function exportSelected() {
+	if (!selected.value.length || exporting.value) return
+	exporting.value = true
+	try {
+		await downloadProductsCsv(selected.value)
+		const count = selected.value.length
+		toast.success(`Exported ${count} product${count === 1 ? '' : 's'}`)
+	} catch (error) {
+		toast.error(error instanceof Error ? error.message : 'Could not export the products')
+	} finally {
+		exporting.value = false
+	}
 }
 
 function rowActions(row: ProductRow) {
@@ -330,6 +407,7 @@ function confirmDelete(row: ProductRow) {
 		confirmLabel: 'Delete',
 		onConfirm: async () => {
 			await call('shop.api.products.delete_product', { name: row.name })
+			selected.value = selected.value.filter((name) => name !== row.name)
 			toast.success('Product deleted')
 			products.reload()
 		},

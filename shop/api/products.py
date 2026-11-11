@@ -1,6 +1,11 @@
+import csv
+import html
+import io
+import re
+
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, flt, get_url, now_datetime, strip_html
 from frappe.website.utils import cleanup_page_name
 
 from shop.api import only_managers
@@ -33,6 +38,242 @@ def get_products(
 	decorate(products)
 	return {"products": products, "total": frappe.db.count("Shop Product", filters=filters)}
 
+
+# The columns a Marketplace import expects, in this order. The CSV is meant to
+# be handed to Facebook's catalogue tool as it is, so the header is not quoted
+# and the price is written as a bare number.
+EXPORT_COLUMNS = [
+	"Title",
+	"Price",
+	"Category",
+	"Condition",
+	"Description",
+	"Size",
+	"Material",
+	"Images",
+]
+
+# The shop records what it knows - "New" or "Preloved" - while a Marketplace
+# import only accepts New / Used - Like New / Used - Good / Used - Fair.
+# Preloved is a used item in saleable condition, so it is called "Used -
+# Good" rather than claiming to be like new, which would be a stronger claim
+# than the shop has made. Unknown wording is passed through untouched.
+CONDITION_LABELS = {
+	"new": "New",
+	"brand new": "New",
+	"preloved": "Used - Good",
+	"pre-owned": "Used - Good",
+	"pre owned": "Used - Good",
+	"used": "Used - Good",
+	"used - good": "Used - Good",
+	"used - like new": "Used - Like New",
+	"like new": "Used - Like New",
+	"used - fair": "Used - Fair",
+}
+
+_BLOCK_TAG = re.compile(r"(?i)<(?:br|/p|/div|/li|/h[1-6])\s*/?>")
+
+
+@frappe.whitelist(methods=["POST"])
+def export_csv(names) -> None:
+	"""Download the chosen products as a CSV for a Marketplace import.
+
+	Only the products that were ticked are exported; this is not a catalogue
+	dump, so nothing leaves the shop that the merchant did not pick.
+	"""
+	only_managers()
+	content = build_export_csv(names)
+	frappe.local.response.filename = f"products_{now_datetime():%Y%m%d_%H%M%S}.csv"
+	frappe.local.response.filecontent = content.encode("utf-8")
+	frappe.local.response.type = "download"
+
+
+def build_export_csv(names) -> str:
+	names = _selected_names(names)
+	if not names:
+		frappe.throw(_("Select at least one product to export"))
+
+	products = frappe.get_all(
+		"Shop Product",
+		filters={"name": ["in", names]},
+		fields=["name", "product_name", "condition", "description", "item", "has_variants"],
+		limit_page_length=0,
+	)
+	by_name = {row.name: row for row in products}
+	rows = [by_name[name] for name in names if name in by_name]
+	if not rows:
+		frappe.throw(_("The selected products no longer exist"))
+	found = [row.name for row in rows]
+
+	images = _grouped_values("Shop Product Image", found, "image")
+	collections = _grouped_values("Shop Product Collection", found, "collection")
+	option_sizes: dict[str, list[str]] = {}
+	for option in frappe.get_all(
+		"Shop Product Option",
+		filters={"parent": ["in", found]},
+		fields=["parent", "attribute", "values"],
+		order_by="parent, idx",
+		limit_page_length=0,
+	):
+		if option.attribute == "Size" and option.values:
+			option_sizes.setdefault(option.parent, []).extend(_split_values(option.values))
+
+	variant_codes: dict[str, list[str]] = {}
+	variant_parents = [row.item for row in rows if row.has_variants]
+	if variant_parents:
+		for variant in frappe.get_all(
+			"Item",
+			filters={"variant_of": ["in", variant_parents]},
+			fields=["name", "variant_of"],
+			limit_page_length=0,
+		):
+			variant_codes.setdefault(variant.variant_of, []).append(variant.name)
+
+	size_values: dict[str, list[str]] = {}
+	all_variants = [code for codes in variant_codes.values() for code in codes]
+	if all_variants:
+		for attribute in frappe.get_all(
+			"Item Variant Attribute",
+			filters={"parent": ["in", all_variants], "attribute": "Size"},
+			fields=["parent", "attribute_value"],
+			order_by="parent, idx",
+			limit_page_length=0,
+		):
+			if attribute.attribute_value:
+				size_values.setdefault(attribute.parent, []).append(attribute.attribute_value)
+
+	codes_by_product = {
+		row.name: variant_codes.get(row.item, []) if row.has_variants else [row.item] for row in rows
+	}
+	prices = pricing.get_prices([code for codes in codes_by_product.values() for code in codes])
+
+	collection_names = {name for names_in_product in collections.values() for name in names_in_product}
+	collection_titles = (
+		{
+			collection.name: collection.title
+			for collection in frappe.get_all(
+				"Shop Collection",
+				filters={"name": ["in", list(collection_names)]},
+				fields=["name", "title"],
+				limit_page_length=0,
+			)
+		}
+		if collection_names
+		else {}
+	)
+
+	buffer = io.StringIO()
+	# QUOTE_NONNUMERIC quotes every text field, including one that is empty,
+	# and leaves the price bare - the shape the sample has.
+	buffer.write(",".join(EXPORT_COLUMNS) + "\r\n")
+	writer = csv.writer(buffer, quoting=csv.QUOTE_NONNUMERIC, lineterminator="\r\n")
+
+	for row in rows:
+		codes = codes_by_product[row.name]
+		rates = [
+			prices[code]["rate"]
+			for code in codes
+			if code in prices and prices[code].get("rate") is not None
+		]
+
+		if row.has_variants:
+			sizes = {value for code in codes for value in size_values.get(code, [])}
+		else:
+			sizes = set()
+		if not sizes:
+			# A product that does not vary still records the range it is made
+			# in on its options; that range is the best size information there is.
+			sizes = set(option_sizes.get(row.name, []))
+
+		categories = list(
+			dict.fromkeys(
+				collection_titles.get(name) or name for name in collections.get(row.name, [])
+			)
+		)
+		image_urls = list(
+			dict.fromkeys(get_url(image) for image in images.get(row.name, []) if image)
+		)
+
+		writer.writerow(
+			[
+				row.product_name,
+				_csv_price(min(rates) if rates else None),
+				", ".join(categories),
+				CONDITION_LABELS.get(
+					(row.condition or "").strip().lower(), (row.condition or "").strip()
+				),
+				_plain_text(row.description),
+				", ".join(sorted(sizes, key=_natural_key)),
+				"",
+				", ".join(image_urls),
+			]
+		)
+
+	return buffer.getvalue()
+
+
+def _selected_names(names) -> list[str]:
+	"""The ticked product names, deduplicated and in the order they were picked."""
+	if isinstance(names, str):
+		names = names.split(",")
+	selected = []
+	seen = set()
+	for name in names or []:
+		name = str(name).strip()
+		if name and name not in seen:
+			seen.add(name)
+			selected.append(name)
+	return selected
+
+
+def _grouped_values(doctype: str, parents: list[str], field: str) -> dict[str, list[str]]:
+	grouped: dict[str, list[str]] = {}
+	for row in frappe.get_all(
+		doctype,
+		filters={"parent": ["in", parents]},
+		fields=["parent", field],
+		order_by="parent, idx",
+		limit_page_length=0,
+	):
+		value = row.get(field)
+		if value:
+			grouped.setdefault(row.parent, []).append(value)
+	return grouped
+
+
+def _split_values(values: str) -> list[str]:
+	return [value.strip() for value in str(values).split(",") if value.strip()]
+
+
+def _plain_text(value: str | None) -> str:
+	"""The description as one line of readable text.
+
+	The shop stores it as HTML. Block tags become spaces before they are
+	stripped so two paragraphs do not run together, and entities such as
+	&amp; are put back.
+	"""
+	if not value:
+		return ""
+	text = _BLOCK_TAG.sub(" ", value)
+	text = html.unescape(strip_html(text))
+	return re.sub(r"\s+", " ", text).strip()
+
+
+def _csv_price(rate) -> int | float | str:
+	if rate is None:
+		return ""
+	amount = round(flt(rate), 2)
+	return int(amount) if amount == int(amount) else amount
+
+
+def _natural_key(value: str) -> list[tuple[int, float | str]]:
+	"""Sort sizes the way a person reads them: 40 before 100, 40.5 after 40."""
+	parts = re.split(r"(\d+(?:\.\d+)?)", str(value))
+	return [
+		(0, float(part)) if re.fullmatch(r"\d+(?:\.\d+)?", part) else (1, part.lower())
+		for part in parts
+		if part
+	]
 
 
 def display_names(item_codes: list[str]) -> dict[str, str]:
