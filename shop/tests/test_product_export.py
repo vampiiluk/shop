@@ -40,14 +40,14 @@ class TestProductExport(IntegrationTestCase):
 				"Shop Collection", self.collection.name, ignore_permissions=True, force=True
 			)
 
-	def make_simple(self, label="CSV Export Tee", description=None):
+	def make_simple(self, label="CSV Export Tee", description=None, condition="Preloved"):
 		name = f"{label} {random_string(6)}"
 		result = products.create_product(
 			product_name=name,
 			price=1250.5,
 			description=description or "<p>Soft &amp; warm.</p><p>Second line.</p>",
 			short_description="Soft and warm",
-			condition="Preloved",
+			condition=condition,
 			images=["/files/csv-export-test-1.jpg", "/files/csv-export-test-2.jpg"],
 			collections=[self.collection.name],
 		)
@@ -102,8 +102,10 @@ class TestProductExport(IntegrationTestCase):
 		row = self.read_csv(products.build_export_csv([product["name"]]))[0]
 
 		self.assertEqual(row["Price"], "1250.5")
-		self.assertEqual(row["Category"], self.collection.title)
+		self.assertEqual(row["Category"], "Mens Clothing & Shoes")
+		self.assertIn(row["Category"], products.FACEBOOK_CATEGORIES)
 		self.assertEqual(row["Condition"], "Used - Good")
+		self.assertIn(row["Condition"], products.FACEBOOK_CONDITIONS)
 		self.assertEqual(row["Description"], "Soft & warm. Second line.")
 		self.assertEqual(row["Size"], "")
 		self.assertEqual(row["Material"], "")
@@ -132,6 +134,47 @@ class TestProductExport(IntegrationTestCase):
 		row = self.read_csv(products.build_export_csv([product["name"]]))[0]
 
 		self.assertEqual(row["Title"], product["product_name"])
+
+	def test_categories_are_facebook_marketplace_names(self):
+		cases = [
+			(["shoes"], "Daily Essential Slides", "Mens Clothing & Shoes"),
+			(["shoes"], "Skechers Women's Go Run", "Womens Clothing & Shoes"),
+			(["bags"], "Lancaster Crossbody", "Bags & Luggage"),
+			(["toys-collectables"], "Funko Pop Thor", "Toys & Games"),
+			(["bottles"], "Thermos Bottle", "Home & Garden"),
+			(["stationery", "home-living"], "Oak Desk Organizer", "Office Supplies"),
+			([], "MANDARINA DUCK Backpack", "Bags & Luggage"),
+			([], "Olive Wood Coffee Table", "Furniture"),
+			([], "Mystery Box", "Miscellaneous"),
+		]
+		for collections, name, expected in cases:
+			with self.subTest(name=name):
+				category = products._marketplace_category(collections, name)
+				self.assertEqual(category, expected)
+				self.assertIn(category, products.FACEBOOK_CATEGORIES)
+
+	def test_every_condition_becomes_a_facebook_marketplace_value(self):
+		cases = [
+			("", "New"),
+			("New", "New"),
+			("Brand New", "New"),
+			("Preloved", "Used - Good"),
+			("Second hand", "Used - Good"),
+			("Like New", "Used - Like New"),
+			("Used - Fair", "Used - Fair"),
+			("Renewed", "Used - Good"),
+		]
+		for text, expected in cases:
+			with self.subTest(condition=text):
+				condition = products._marketplace_condition(text)
+				self.assertEqual(condition, expected)
+				self.assertIn(condition, products.FACEBOOK_CONDITIONS)
+
+	def test_a_blank_condition_is_exported_as_new(self):
+		product = self.make_simple(condition="")
+		row = self.read_csv(products.build_export_csv([product["name"]]))[0]
+
+		self.assertEqual(row["Condition"], "New")
 
 	def test_nothing_selected_is_an_error(self):
 		with self.assertRaises(frappe.ValidationError):

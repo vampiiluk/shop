@@ -57,7 +57,9 @@ EXPORT_COLUMNS = [
 # import only accepts New / Used - Like New / Used - Good / Used - Fair.
 # Preloved is a used item in saleable condition, so it is called "Used -
 # Good" rather than claiming to be like new, which would be a stronger claim
-# than the shop has made. Unknown wording is passed through untouched.
+# than the shop has made. Anything else the admin typed is folded into one of
+# those four values; a blank condition is exported as "New", the same default
+# the Meta catalogue sync uses.
 CONDITION_LABELS = {
 	"new": "New",
 	"brand new": "New",
@@ -69,6 +71,78 @@ CONDITION_LABELS = {
 	"used - like new": "Used - Like New",
 	"like new": "Used - Like New",
 	"used - fair": "Used - Fair",
+}
+
+FACEBOOK_CONDITIONS = {"New", "Used - Like New", "Used - Good", "Used - Fair"}
+
+# Facebook Marketplace files every listing under one category. The shop's
+# collections are the closest thing it has to that taxonomy, so they are
+# translated to the names Marketplace uses rather than being written out as
+# shop labels. A product without a recognised collection falls back to its
+# name, and then to Miscellaneous, so the column is never empty or free text.
+COLLECTION_CATEGORIES = {
+	"apparel": "Mens Clothing & Shoes",
+	"shoes": "Mens Clothing & Shoes",
+	"bags": "Bags & Luggage",
+	"toys-collectables": "Toys & Games",
+	"bottles": "Home & Garden",
+	"home-living": "Home & Garden",
+	"stationery": "Office Supplies",
+}
+
+# Checked in this order when a product has no recognised collection. The most
+# specific kind of object wins: a "desk organizer" is furniture before it is
+# office supplies, and a "trolley backpack" is luggage before it is clothing.
+CATEGORY_KEYWORDS = (
+	(
+		("backpack", "rucksack", "handbag", "tote", "duffel", "briefcase", "luggage", "suitcase", "bag"),
+		"Bags & Luggage",
+	),
+	(("funko", "doll", "toy", "puzzle", "game", "lego", "figure", "nerf"), "Toys & Games"),
+	(("bottle", "tumbler", "mug", "flask", "cup", "thermos"), "Home & Garden"),
+	(
+		("desk", "furniture", "table", "chair", "shelf", "cabinet", "organizer", "organiser", "drawer"),
+		"Furniture",
+	),
+	(("pen", "pencil", "notebook", "stationery", "journal", "planner", "office"), "Office Supplies"),
+	(
+		(
+			"shoe",
+			"sneaker",
+			"trainer",
+			"boot",
+			"sandal",
+			"slide",
+			"clog",
+			"loafer",
+			"heel",
+			"oxford",
+			"jacket",
+			"coat",
+			"dress",
+			"shirt",
+			"tee",
+			"trousers",
+			"jeans",
+			"skirt",
+		),
+		"Mens Clothing & Shoes",
+	),
+)
+
+# Marketplace spells these without apostrophes; the sample file did the same.
+FALLBACK_CATEGORY = "Miscellaneous"
+WOMENS_CATEGORY = "Womens Clothing & Shoes"
+
+FACEBOOK_CATEGORIES = {
+	"Mens Clothing & Shoes",
+	WOMENS_CATEGORY,
+	"Bags & Luggage",
+	"Toys & Games",
+	"Home & Garden",
+	"Furniture",
+	"Office Supplies",
+	FALLBACK_CATEGORY,
 }
 
 _BLOCK_TAG = re.compile(r"(?i)<(?:br|/p|/div|/li|/h[1-6])\s*/?>")
@@ -147,21 +221,6 @@ def build_export_csv(names) -> str:
 	}
 	prices = pricing.get_prices([code for codes in codes_by_product.values() for code in codes])
 
-	collection_names = {name for names_in_product in collections.values() for name in names_in_product}
-	collection_titles = (
-		{
-			collection.name: collection.title
-			for collection in frappe.get_all(
-				"Shop Collection",
-				filters={"name": ["in", list(collection_names)]},
-				fields=["name", "title"],
-				limit_page_length=0,
-			)
-		}
-		if collection_names
-		else {}
-	)
-
 	buffer = io.StringIO()
 	# QUOTE_NONNUMERIC quotes every text field, including one that is empty,
 	# and leaves the price bare - the shape the sample has.
@@ -185,11 +244,7 @@ def build_export_csv(names) -> str:
 			# in on its options; that range is the best size information there is.
 			sizes = set(option_sizes.get(row.name, []))
 
-		categories = list(
-			dict.fromkeys(
-				collection_titles.get(name) or name for name in collections.get(row.name, [])
-			)
-		)
+		category = _marketplace_category(collections.get(row.name, []), row.product_name)
 		image_urls = list(
 			dict.fromkeys(get_url(image) for image in images.get(row.name, []) if image)
 		)
@@ -198,10 +253,8 @@ def build_export_csv(names) -> str:
 			[
 				row.product_name,
 				_csv_price(min(rates) if rates else None),
-				", ".join(categories),
-				CONDITION_LABELS.get(
-					(row.condition or "").strip().lower(), (row.condition or "").strip()
-				),
+				category,
+				_marketplace_condition(row.condition),
 				_plain_text(row.description),
 				", ".join(sorted(sizes, key=_natural_key)),
 				"",
@@ -224,6 +277,66 @@ def _selected_names(names) -> list[str]:
 			seen.add(name)
 			selected.append(name)
 	return selected
+
+
+def _marketplace_category(collections: list[str], product_name: str | None) -> str:
+	"""One Facebook Marketplace category for a product.
+
+	A curated collection is the merchant's own filing and is trusted first.
+	Products outside those collections are recognised from their name, and
+	anything still unrecognised goes to Miscellaneous rather than writing a
+	shop label into a column Marketplace has to understand.
+	"""
+	for collection in collections:
+		category = COLLECTION_CATEGORIES.get(collection)
+		if category:
+			return _with_womens_category(category, product_name)
+
+	name = f" {str(product_name or '').lower()} "
+	for keywords, category in CATEGORY_KEYWORDS:
+		if _mentions(name, keywords):
+			return _with_womens_category(category, product_name)
+	return FALLBACK_CATEGORY
+
+
+def _with_womens_category(category: str, product_name: str | None) -> str:
+	"""Use the women's clothing category when the product name says so.
+
+	Marketplace has no unisex clothing category, so a product that does not
+	say otherwise stays in the men's one.
+	"""
+	if category != "Mens Clothing & Shoes":
+		return category
+	name = str(product_name or "").lower()
+	if _mentions(
+		name, ("woman", "women", "womens", "ladies", "female", "heel", "ballerina")
+	):
+		return WOMENS_CATEGORY
+	return category
+
+
+def _mentions(text: str, words: tuple[str, ...]) -> bool:
+	return any(
+		re.search(rf"\b{re.escape(word)}(?:s|es|ed)?\b", text) for word in words
+	)
+
+
+def _marketplace_condition(value: str | None) -> str:
+	"""The admin's free text as one of Marketplace's four condition values."""
+	text = str(value or "").strip().lower()
+	if not text:
+		return "New"
+	mapped = CONDITION_LABELS.get(text)
+	if mapped:
+		return mapped
+	if "like new" in text:
+		return "Used - Like New"
+	if "fair" in text:
+		return "Used - Fair"
+	# "renewed" contains "new", so it is checked before the generic word.
+	if "new" in text and "renew" not in text:
+		return "New"
+	return "Used - Good"
 
 
 def _grouped_values(doctype: str, parents: list[str], field: str) -> dict[str, list[str]]:
