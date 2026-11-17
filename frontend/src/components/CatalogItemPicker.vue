@@ -17,6 +17,7 @@ interface ItemOption {
 	label: string
 	value: string
 	hasVariants: boolean
+	brand?: string
 }
 
 const emit = defineEmits<{ picked: [ItemOption] }>()
@@ -35,10 +36,11 @@ function search(query: string) {
 async function load(query: string) {
 	try {
 		const items = await call('shop.api.admin.search_items', { query })
-		options.value = items.map((item: { name: string; item_name: string; has_variants: number }) => ({
+		options.value = items.map((item: { name: string; item_name: string; brand: string; has_variants: number }) => ({
 			label: item.item_name || item.name,
 			value: item.name,
 			hasVariants: !!item.has_variants,
+			brand: item.brand || '',
 		}))
 	} catch (error) {
 		toast.error('Could not load items')

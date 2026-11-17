@@ -181,7 +181,10 @@ def apply_post_filters(products, price_min, price_max, in_stock):
 def get_collections() -> list[dict]:
 	collections = frappe.get_all(
 		"Shop Collection",
-		filters={"published": 1},
+		# `show_in_navigation` is off for SEO landing pages: they need a live page
+		# and a sitemap entry, but not a chip in every category filter and a tile
+		# on the homepage. Their own page still resolves by slug.
+		filters={"published": 1, "show_in_navigation": 1},
 		fields=["name", "title", "slug", "description", "image"],
 		order_by="ranking desc, title asc",
 	)
@@ -239,11 +242,17 @@ def decorate(products: list) -> None:
 	prices = display_prices(products)
 	availability = display_stock(products)
 	ratings = reviews.summaries([p.name for p in products])
+	brands = item_brands([p.item for p in products])
 	for product in products:
 		product.route = f"/product/{product.slug}"
 		# The storefront shows this as a tag above the product name, so a
 		# stray blank must collapse to '' and hide the tag, not render it.
 		product.condition = (product.get("condition") or "").strip()
+		# The brand lives on the ERPNext Item, which is the record that survives a
+		# storefront edit, and blank means "no defensible brand" rather than
+		# "unknown". Stored as '' so structured data can test it with a truthiness
+		# check instead of emitting an empty Brand node.
+		product.brand = brands.get(product.item) or ""
 		product.image = images.get(product.name)
 		price = prices.get(product.item, {})
 		product.price = price.get("rate")
@@ -274,6 +283,21 @@ def apply_compare_at(target, price) -> None:
 def star_string(average: float) -> str:
 	full = int(flt(average) + 0.5)
 	return "★" * full + "☆" * (5 - full)
+
+
+def item_brands(items: list[str]) -> dict[str, str]:
+	"""Brand of each Item, in one query.
+
+	One lookup per card would turn a 24-product listing into 24 extra queries for
+	a decorative field. ``Item.brand`` is a Link, so a missing brand reads as None
+	rather than '' and is normalised here, which is what the structured data tests.
+	"""
+	if not items:
+		return {}
+	rows = frappe.get_all(
+		"Item", filters={"name": ["in", list(set(items))]}, fields=["name", "brand"]
+	)
+	return {row.name: (row.brand or "").strip() for row in rows}
 
 
 def display_prices(products: list) -> dict:

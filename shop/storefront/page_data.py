@@ -451,7 +451,7 @@ def collection_page() -> dict:
 		"has_more": page * PAGE_SIZE < result["total"],
 		**page_links(path, form, page, result["total"]),
 		**result,
-		**seo.seo_for(path),
+		**seo.seo_for(path, collection=collection),
 	}
 
 

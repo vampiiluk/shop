@@ -21,6 +21,13 @@
 				class="w-40"
 			/>
 			<Switch v-model="form.published" label="Published" class="!w-auto" />
+			<div>
+				<Switch v-model="form.show_in_navigation" label="Show in navigation" class="!w-auto" />
+				<p class="text-sm text-ink-gray-6">
+					Leave this off for an SEO landing page. It keeps its own page and sitemap
+					entry, without appearing in the shop's category filters or homepage.
+				</p>
+			</div>
 		</div>
 	</Dialog>
 </template>
@@ -38,6 +45,7 @@ export interface CollectionRow {
 	description: string | null
 	image: string | null
 	published: number
+	show_in_navigation: number
 	ranking: number
 	product_count: number
 }
@@ -53,6 +61,7 @@ const form = reactive({
 	image: '',
 	ranking: 0,
 	published: true,
+	show_in_navigation: true,
 })
 
 watch(show, (open) => {
@@ -66,6 +75,7 @@ function reset() {
 		image: props.editRow?.image || '',
 		ranking: props.editRow?.ranking || 0,
 		published: props.editRow ? !!props.editRow.published : true,
+		show_in_navigation: props.editRow ? !!props.editRow.show_in_navigation : true,
 	})
 }
 

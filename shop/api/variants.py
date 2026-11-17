@@ -3,7 +3,15 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from shop.api import only_managers
-from shop.api.products import item_group, receive_stock, save_product, set_price, unique_item_code
+from shop.api.products import (
+	canonical_brand,
+	item_group,
+	receive_stock,
+	save_product,
+	set_item_brand,
+	set_price,
+	unique_item_code,
+)
 from shop.storefront import pricing, stock
 
 
@@ -289,6 +297,7 @@ def create_variant_product(
 	short_description: str | None = None,
 	description: str | None = None,
 	condition: str | None = None,
+	brand: str | None = None,
 	images: list | None = None,
 	collections: list | None = None,
 	published: bool = True,
@@ -298,12 +307,14 @@ def create_variant_product(
 	for option in options:
 		save_attribute(option["attribute"], option.get("values") or [])
 	item_code = unique_item_code(product_name)
+	brand = canonical_brand(brand)
 	item = frappe.get_doc(
 		{
 			"doctype": "Item",
 			"item_code": item_code,
 			"item_name": product_name,
 			"item_group": item_group(),
+			"brand": brand,
 			"stock_uom": "Nos",
 			"is_stock_item": 1,
 			"has_variants": 1,
@@ -320,6 +331,7 @@ def create_variant_product(
 			"short_description": short_description,
 			"description": description,
 			"condition": condition,
+			"brand": brand,
 			"images": images or [],
 			"collections": collections or [],
 			"published": published,
@@ -327,4 +339,7 @@ def create_variant_product(
 	)
 	store_options(frappe.get_doc("Shop Product", product["name"]), options)
 	generate(product["name"], price=flt(price), opening_stock=cint(opening_stock))
+	# Variants are created after the product save, so the template's brand is
+	# copied onto them here rather than relying on Variant Field configuration.
+	set_item_brand(item_code, brand, has_variants=True)
 	return {"product": product["name"], **get_variants(product["name"])}

@@ -502,6 +502,7 @@ def get_product(name: str) -> dict:
 		"compare_at_price": doc.compare_at_price,
 		"highlights": doc.highlights,
 		"condition": doc.condition,
+		"brand": frappe.db.get_value("Item", doc.item, "brand") or "",
 		"has_variants": doc.has_variants,
 		"images": [{"image": row.image, "alt_text": row.alt_text} for row in doc.images],
 		"collections": [row.collection for row in doc.collections],
@@ -552,6 +553,10 @@ def save_product(payload: dict) -> dict:
 	if "condition" in payload:
 		# partial payloads (e.g. the agent tool) leave it untouched
 		doc.condition = (payload.get("condition") or "").strip() or None
+	if "brand" in payload:
+		# Same partial-payload rule as condition: only a caller that sent the key
+		# can change the brand, so the agent tool cannot wipe it by omitting it.
+		set_item_brand(doc.item, payload.get("brand"), has_variants=doc.has_variants)
 	doc.ranking = cint(payload.get("ranking"))
 	doc.published = 1 if payload.get("published") else 0
 	if payload.get("slug"):
@@ -584,6 +589,44 @@ def set_collections(doc, collections) -> None:
 		doc.append("collections", {"collection": collection})
 
 
+def canonical_brand(value: str | None) -> str | None:
+	"""The Brand record this name refers to, creating it the first time.
+
+	Comparison is case-insensitive because the field is typed by hand: without
+	that, "nike" would create a second Brand beside "Nike" and split the very
+	facet the brand work exists to build. A brand the shop does not sell yet is
+	created rather than rejected, so adding stock never dead-ends on setup.
+	"""
+	name = " ".join((value or "").split())
+	if not name:
+		return None
+	for existing in frappe.get_all("Brand", pluck="name"):
+		if existing.casefold() == name.casefold():
+			return existing
+	doc = frappe.get_doc({"doctype": "Brand", "brand": name})
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def set_item_brand(item_code: str, value: str | None, has_variants: bool = False) -> None:
+	"""Write the brand to the Item, and to every variant when there are any.
+
+	``Item.brand`` is the master copy: the storefront, the product schema and any
+	future brand page all read it from there. Variants carry their own row, so a
+	template edit has to reach them too or a size-specific page disagrees with its
+	parent. A blank value clears the field rather than leaving the old brand on a
+	product that has been corrected.
+	"""
+	brand = canonical_brand(value)
+	items = [item_code]
+	# The Shop Product's own has_variants is a fetched field and may not have been
+	# refreshed yet on a freshly linked item, so the Item is asked directly too.
+	if has_variants or frappe.db.get_value("Item", item_code, "has_variants"):
+		items += frappe.get_all("Item", filters={"variant_of": item_code}, pluck="name")
+	for code in items:
+		frappe.db.set_value("Item", code, "brand", brand, update_modified=False)
+
+
 def set_price(item_code: str, rate: float) -> None:
 	settings = frappe.get_cached_doc("Shop Settings")
 	name = frappe.db.get_value("Item Price", {"item_code": item_code, "price_list": settings.price_list})
@@ -608,6 +651,7 @@ def create_product(
 	short_description: str | None = None,
 	compare_at_price: float | None = None,
 	condition: str | None = None,
+	brand: str | None = None,
 	opening_stock: float = 0,
 	images: list | None = None,
 	collections: list | None = None,
@@ -617,12 +661,14 @@ def create_product(
 	only_managers()
 	settings = frappe.get_cached_doc("Shop Settings")
 	item_code = unique_item_code(product_name)
+	brand = canonical_brand(brand)
 	frappe.get_doc(
 		{
 			"doctype": "Item",
 			"item_code": item_code,
 			"item_name": product_name,
 			"item_group": item_group(),
+			"brand": brand,
 			"stock_uom": "Nos",
 			"is_stock_item": 1,
 			"description": short_description or product_name,
@@ -639,6 +685,7 @@ def create_product(
 			"description": description,
 			"compare_at_price": compare_at_price,
 			"condition": condition,
+			"brand": brand,
 			"images": images or [],
 			"collections": collections or [],
 			"published": published,
@@ -699,11 +746,33 @@ def delete_product(name: str) -> None:
 
 
 @frappe.whitelist()
+def get_brands() -> list[dict]:
+	"""Every Brand record, for the product editor's selector.
+
+	The editor only offers brands that exist: a typo would otherwise create a new
+	Brand and split the catalogue between "Adidas" and "Addidas". The save path
+	still creates one when a brand arrives through the API, so linking existing
+	stock is never blocked by a missing record.
+	"""
+	only_managers()
+	return frappe.get_all("Brand", fields=["name", "brand"], order_by="brand asc")
+
+
+@frappe.whitelist()
 def get_collections() -> list[dict]:
 	only_managers()
 	collections = frappe.get_all(
 		"Shop Collection",
-		fields=["name", "title", "slug", "description", "image", "published", "ranking"],
+		fields=[
+			"name",
+			"title",
+			"slug",
+			"description",
+			"image",
+			"published",
+			"show_in_navigation",
+			"ranking",
+		],
 		order_by="ranking desc, title asc",
 	)
 	for collection in collections:
@@ -726,6 +795,9 @@ def save_collection(payload: dict) -> None:
 	doc.image = payload.get("image")
 	doc.ranking = cint(payload.get("ranking"))
 	doc.published = 1 if payload.get("published") else 0
+	if "show_in_navigation" in payload:
+		# Partial payloads (the agent tool) leave the current choice alone.
+		doc.show_in_navigation = 1 if payload.get("show_in_navigation") else 0
 	doc.save(ignore_permissions=True) if not doc.is_new() else doc.insert(ignore_permissions=True)
 
 

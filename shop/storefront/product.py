@@ -22,6 +22,7 @@ def get_product(slug: str) -> dict:
 		"item": doc.item,
 		"short_description": doc.short_description,
 		"condition": (doc.condition or "").strip(),
+		"brand": (frappe.db.get_value("Item", doc.item, "brand") or "").strip(),
 		"description": doc.description,
 		"has_variants": doc.has_variants,
 		"compare_at_price": doc.compare_at_price,

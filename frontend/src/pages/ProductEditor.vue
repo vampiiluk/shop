@@ -28,6 +28,17 @@
 
 				<CatalogSection title="Basics">
 					<FormControl v-model="form.product_name" label="Product name" required />
+					<Autocomplete
+						v-model="brandValue"
+						label="Brand"
+						placeholder="Select a brand"
+						:options="brandOptions"
+					/>
+					<p class="text-p-sm text-ink-gray-5">
+						The manufacturer's brand, e.g. Nike. Used in product structured data so
+						Google can match the item to brand searches. Leave blank for an
+						unbranded product; add a missing brand in ERPNext under Brand.
+					</p>
 					<FormControl v-if="isEdit" v-model="form.slug" label="Slug" :description="slugHint" />
 					<FormControl
 						v-model="form.short_description"
@@ -240,6 +251,7 @@ interface ProductDetail {
 	slug: string
 	has_variants: number
 	stock: number
+	brand?: string | null
 	meta_product_id?: string | null
 	meta_product_link?: string | null
 }
@@ -261,6 +273,7 @@ const baseline = ref('')
 const detail = ref<ProductDetail | null>(null)
 const cardsHint = ref('')
 const collectionOptions = ref<Option[]>([])
+const brandOptions = ref<Option[]>([])
 const itemHasVariants = ref(false)
 const withOptions = ref(false)
 const options = ref<ProductOption[]>([{ attribute: '', values: [] }])
@@ -271,6 +284,7 @@ const form = reactive({
 	slug: '',
 	short_description: '',
 	description: '',
+	brand: '',
 	published: true,
 	ranking: 0,
 	price: null as number | null,
@@ -328,6 +342,17 @@ const collectionValue = computed({
 	set: (selected: Option[]) => (form.collections = selected.map((option) => option.value)),
 })
 
+const brandValue = computed({
+	get: () =>
+		form.brand
+			? {
+					label: brandOptions.value.find((option) => option.value === form.brand)?.label || form.brand,
+					value: form.brand,
+				}
+			: null,
+	set: (selected: Option | null) => (form.brand = selected?.value || ''),
+})
+
 const dirty = computed(() => !loading.value && snapshot() !== baseline.value)
 
 watch(() => props.name, load, { immediate: true })
@@ -341,7 +366,7 @@ async function load() {
 	loadError.value = false
 	try {
 		resetForm()
-		await loadCollections()
+		await Promise.all([loadCollections(), loadBrands()])
 		if (isEdit.value) await loadProduct(props.name as string)
 		baseline.value = snapshot()
 	} catch (error) {
@@ -359,6 +384,7 @@ function resetForm() {
 		slug: '',
 		short_description: '',
 		description: '',
+		brand: '',
 		published: true,
 		ranking: 0,
 		price: null,
@@ -383,6 +409,14 @@ async function loadCollections() {
 	}))
 }
 
+async function loadBrands() {
+	const rows = await call('shop.api.products.get_brands')
+	brandOptions.value = rows.map((row: { name: string; brand: string }) => ({
+		label: row.brand || row.name,
+		value: row.name,
+	}))
+}
+
 async function loadProduct(name: string) {
 	const doc = await call('shop.api.products.get_product', { name })
 	detail.value = doc
@@ -391,6 +425,7 @@ async function loadProduct(name: string) {
 		slug: doc.slug || '',
 		short_description: doc.short_description || '',
 		description: doc.description || '',
+		brand: doc.brand || '',
 		published: !!doc.published,
 		ranking: doc.ranking || 0,
 		price: doc.price,
@@ -421,9 +456,10 @@ async function loadCardsHint(name: string) {
 	}
 }
 
-function onItemPicked(item: { label: string; value: string; hasVariants: boolean }) {
+function onItemPicked(item: { label: string; value: string; hasVariants: boolean; brand?: string }) {
 	form.item = item.value
 	itemHasVariants.value = item.hasVariants
+	form.brand = item.brand || ''
 	if (!form.product_name) form.product_name = item.label
 }
 
@@ -494,6 +530,7 @@ async function createFresh() {
 			short_description: form.short_description,
 			compare_at_price: form.compare_at_price || 0,
 			condition: form.condition,
+			brand: form.brand,
 			opening_stock: form.opening_stock || 0,
 			images: form.images,
 			collections: form.collections,
@@ -508,6 +545,7 @@ async function createFresh() {
 		options: options.value,
 		price: form.price,
 		condition: form.condition,
+		brand: form.brand,
 		opening_stock: form.opening_stock || 0,
 		short_description: form.short_description,
 		description: form.description,
@@ -540,6 +578,7 @@ function payload() {
 		compare_at_price: form.compare_at_price,
 		highlights: form.highlights,
 		condition: form.condition,
+		brand: form.brand,
 		ranking: form.ranking,
 		published: form.published,
 		images: form.images,

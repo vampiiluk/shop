@@ -168,10 +168,38 @@ def _product_description(product: dict, settings: dict) -> str:
 	return " ".join(p for p in parts if p)
 
 
-def _description(route: str, settings: dict, product: dict | None) -> str:
+def _collection_description(collection: dict, settings: dict) -> str:
+	"""A collection's own copy, with enough context to stand alone in a result.
+
+	The descriptions on Shop Collection were written as shelf straplines -- "Style
+	you can carry." is seven words -- and a meta description has to answer a
+	search on its own. The strapline is kept as the opening, then the country,
+	condition range and delivery promise are added around it. When there is no
+	strapline at all the second sentence becomes the whole description.
+	"""
+	title = (collection.get("title") or "").strip() or "products"
+	lead = _plain(collection.get("description") or "")
+	tail = (
+		f"Shop {title} in Pakistan at {settings['shop_name']}: authentic, "
+		"new and preloved, with cash on delivery."
+	)
+	if not lead:
+		return tail
+	# Copy already long enough to fill the snippet is left as written; padding it
+	# would push the useful part past Google's cut.
+	if len(lead) >= 110:
+		return lead
+	return f"{lead} {tail}"
+
+
+def _description(
+	route: str, settings: dict, product: dict | None, collection: dict | None = None
+) -> str:
 	store = settings["shop_name"]
 	if product:
 		return _product_description(product, settings)
+	if collection:
+		return _collection_description(collection, settings)
 	if route in ("home", "/", ""):
 		return (
 			f"{store} sells everyday essentials, from brand-new finds to gently preloved favourites. "
@@ -195,11 +223,19 @@ def _description(route: str, settings: dict, product: dict | None) -> str:
 	return f"{store} — everyday essentials, new and preloved."
 
 
-def _title(route: str, settings: dict, product: dict | None) -> str:
+def _title(
+	route: str, settings: dict, product: dict | None, collection: dict | None = None
+) -> str:
 	store = settings["shop_name"]
 	if product:
 		name = product.get("product_name") or product.get("name") or ""
 		return condense(f"{name} — {store}", TITLE_BUDGET)
+	# A category page is the page that can rank for "shoes in Pakistan"; its own
+	# title is the head term, so it goes first. The condition range keeps the
+	# brand searches that include "preloved" landing here too.
+	if collection and (collection.get("title") or "").strip():
+		title = collection["title"].strip()
+		return condense(f"{title} in Pakistan — New & Preloved | {store}", TITLE_BUDGET)
 	labels = {
 		"home": f"{store} — everyday essentials, new and preloved",
 		"products": f"All products — {store}",
@@ -392,7 +428,7 @@ def _website(settings: dict) -> dict:
 	}
 
 
-def _breadcrumbs(route: str, title: str) -> dict | None:
+def _breadcrumbs(route: str, title: str, last_name: str | None = None) -> dict | None:
 	segments = [s for s in (route or "").split("/") if s and not s.startswith(":")]
 	if len(segments) < 2:
 		return None
@@ -405,7 +441,7 @@ def _breadcrumbs(route: str, title: str) -> dict | None:
 			{
 				"@type": "ListItem",
 				"position": index + 1,
-				"name": title if last else segment.replace("-", " ").title(),
+				"name": (last_name or title) if last else segment.replace("-", " ").title(),
 				"item": site_url(path),
 			}
 		)
@@ -430,6 +466,47 @@ def _image_urls(product: dict) -> list[str]:
 	return urls
 
 
+# schema.org's condition vocabulary, keyed by the free text the catalogue stores.
+# "Preloved" is a used item, not a brand and not a new one: the old code emitted
+# it as a Brand name, then omitted the condition, so Google read a used shoe as
+# a new one made by a company called "Preloved". Anything not listed here stays
+# unstated rather than guessed.
+_ITEM_CONDITIONS = {
+	"new": "NewCondition",
+	"brand new": "NewCondition",
+	"new condition": "NewCondition",
+	"refurbished": "RefurbishedCondition",
+	"renewed": "RefurbishedCondition",
+	"preloved": "UsedCondition",
+	"pre loved": "UsedCondition",
+	"pre owned": "UsedCondition",
+	"preowned": "UsedCondition",
+	"second hand": "UsedCondition",
+	"secondhand": "UsedCondition",
+	"used": "UsedCondition",
+	"damaged": "DamagedCondition",
+	"for parts": "DamagedCondition",
+}
+
+
+def _item_condition(value: str | None) -> str | None:
+	"""The schema.org itemCondition URL for a stored condition, or None.
+
+	The comparison is deliberately loose: the field is free text an admin types,
+	so "Used - Good", "used_good" and "Preloved" all have to resolve without a
+	second condition field being introduced. The Marketplace export maps the same
+	text to Facebook's own four values; this maps it to Google's vocabulary.
+	"""
+	text = re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+	if not text:
+		return None
+	# Every Marketplace "Used - ..." grade is a used item to schema.org.
+	if text.startswith("used"):
+		return "https://schema.org/UsedCondition"
+	condition = _ITEM_CONDITIONS.get(text)
+	return f"https://schema.org/{condition}" if condition else None
+
+
 def _product_node(product: dict, settings: dict) -> dict:
 	node = {
 		"@type": "Product",
@@ -449,11 +526,9 @@ def _product_node(product: dict, settings: dict) -> dict:
 	for field, key in (("gtin", "gtin"), ("mpn", "mpn")):
 		if value := (product.get(field) or "").strip():
 			node[key] = value
-	condition = (product.get("condition") or "").strip()
-	if condition and condition.lower() not in ("", "new", "preloved"):
-		node["itemCondition"] = "https://schema.org/UsedCondition"
-		if not product.get("brand"):
-			node["brand"] = {"@type": "Brand", "name": condition}
+	condition = _item_condition(product.get("condition"))
+	if condition:
+		node["itemCondition"] = condition
 	images = _image_urls(product)
 	if images:
 		node["image"] = images
@@ -645,6 +720,30 @@ def _offer_catalog(settings: dict, products: list[dict] | None) -> dict | None:
 	}
 
 
+def _catalog_products(limit: int) -> list[dict]:
+	"""Published products for the graph, paged to the requested size.
+
+	``catalog.get_products`` caps a single page at ``MAX_PAGE_SIZE`` (60) so a
+	storefront request cannot ask for the whole catalogue at once. The graph asks
+	for exactly that, and a single call was silently describing only the first
+	60 products while claiming to be the range. Paging here keeps the API limit
+	intact and makes the node match its own ``numberOfItems``.
+	"""
+	from shop.storefront import catalog
+
+	products: list[dict] = []
+	start = 0
+	while len(products) < limit:
+		page = catalog.get_products(
+			start=start, limit=min(catalog.MAX_PAGE_SIZE, limit - len(products))
+		)
+		products.extend(page["products"])
+		if not page["products"] or len(products) >= page["total"]:
+			break
+		start += len(page["products"])
+	return products
+
+
 def _cached_offer_catalog(settings: dict) -> dict | None:
 	"""The OfferCatalog node, fetched once and held for a few minutes.
 
@@ -654,12 +753,9 @@ def _cached_offer_catalog(settings: dict) -> dict | None:
 	Shop Settings after the read rather than baked into the cached value, so a
 	currency change takes effect at once instead of waiting out the TTL.
 	"""
-	from shop.storefront import catalog
-
 	payload = frappe.cache().get_value(CATALOG_CACHE_KEY)
 	if payload is None:
-		products = catalog.get_products(limit=CATALOG_LIMIT)["products"]
-		node = _offer_catalog(settings, products)
+		node = _offer_catalog(settings, _catalog_products(CATALOG_LIMIT))
 		if node is None:
 			return None
 		for item in node["itemListElement"]:
@@ -698,15 +794,37 @@ def _faq_node() -> dict | None:
 	return {"@type": "FAQPage", "mainEntity": entities}
 
 
-def _graph(route: str, settings: dict, product: dict | None) -> dict:
+def _graph(
+	route: str,
+	settings: dict,
+	product: dict | None,
+	collection: dict | None = None,
+) -> dict:
 	graph = [_organization(settings), _website(settings)]
 
-	crumbs = _breadcrumbs(route, _title(route, settings, product))
+	last_name = None
+	if collection:
+		last_name = (collection.get("title") or "").strip() or None
+	elif product:
+		last_name = product.get("product_name") or product.get("name")
+	crumbs = _breadcrumbs(route, _title(route, settings, product, collection), last_name)
 	if crumbs:
 		graph.append(crumbs)
 
 	if product:
 		graph.append(_product_node(product, settings))
+	elif collection:
+		label = (collection.get("title") or "").strip()
+		node = {
+			"@type": "CollectionPage",
+			"@id": f"{site_url(f'/{route}')}#collection",
+			"name": label,
+			"url": site_url(f"/{route}"),
+			"isPartOf": {"@id": f"{site_url('/')}#website"},
+		}
+		if description := condense(_plain(collection.get("description") or ""), 500):
+			node["description"] = description
+		graph.append(node)
 	elif route.startswith("products") or route in ("home", "/", ""):
 		node = _cached_offer_catalog(settings)
 		if node:
@@ -723,12 +841,18 @@ def _graph(route: str, settings: dict, product: dict | None) -> dict:
 # --- public entry point -----------------------------------------------------
 
 
-def seo_for(route: str = "", product: dict | None = None) -> dict:
+def seo_for(
+	route: str = "", product: dict | None = None, collection: dict | None = None
+) -> dict:
 	"""The ``metatags`` and ``_head_html`` a Builder page should render.
 
 	``route`` is the page's route without its leading slash (``home``,
 	``products``, ``product/zip-hoodie``). ``product`` is the product the page is
-	about, if any.
+	about, if any; ``collection`` is the collection a category page is about. The
+	collection is what makes ``/collection/shoes`` describe shoes instead of
+	every product the shop sells -- without it every category page carried the
+	same "Shop — reloop" title and competed with every other category for the
+	same query.
 	"""
 	route = (route or "").strip("/")
 	settings = store_settings()
@@ -737,8 +861,10 @@ def seo_for(route: str = "", product: dict | None = None) -> dict:
 	# Offer can never point at the site root because a key was missing.
 	if product is not None and not product.get("route"):
 		product = {**product, "route": f"/{route}"}
-	title = _title(route, settings, product)
-	description = condense(_description(route, settings, product), DESCRIPTION_BUDGET)
+	title = _title(route, settings, product, collection)
+	description = condense(
+		_description(route, settings, product, collection), DESCRIPTION_BUDGET
+	)
 	# "home" is the Builder route name; the page itself is served at the root,
 	# so its canonical has to be "/" or a crawler is pointed at a URL that does
 	# not exist.
@@ -779,7 +905,9 @@ def seo_for(route: str = "", product: dict | None = None) -> dict:
 		metatags["og:image:alt"] = f"{settings['shop_name']} — everyday essentials, new and preloved"
 
 	graph = json.dumps(
-		_graph(route, settings, product), ensure_ascii=False, separators=(",", ":")
+		_graph(route, settings, product, collection),
+		ensure_ascii=False,
+		separators=(",", ":"),
 	)
 	return {
 		# `title` is what the page template puts between <title> tags; Builder

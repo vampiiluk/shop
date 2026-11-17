@@ -103,6 +103,6 @@ def search_items(query: str = "") -> list[dict]:
 		"Item",
 		filters=filters,
 		or_filters=or_filters,
-		fields=["name", "item_name", "item_group", "has_variants"],
+		fields=["name", "item_name", "item_group", "brand", "has_variants"],
 		limit=20,
 	)
