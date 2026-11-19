@@ -36,9 +36,7 @@ Variants and condition, both verified against the live catalogue:
   writes) is normalised to Meta's enum: ``new``, ``refurbished``, ``used``.
 """
 
-import hashlib
 import json
-import os
 import re
 import time
 import urllib.error
@@ -50,6 +48,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
+from shop.integrations.feed_images import image_link
 from shop.secrets import is_mask
 
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
@@ -367,110 +366,6 @@ def _run_requests(
 	return sent
 
 
-def _absolute(url: str) -> str:
-	"""Absolute URL for a stored (usually root-relative) asset path.
-
-	The path is percent-encoded. 23 of the 48 product images have a space in the
-	filename ("Image generation_10_03_1806_04.webp"), and a raw space is not a
-	valid URL character: Meta's fetcher rejects it outright, so those products
-	silently had no image at all.
-	"""
-	if not url:
-		return ""
-	if url.startswith(("http://", "https://")):
-		return url
-	parts = urllib.parse.urlsplit(SITE_BASE + ("" if url.startswith("/") else "/") + url)
-	return urllib.parse.urlunsplit(
-		(parts.scheme, parts.netloc, urllib.parse.quote(parts.path), parts.query, parts.fragment)
-	)
-
-
-# Meta's catalogue accepts JPEG and PNG only. Every other raster format — and
-# WebP above all — is refused by the fetcher, which clears image_link rather
-# than storing it. 45 of this shop's 48 product images were WebP, so the
-# catalogue had no imagery at all.
-META_IMAGE_FORMATS = (".jpg", ".jpeg", ".png")
-# Longest edge. Large enough for Meta's 600px minimum with room to zoom, small
-# enough that a phone on mobile data still opens the WhatsApp card quickly.
-META_IMAGE_EDGE = 1200
-JPEG_QUALITY = 85
-
-
-def _is_meta_format(path: str) -> bool:
-	return path.lower().split("?")[0].endswith(META_IMAGE_FORMATS)
-
-
-def _jpeg_for(path: str) -> str:
-	"""A JPEG copy of a non-JPEG image, cached as a public File.
-
-	The stored file is the original upload, so there is no JPEG sibling to point
-	at — the conversion has to happen here. The derivative gets a deterministic
-	name derived from the source, so the second sync reuses it instead of
-	converting again, and ``meta_catalog_converted_images`` records which source
-	each one came from so a re-uploaded image gets a fresh copy rather than a
-	stale one.
-
-	Returns the original path unchanged if conversion is not possible. Sending a
-	format Meta may refuse is no worse than sending nothing, and the caller
-	already tolerates a product with no usable image.
-	"""
-	if _is_meta_format(path):
-		return path
-	relative = path.lstrip("/")
-	# Absolute, for the same reason files.py is: site_path is relative when the
-	# bench is driven from the sites directory, and a relative path resolved
-	# against whatever cwd the sync happens to have will silently write the
-	# derivative somewhere that is never served.
-	source = os.path.abspath(os.path.join(frappe.get_site_path(), "public", relative))
-	if not os.path.isfile(source):
-		return path
-
-	stem, ext = os.path.splitext(os.path.basename(relative))
-	ext_or_hash = hashlib.sha1(f"{relative}:{_file_signature(source)}".encode()).hexdigest()[:10]
-	name = f"meta-{stem}-{ext_or_hash}.jpg"
-	target = os.path.join(frappe.get_site_path(), "public", "files", name)
-	target = os.path.abspath(target)
-	if not os.path.isfile(target):
-		try:
-			_convert_to_jpeg(source, target)
-		except Exception as exc:
-			frappe.log_error(
-				title="Meta catalog image conversion failed",
-				message=f"{relative} -> files/{name}: {exc}",
-			)
-			return path
-	return "/files/" + name
-
-
-def _file_signature(path: str) -> str:
-	"""Size and mtime, so an edited image does not reuse an old derivative."""
-	stat = os.stat(path)
-	return f"{stat.st_size}-{int(stat.st_mtime)}"
-
-
-def _convert_to_jpeg(source: str, target: str) -> None:
-	"""Re-encode as JPEG, flattening onto white.
-
-	WebP and PNG can carry an alpha channel and JPEG cannot, so without a
-	flatten the transparent areas of a product shot come out black. Product
-	photography on this shop is shot against white, so white is the right matte.
-	"""
-	from PIL import Image
-
-	with Image.open(source) as img:
-		img.load()
-		if img.mode in ("RGBA", "LA", "P"):
-			img = img.convert("RGBA")
-			matte = Image.new("RGB", img.size, (255, 255, 255))
-			matte.paste(img, mask=img.split()[-1])
-			img = matte
-		else:
-			img = img.convert("RGB")
-		img.thumbnail((META_IMAGE_EDGE, META_IMAGE_EDGE), Image.LANCZOS)
-		os.makedirs(os.path.dirname(target), exist_ok=True)
-		img.save(target, "JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
-
-
 def _meta_image(image: str) -> str:
 	"""The catalogue's one image for a product, as a URL Meta will accept.
 
@@ -481,9 +376,7 @@ def _meta_image(image: str) -> str:
 	extra images entirely. ``/product_images`` does not exist on either
 	catalogue, so there is no second route. One image it is.
 	"""
-	if not image:
-		return ""
-	return _absolute(_jpeg_for(image))
+	return image_link(image)
 
 
 def _money(amount: float, currency: str) -> str:

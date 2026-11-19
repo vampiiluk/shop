@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+{# One item per sellable item, with variants tied together by g:item_group_id.
+   Values are escaped with Jinja's `e` filter: descriptions and titles are
+   merchant-written and can contain ampersands or angle brackets, which would
+   otherwise produce a feed Google cannot parse. #}
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+	<channel>
+		<title>{{ feed.title|e }}</title>
+		<link>{{ feed.link|e }}</link>
+		<description>{{ feed.description|e }}</description>
+		{% for item in items %}
+		<item>
+			<g:id>{{ item.id|e }}</g:id>
+			<g:title>{{ item.title|e }}</g:title>
+			<g:description>{{ item.description|e }}</g:description>
+			<g:link>{{ item.link|e }}</g:link>
+			<g:image_link>{{ item.image_link|e }}</g:image_link>
+			<g:price>{{ item.price|e }}</g:price>
+			{% if item.sale_price %}
+			<g:sale_price>{{ item.sale_price|e }}</g:sale_price>
+			{% endif %}
+			<g:availability>{{ item.availability|e }}</g:availability>
+			<g:condition>{{ item.condition|e }}</g:condition>
+			{% if item.brand %}
+			<g:brand>{{ item.brand|e }}</g:brand>
+			{% endif %}
+			{% if item.gtin %}
+			<g:gtin>{{ item.gtin|e }}</g:gtin>
+			{% endif %}
+			{% if item.mpn %}
+			<g:mpn>{{ item.mpn|e }}</g:mpn>
+			{% endif %}
+			{% if item.identifier_exists %}
+			<g:identifier_exists>{{ item.identifier_exists|e }}</g:identifier_exists>
+			{% endif %}
+			{% if item.item_group_id %}
+			<g:item_group_id>{{ item.item_group_id|e }}</g:item_group_id>
+			{% endif %}
+			{% if item.size %}
+			<g:size>{{ item.size|e }}</g:size>
+			{% endif %}
+			{% if item.color %}
+			<g:color>{{ item.color|e }}</g:color>
+			{% endif %}
+			{% if item.material %}
+			<g:material>{{ item.material|e }}</g:material>
+			{% endif %}
+			{% if item.pattern %}
+			<g:pattern>{{ item.pattern|e }}</g:pattern>
+			{% endif %}
+			{% if item.product_type %}
+			<g:product_type>{{ item.product_type|e }}</g:product_type>
+			{% endif %}
+			{% if google_product_category %}
+			<g:google_product_category>{{ google_product_category|e }}</g:google_product_category>
+			{% endif %}
+			{% if shipping %}
+			<g:shipping>
+				<g:country>{{ shipping.country|e }}</g:country>
+				<g:service>{{ shipping.service|e }}</g:service>
+				<g:price>{{ shipping.price|e }}</g:price>
+			</g:shipping>
+			{% endif %}
+			{% if item.returns %}
+			<g:returns>
+				<g:country>{{ item.returns.country|e }}</g:country>
+				<g:item_condition>{{ item.returns.item_condition|e }}</g:item_condition>
+				<g:window_days>{{ item.returns.window_days|e }}</g:window_days>
+				<g:window_type>{{ item.returns.window_type|e }}</g:window_type>
+				<g:method>{{ item.returns.method|e }}</g:method>
+				<g:outcome>{{ item.returns.outcome|e }}</g:outcome>
+				<g:shipping_fee>{{ item.returns.shipping_fee|e }}</g:shipping_fee>
+				<g:shipping_fee_type>{{ item.returns.shipping_fee_type|e }}</g:shipping_fee_type>
+			</g:returns>
+			{% endif %}
+		</item>
+		{% endfor %}
+	</channel>
+</rss>
