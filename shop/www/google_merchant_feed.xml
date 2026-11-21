@@ -61,6 +61,12 @@
 				<g:price>{{ shipping.price|e }}</g:price>
 			</g:shipping>
 			{% endif %}
+			{% if free_shipping_threshold %}
+			<g:free_shipping_threshold>
+				<g:country>{{ free_shipping_threshold.country|e }}</g:country>
+				<g:price_threshold>{{ free_shipping_threshold.price_threshold|e }}</g:price_threshold>
+			</g:free_shipping_threshold>
+			{% endif %}
 			{% if item.returns %}
 			<g:returns>
 				<g:country>{{ item.returns.country|e }}</g:country>

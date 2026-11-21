@@ -1740,7 +1740,7 @@ def footer(refs):
 						children=[
 							footer_column(refs, "Shop", [("All products", "/products"), ("Collections", "/products")]),
 							footer_column(refs, "Support", [("Contact", "/contact"), ("FAQ", "/faq")]),
-							footer_column(refs, "Legal", [("Privacy", "/about"), ("Terms", "/about")]),
+							footer_column(refs, "Legal", [("Returns", "/return-policy/"), ("Privacy", "/about"), ("Terms", "/about")]),
 						],
 					),
 				],
@@ -5032,10 +5032,10 @@ def contact_blocks(refs):
 
 
 FAQS = [
-	("How long does delivery take?", "Orders are dispatched within 48 hours and usually arrive in 3 to 5 working days."),
+	("How long does delivery take?", "Orders are dispatched within 48 hours and usually arrive in 3 to 5 working days. Delivery is PKR 350, free on orders above PKR 10,000."),
 	(
 		"Can I return a product?",
-		"Yes, within 14 days of delivery, unused and in its original packaging. Ask for a return from your order page and we will arrange a pickup.",
+		"Yes, within 14 days of shipping, unused and in its original packaging. Ask for a return from your order page and we will arrange a pickup. Return shipping is paid by the customer at our standard courier rate of PKR 350.",
 	),
 	("How do sizes run?", "True to size with a modern fit. If you are between sizes, size up for a relaxed fit."),
 	("How do I pay?", "You can pay online or choose cash on delivery at checkout."),

@@ -4833,11 +4833,11 @@ def contact_blocks(refs):
 FAQS = [
 	(
 		"How long does delivery take?",
-		"Orders are dispatched within 48 hours and usually arrive in 3 to 5 working days.",
+		"Orders are dispatched within 48 hours and usually arrive in 3 to 5 working days. Delivery is PKR 350, free on orders above PKR 10,000.",
 	),
 	(
 		"Can I return a product?",
-		"Yes, within 14 days of delivery, unused and in its original packaging. Write to us and we will arrange a pickup.",
+		"Yes, within 14 days of shipping, unused and in its original packaging. Write to us and we will arrange a pickup. Return shipping is paid by the customer at our standard courier rate of PKR 350.",
 	),
 	(
 		"How do sizes run?",

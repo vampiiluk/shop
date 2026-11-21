@@ -28,17 +28,17 @@ Shape, and why:
   ``g:gtin`` would be rejected and could get the item disapproved.
 * ``g:condition`` uses Merchant Center's enum, not the admin's free text:
   New -> new, Preloved/Used -> used, Refurbished -> refurbished.
-* ``g:shipping`` reflects what the storefront actually charges. When no
-  shipping account is configured the cart charges nothing, so the feed says
-  free rather than inventing a rate. The configured free-shipping threshold is
-  deliberately not folded into the per-item price: it applies to the order
-  total, and claiming 0 on a single expensive item would be false as soon as
-  the shopper adds a cheap one.
+* ``g:shipping`` reflects what the storefront actually charges: the configured
+  flat rate, or free when no shipping account is set up. The shop's free-delivery
+  threshold is an order-total rule, so it is sent as
+  ``g:free_shipping_threshold`` rather than folded into the per-item price --
+  Google applies that threshold to the whole order, exactly as the cart does.
 * ``g:returns`` is offer-level, so the return window travels with the product
   instead of depending on a Merchant Center account policy. The window is the
   one the shop actually enforces in ``shop.storefront.returns`` (14 days); a
-  positive ``return_window_days`` setting overrides it. The feed does not
-  invent a policy when neither is available -- no country means no returns
+  positive ``return_window_days`` setting overrides it. Return shipping is paid
+  by the customer, at the shop's standard courier rate. The feed does not invent
+  a policy when there is no destination country -- no country means no returns
   block at all.
 
 Products without a usable image or a positive price are left out: Google
@@ -121,6 +121,7 @@ def feed_context() -> dict:
 		},
 		"items": items,
 		"shipping": _shipping(settings),
+		"free_shipping_threshold": _free_shipping_threshold(settings),
 		"google_product_category": (settings.get("meta_google_product_category") or "").strip(),
 	}
 
@@ -477,10 +478,9 @@ def _shipping(settings) -> dict | None:
 	"""The shipping rule the storefront actually applies, for every item.
 
 	``shipping_charge`` only charges when a shipping account is configured;
-	without one the cart is free, so the feed says free too. The free-shipping
-	threshold is an order-total rule and is not represented here -- Google's
-	per-item shipping has no minimum-order condition, and applying it per item
-	would understate the charge on a mixed basket.
+	without one the cart is free, so the feed says free too. The free-delivery
+	threshold is represented by ``g:free_shipping_threshold`` instead: Google
+	applies it to the order total, which is how the cart applies it.
 	"""
 	country = _country_code(settings.get("address_country"))
 	if not country:
@@ -490,6 +490,23 @@ def _shipping(settings) -> dict | None:
 		"country": country,
 		"service": "Standard",
 		"price": _money(rate, settings.get("currency") or "PKR"),
+	}
+
+
+def _free_shipping_threshold(settings) -> dict | None:
+	"""The order total above which delivery is free, as Merchant Center wants it.
+
+	The shop stores a single amount and applies it to the basket, not to each
+	line. ``g:free_shipping_threshold`` is the matching concept, so the feed
+	can state the rule without pretending a single item ships free.
+	"""
+	country = _country_code(settings.get("address_country"))
+	threshold = flt(settings.get("free_shipping_above"))
+	if not country or threshold <= 0 or not settings.get("shipping_account"):
+		return None
+	return {
+		"country": country,
+		"price_threshold": _money(threshold, settings.get("currency") or "PKR"),
 	}
 
 
@@ -518,12 +535,13 @@ def _returns(settings, condition: str) -> dict | None:
 		"item_condition": RETURN_CONDITIONS.get(condition, "USED"),
 		"window_days": _return_window_days(settings),
 		"window_type": "FINITE_RETURN_WINDOW",
-		# The site arranges a pickup for returns, which is a mail/courier return.
+		# The site arranges a pickup, which is a mail/courier return.
 		"method": "BY_MAIL",
 		"outcome": "REFUND",
-		# Free returns: the shop arranges the pickup.
-		"shipping_fee": _money(0, currency),
-		"shipping_fee_type": "DEDUCTED_FROM_REFUND",
+		# The customer pays the courier. The standard return charge is the same
+		# flat rate the storefront uses for delivery, not an invented amount.
+		"shipping_fee": _money(flt(settings.get("flat_shipping_rate")), currency),
+		"shipping_fee_type": "CUSTOMER_RESPONSIBILITY",
 	}
 
 

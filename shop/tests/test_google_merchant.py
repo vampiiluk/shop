@@ -67,18 +67,35 @@ class TestGoogleMerchantHelpers(IntegrationTestCase):
 		)
 		self.assertIsNone(google_merchant._shipping({**settings, "address_country": ""}))
 
+	def test_free_shipping_threshold_is_the_shop_order_total(self):
+		settings = {
+			"address_country": "Pakistan",
+			"currency": "PKR",
+			"free_shipping_above": 10000,
+			"shipping_account": "4120 - Service - ES",
+		}
+		self.assertEqual(
+			google_merchant._free_shipping_threshold(settings),
+			{"country": "PK", "price_threshold": "10000.00 PKR"},
+		)
+		self.assertIsNone(google_merchant._free_shipping_threshold({**settings, "free_shipping_above": 0}))
+		self.assertIsNone(google_merchant._free_shipping_threshold({**settings, "shipping_account": None}))
+		self.assertIsNone(google_merchant._free_shipping_threshold({**settings, "address_country": ""}))
+
 	def test_returns_use_the_configured_window_or_the_enforced_one(self):
 		settings = {
 			"address_country": "Pakistan",
 			"currency": "PKR",
 			"return_window_days": 30,
+			"flat_shipping_rate": 350,
 		}
 		returns = google_merchant._returns(settings, "new")
 		self.assertEqual(returns["country"], "PK")
 		self.assertEqual(returns["item_condition"], "NEW")
 		self.assertEqual(returns["window_days"], 30)
 		self.assertEqual(returns["method"], "BY_MAIL")
-		self.assertEqual(returns["shipping_fee"], "0.00 PKR")
+		self.assertEqual(returns["shipping_fee"], "350.00 PKR")
+		self.assertEqual(returns["shipping_fee_type"], "CUSTOMER_RESPONSIBILITY")
 		fallback = google_merchant._returns({**settings, "return_window_days": 0}, "used")
 		self.assertEqual(fallback["window_days"], RETURN_WINDOW_DAYS)
 		self.assertEqual(fallback["item_condition"], "USED")
@@ -117,12 +134,13 @@ class TestGoogleMerchantHelpers(IntegrationTestCase):
 						"window_type": "FINITE_RETURN_WINDOW",
 						"method": "BY_MAIL",
 						"outcome": "REFUND",
-						"shipping_fee": "0.00 PKR",
-						"shipping_fee_type": "DEDUCTED_FROM_REFUND",
+						"shipping_fee": "350.00 PKR",
+						"shipping_fee_type": "CUSTOMER_RESPONSIBILITY",
 					},
 				}
 			],
 			shipping=None,
+			free_shipping_threshold={"country": "PK", "price_threshold": "10000.00 PKR"},
 			google_product_category="",
 		)
 		root = ET.fromstring(xml)
@@ -133,6 +151,11 @@ class TestGoogleMerchantHelpers(IntegrationTestCase):
 		returns = root.find(".//g:returns", NS)
 		self.assertEqual(returns.find("g:window_days", NS).text, "14")
 		self.assertEqual(returns.find("g:item_condition", NS).text, "NEW")
+		self.assertEqual(returns.find("g:shipping_fee", NS).text, "350.00 PKR")
+		self.assertEqual(returns.find("g:shipping_fee_type", NS).text, "CUSTOMER_RESPONSIBILITY")
+		threshold = root.find(".//g:free_shipping_threshold", NS)
+		self.assertEqual(threshold.find("g:country", NS).text, "PK")
+		self.assertEqual(threshold.find("g:price_threshold", NS).text, "10000.00 PKR")
 
 
 class TestGoogleMerchantFeed(IntegrationTestCase):
